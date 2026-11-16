@@ -10,6 +10,7 @@ const C = require('./constants');
 const { generateMap } = require('./mapgen');
 const { BotSandbox } = require('./botRunner');
 const Physics = require('../public/physics');
+const installObjectives = require('./objectives');
 
 const DIR_IDX = Object.fromEntries(C.DIRS.map((d, i) => [d, i]));
 // 單位向量（斜向為 1/√2）
@@ -34,6 +35,7 @@ function mapSizeFor(mode, sideCount, playerCount) {
 }
 
 function classStats(cls) {
+  if (cls === 'monster') return C.MONSTER_CLASS;
   return cls === 'bot' ? C.BOT_CLASS : (C.CLASSES[cls] || C.CLASSES.assault);
 }
 
@@ -76,12 +78,19 @@ class Round {
     this.bullets = [];
     this.nextBulletId = 1;
 
-    const sides = opts.sides;
+    this.objective = C.OBJECTIVES.includes(opts.objective) ? opts.objective : 'survival';
+    if (this.objective === 'ctf') this.baseMode = false;     // 搶旗模式的旗子放在基地的位置
+    this.objEvents = [];
+    let sides = opts.sides;
+    if (this.objective === 'pve') {
+      // 打怪：所有玩家一隊，加上一隊怪物
+      sides = [...sides, { key: 'monsters', name: '怪物', color: '#b06cff', members: [] }];
+    }
     const playerCount = sides.reduce((n, s) => n + s.members.length, 0);
     const size = opts.size || mapSizeFor(this.mode, sides.length, playerCount);
     const map = generateMap({
       anchors: sides.length,
-      spawnsPerAnchor: sides.map(s => s.members.length * (opts.codeOnly ? 1 : 2)),
+      spawnsPerAnchor: sides.map(s => s.key === 'monsters' ? C.PVE_MAX_MONSTERS : s.members.length * (opts.codeOnly ? 1 : 2)),
       size,
       baseMode: this.baseMode,
       breakableWalls: this.breakableWalls,
@@ -100,6 +109,11 @@ class Round {
       eliminated: false,
     }));
     this.sideByKey = new Map(this.sides.map(s => [s.key, s]));
+    const monsterSide = this.sideByKey.get('monsters');
+    if (monsterSide && monsterSide.base) {      // 怪物沒有基地
+      this.tiles[monsterSide.base.y * this.size + monsterSide.base.x] = '.';
+      monsterSide.base = null;
+    }
 
     this.tanks = [];
     let id = 1;
@@ -125,8 +139,11 @@ class Round {
         }
       }
     });
+    this.nextTankId = id;
+    if (monsterSide) this._createMonsterPool(monsterSide);
     this.tankById = new Map(this.tanks.map(t => [t.id, t]));
-    for (const t of this.tanks) this._spawn(t, true);
+    for (const t of this.tanks) if (t.lives > 0) this._spawn(t, true);
+    this._initObjective();
     this.rowsCache = null;
   }
 
@@ -149,7 +166,7 @@ class Round {
       tiles: this.tiles.join(''),
       mode: this.mode, baseMode: this.baseMode, fog: this.fog && !this.codeOnly, breakableWalls: this.breakableWalls,
       codeOnly: this.codeOnly, timeLimitTicks: this.timeLimitTicks, startTicks: this.startTicks, blastRadius: C.BLAST_RADIUS,
-      ricochet: this.ricochet, items: this.itemsOn, itemTypes: C.ITEM_TYPES,
+      ricochet: this.ricochet, items: this.itemsOn, itemTypes: C.ITEM_TYPES, objective: this.objective,
       alignRate: C.ALIGN_RATE, speedBuff: C.SPEED_BUFF, bulletBounces: C.BULLET_BOUNCES, bounceBuff: C.BOUNCE_BUFF,
       tickRate: C.TICK_RATE, tankSize: C.TANK_SIZE,
       sides: this.sides.map(s => ({ key: s.key, name: s.name, color: s.color, base: s.base ? { x: s.base.x, y: s.base.y } : null, anchor: s.anchor })),
@@ -170,6 +187,7 @@ class Round {
     this.tileChanges = [];
     this.kills = [];
     this.baseKillsNow = [];
+    this.objEvents = [];
     this.pickups = [];
     this.itemsChanged = false;
     if (this.tick <= this.startTicks) return; // 倒數中
@@ -204,6 +222,9 @@ class Round {
 
     // 3.5 場地道具
     if (this.itemsOn) this._updateItems();
+
+    // 3.6 遊戲目標（佔點、搶旗、打怪）
+    this._updateObjective();
 
     // 4. 重生
     for (const t of this.tanks) {
@@ -561,12 +582,18 @@ class Round {
     if (t.hp > 1) { t.hp--; this.events.push(['armor', t.x, t.y]); return; }
     if (shooter) shooter.kills++;
     t.alive = false;
-    t.lives = Math.max(0, t.lives - 1);
     t.deaths++;
-    t.respawnTimer = C.RESPAWN_DELAY;
+    if (this.objective === 'koth' || this.objective === 'ctf') {
+      // 佔點、搶旗：無限重生（電腦等久一點）
+      t.respawnTimer = t.isBot ? C.BOT_RESPAWN_DELAY : C.RESPAWN_DELAY;
+    } else {
+      t.lives = Math.max(0, t.lives - 1);
+      t.respawnTimer = C.RESPAWN_DELAY;
+    }
     t.input = { move: null, fire: false };
     this.events.push(['boom', t.x, t.y]);
     this.kills.push([t.id, shooter ? shooter.id : 0, cause]);
+    this._onTankDeath(t);
   }
 
   _destroyBase(side, b) {
@@ -589,6 +616,7 @@ class Round {
         t.alive = false; t.deaths++;
         this.events.push(['boom', t.x, t.y]);
         this.kills.push([t.id, shooter ? shooter.id : 0, 'base']);
+        this._onTankDeath(t);
       }
       t.lives = 0;
     }
@@ -605,6 +633,9 @@ class Round {
       if (--this.endTimer <= 0) this.over = true;
       return;
     }
+    const oe = this._objectiveEnd();
+    if (oe) return this._finish(oe.winner, oe.reason);
+    if (oe === false) return;     // 打怪模式：只看自己的條件
     for (const s of this.sides) {
       if (!s.eliminated && this._sideStrength(s) === 0) s.eliminated = true; // 玩家沒命、電腦也死了
     }
@@ -615,7 +646,8 @@ class Round {
       reason = alive.length ? 'last' : 'draw';
     } else if (this.timeLimitTicks && this.playTick >= this.timeLimitTicks) {
       // 時間到：剩餘命數多的獲勝，再比擊殺數
-      const score = s => this._sideStrength(s) * 1000 + this.tanks.filter(t => t.side === s.key).reduce((a, t) => a + t.kills, 0);
+      // 佔點秒數／搶旗次數優先，再比剩餘命數、擊殺數
+      const score = s => this._objectiveScore(s) * 1e6 + this._sideStrength(s) * 1000 + this.tanks.filter(t => t.side === s.key).reduce((a, t) => a + t.kills, 0);
       const sorted = alive.slice().sort((a, b) => score(b) - score(a));
       winner = score(sorted[0]) > score(sorted[1]) ? sorted[0] : null;
       reason = winner ? 'time' : 'timeDraw';
@@ -635,7 +667,10 @@ class Round {
       winner: winner ? winner.key : null,
       reason,
       ticks: this.playTick,
-      tanks: this.tanks.map(t => ({
+      objective: this.objective,
+      objScore: this.objScore || null,
+      pveWave: this.pveWave || 0,
+      tanks: this.tanks.filter(t => !t.monster).map(t => ({
         id: t.id, side: t.side, owner: t.owner, name: t.ownerName, isBot: t.isBot, cls: t.cls,
         kills: t.kills, deaths: t.deaths, lives: t.lives, baseKills: t.baseKills,
       })),
@@ -658,6 +693,7 @@ class Round {
   _tankView(t) {
     return {
       id: t.id, x: t.x, y: t.y, dir: t.dir, isBot: t.isBot, owner: t.owner, cls: t.cls, lives: t.lives, hp: t.hp, shield: t.shield,
+      carrying: !!t.carrying,
       buffs: {
         speed: t.speedBuff || 0, rapid: t.rapidBuff || 0, spread: t.spreadBuff || 0, bounce: t.bounceBuff || 0, swift: t.swiftBuff || 0,
         cloak: t.cloak || 0, phase: t.phase || 0, radar: t.radar || 0, frozen: t.frozen || 0, confused: t.confused || 0,
@@ -679,6 +715,7 @@ class Round {
         const c = C.CLASSES[k];
         this.classTable[k] = { speed: c.speed, cooldown: c.cooldown, bulletSpeed: c.bulletSpeed, maxBullets: c.maxBullets, hp: c.hp, pierce: !!c.pierce, blast: !!c.blast };
       }
+      this.classTable.monster = { speed: C.MONSTER_CLASS.speed, cooldown: C.MONSTER_CLASS.cooldown, bulletSpeed: C.MONSTER_CLASS.bulletSpeed, maxBullets: 1, hp: 1, pierce: false, blast: false };
       this.classTable.bot = { speed: C.BOT_CLASS.speed, cooldown: C.BOT_CLASS.cooldown, bulletSpeed: C.BOT_CLASS.bulletSpeed, maxBullets: C.BOT_CLASS.maxBullets, hp: C.BOT_CLASS.hp, pierce: false, blast: false };
     }
     const view = {
@@ -692,8 +729,9 @@ class Round {
       allies,
       enemies,
       bullets: this.bullets.map(b => ({ x: b.x, y: b.y, dir: b.dir, speed: b.speed, ally: b.side === me.side, blast: b.blast, pierce: b.pierce, freeze: b.freeze, confuse: b.confuse, bounces: b.bounces })),
+      objective: this.objectiveView(me),
       items: this.items.map(it => ({ x: it.x, y: it.y, type: C.ITEM_TYPES[it.type].key, ticksLeft: it.until - this.playTick })),
-      bases: this.baseMode ? this.sides.map(s => ({ x: s.base.x + 0.5, y: s.base.y + 0.5, ally: s.key === me.side, alive: s.base.alive })) : [],
+      bases: this.baseMode ? this.sides.filter(s => s.base).map(s => ({ x: s.base.x + 0.5, y: s.base.y + 0.5, ally: s.key === me.side, alive: s.base.alive })) : [],
       map: { width: this.size, height: this.size, tiles: this._rows() },
       rules: {
         tickRate: C.TICK_RATE, tankSize: C.TANK_SIZE, blastRadius: C.BLAST_RADIUS,
@@ -741,6 +779,10 @@ class Round {
     const snap = { t: 's', k: this.tick, T, B };
     if (this.tick <= this.startTicks) snap.c = this.startTicks - this.tick;
     if (this.kills.length) snap.K = this.kills;
+    if (this.objective !== 'survival' && (this.tick % 5 === 1 || this.objEvents.length)) {
+      snap.O = this.objectiveSnapshot();
+      if (this.objEvents.length) snap.OE = this.objEvents;
+    }
     if (this.baseKillsNow.length) snap.X = this.baseKillsNow;
     if (E.length) snap.E = E.map(e => [e[0], Math.round(e[1] * 100), Math.round(e[2] * 100)]);
     if (this.tileChanges.length) snap.M = this.tileChanges;
@@ -777,5 +819,7 @@ class Round {
     for (const t of this.tanks) if (t.sandbox) t.sandbox.dispose();
   }
 }
+
+installObjectives(Round);
 
 module.exports = { Round, mapSizeFor };

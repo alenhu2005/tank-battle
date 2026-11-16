@@ -29,7 +29,7 @@ class Room {
     this.players = [];
     this.hostId = null;
     this.settings = { mode: 'ffa', baseMode: true, fog: false, hardWalls: false, codeOnly: false, items: true, ricochet: false, rounds: 3, timeLimit: 180,
-      mapStyle: 'random', customMap: null, disabledItems: [] };
+      mapStyle: 'random', customMap: null, disabledItems: [], objective: 'survival' };
     this.state = 'lobby'; // lobby | playing | intermission | finished
     this.roundNo = 0;
     this.round = null;
@@ -174,6 +174,7 @@ class Room {
         if (typeof msg.items === 'boolean') s.items = msg.items;
         if (typeof msg.ricochet === 'boolean') s.ricochet = msg.ricochet;
         if (['random', 'open', 'forest', 'fortress', 'river', 'maze', 'custom'].includes(msg.mapStyle)) s.mapStyle = msg.mapStyle;
+        if (C.OBJECTIVES.includes(msg.objective)) s.objective = msg.objective;
         if (msg.customMap !== undefined) {
           const cm = msg.customMap;
           const ok = cm && Number.isInteger(cm.size) && cm.size >= 15 && cm.size <= 35 && typeof cm.tiles === 'string'
@@ -266,6 +267,9 @@ class Room {
 
   _buildSides() {
     const s = this.settings;
+    if (s.objective === 'pve') {
+      return [{ key: 'players', name: '玩家隊', color: '#3ddc84', members: this.players.map(p => this._member(p)) }];
+    }
     if (s.mode === 'faction') {
       return ['red', 'blue'].map(key => ({
         key, name: key === 'red' ? '紅軍' : '藍軍', color: C.FACTION_COLORS[key],
@@ -293,6 +297,7 @@ class Room {
 
   startError() {
     const sides = this._buildSides();
+    if (this.settings.objective === 'pve') return null;
     if (this.settings.mode === 'faction') {
       if (sides.some(s => s.members.length === 0)) return '陣營戰需要紅藍兩邊都有人（可以加入電腦隊伍）';
     } else if (this.settings.mode === 'team') {
@@ -309,7 +314,7 @@ class Room {
     this.roundNo++;
     this.round = new Round({
       mode: s.mode, baseMode: s.baseMode, fog: s.fog, breakableWalls: !s.hardWalls, codeOnly: s.codeOnly, items: s.items, ricochet: s.ricochet,
-      mapStyle: s.mapStyle, customMap: s.mapStyle === 'custom' ? s.customMap : null, disabledItems: s.disabledItems,
+      objective: s.objective, mapStyle: s.mapStyle, customMap: s.mapStyle === 'custom' ? s.customMap : null, disabledItems: s.disabledItems,
       timeLimit: s.timeLimit, sides: this._buildSides(), countdown: this.kind === 'tutorial' ? 3 : C.COUNTDOWN_SECONDS,
       itemFirstDelay: this.kind === 'tutorial' ? 2 : undefined, itemInterval: this.kind === 'tutorial' ? 4 : undefined,
     });
@@ -364,7 +369,8 @@ class Room {
     const winners = [];
     for (const p of this.players) {
       const mode = this.settings.mode;
-      const inWinner = mode === 'faction' ? p.faction === sideWinner : mode === 'team' ? 't' + p.team === sideWinner : p.id === sideWinner;
+      const inWinner = this.settings.objective === 'pve' ? sideWinner === 'players'
+        : mode === 'faction' ? p.faction === sideWinner : mode === 'team' ? 't' + p.team === sideWinner : p.id === sideWinner;
       if (sideWinner && inWinner) { p.wins++; winners.push(p.name); }
       p.kills += res.tanks.filter(t => t.owner === p.id).reduce((a, t) => a + t.kills, 0);
     }

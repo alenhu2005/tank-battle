@@ -271,6 +271,8 @@
     $('#settings').innerHTML = `
       <div class="set-row"><span>模式</span>${seg('mode', [['ffa', '大亂鬥'], ['faction', '陣營戰'], ['team', '組隊']], s.mode)}</div>
       <div class="set-desc">${{ ffa: '每位玩家和自己的電腦一隊，打到剩最後一隊', faction: '紅藍兩軍，在玩家列表點顏色換邊', team: '在玩家列表點「N隊」換隊，同號就是隊友' }[s.mode]}</div>
+      <div class="set-row"><span>目標</span>${seg('objective', [['survival', '生存'], ['koth', '佔點'], ['ctf', '搶旗'], ['pve', '打怪']], s.objective || 'survival')}</div>
+      <div class="set-desc">${{ survival: '打到剩最後一隊', koth: '佔住中央區域累積 45 秒的隊伍獲勝（可以無限重生）', ctf: '把敵方旗子帶回自家旗子旁 3 次獲勝（可以無限重生，沒有基地）', pve: '所有人同一隊，撐過 5 波怪物（不分隊伍）' }[s.objective || 'survival']}</div>
       <div class="set-row"><span>純代碼對戰</span>${sw('codeOnly', s.codeOnly)}</div>
       <div class="set-desc">玩家不下場，每人只派一台電腦坦克，大家一起看</div>
       <div class="set-row"><span>基地模式</span>${sw('baseMode', s.baseMode)}</div>
@@ -550,6 +552,7 @@ ${defaultBot}\`\`\`
   const tankName = (id) => {
     const m = renderer.tankMeta && renderer.tankMeta.get(id);
     if (!m) return '？';
+    if (m.cls === 'monster') return '怪物';
     return m.isBot ? `${m.name}的電腦` : m.name;
   };
   const tankColor = (id) => {
@@ -593,6 +596,29 @@ ${defaultBot}\`\`\`
     if (mine) { lastDeath = { killer: shooter, cause: 'base', at: performance.now() }; buzz([100, 50, 100]); }
     hudDirty = true;
   };
+  // 遊戲目標事件：搶旗、得分、新的一波怪物
+  let waveTimer = null;
+  renderer.onObjEvent = (e) => {
+    const [type, a, b] = e;
+    const feed = $('#killFeed');
+    const el = document.createElement('div');
+    if (type === 'wave') {
+      const wb = $('#waveBanner'); wb.textContent = `第 ${a} 波：${b} 隻怪物`; wb.classList.add('show');
+      clearTimeout(waveTimer); waveTimer = setTimeout(() => wb.classList.remove('show'), 1800);
+      window.Sfx.play('emp');
+      return;
+    }
+    const side = renderer.sideMeta.get(b);
+    el.innerHTML = type === 'steal'
+      ? `<span style="color:${tankColor(a)}">${esc(tankName(a))}</span> 🚩 搶走了 <span style="color:${side.color}">${esc(side.name)}</span> 的旗子`
+      : `<span style="color:${tankColor(a)}">${esc(tankName(a))}</span> 🏁 得分！`;
+    feed.prepend(el);
+    while (feed.children.length > 4) feed.lastChild.remove();
+    setTimeout(() => el.remove(), 4500);
+    if (type === 'capture') window.Sfx.play('win');
+    hudDirty = true;
+  };
+
   // 練習場快轉
   $('#speedBtn').addEventListener('pointerdown', (e) => {
     e.stopPropagation();
@@ -758,6 +784,17 @@ ${defaultBot}\`\`\`
       const st = r.sideState.get(s.key);
       return `<span class="${st && st.out ? 'out' : ''}" style="background:${s.color}">${esc(s.name)}</span>`;
     }).join('');
+    // 遊戲目標進度
+    const o = r.obj;
+    let objHtml = '';
+    if (o && o.type === 'koth') {
+      objHtml = o.s.map(([k, v]) => { const sm = r.sideMeta.get(k); return `<span><i class="bar"><i style="width:${Math.min(100, v / o.target * 100)}%;background:${sm.color}"></i></i> ${Math.floor(v / r.meta.tickRate)}s</span>`; }).join('');
+    } else if (o && o.type === 'ctf') {
+      objHtml = o.s.map(([k, v]) => { const sm = r.sideMeta.get(k); return `<span style="color:${sm.color}">🚩 ${v}/${o.target}</span>`; }).join('');
+    } else if (o && o.type === 'pve') {
+      objHtml = `<span>第 ${o.wave}/${o.waves} 波・剩 ${o.left} 隻</span>`;
+    }
+    $('#hudObj').innerHTML = objHtml;
     const spect = $('#spectate');
     if (r.myTank) {
       const mine = r.lives.get(r.myTank.id) || { lives: 0, alive: false };
@@ -959,7 +996,7 @@ ${defaultBot}\`\`\`
   });
 
   // ---------- 局後結果 ----------
-  const REASONS = { last: '最後存活', draw: '同歸於盡', time: '時間到，剩餘命數較多', timeDraw: '時間到，平手', forced: '房主強制結束' };
+  const REASONS = { last: '最後存活', draw: '同歸於盡', time: '時間到，剩餘命數較多', timeDraw: '時間到，平手', forced: '房主強制結束', koth: '佔點時間先達標', ctf: '搶旗次數先達標', pveWin: '撐過所有怪物', pveLose: '被怪物打倒了' };
 
   function renderResult() {
     if (!lastResult || !room) return;

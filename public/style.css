@@ -360,6 +360,18 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   padding: 10px; font-size: 16px; outline: none; -webkit-text-security: none;
 }
 .head-btns { display: flex; gap: 6px; }
+.hud-mid { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; }
+.hud-obj { font-size: 12px; display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.hud-obj:empty { display: none; }
+.hud-obj span { background: rgba(0,0,0,.5); border-radius: 6px; padding: 1px 6px; }
+.hud-obj .bar { display: inline-block; width: 46px; height: 6px; border-radius: 3px; background: rgba(255,255,255,.15); vertical-align: middle; overflow: hidden; }
+.hud-obj .bar i { display: block; height: 100%; }
+.wave-banner {
+  position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%); z-index: 7;
+  font-size: min(9vw, 9vh); font-weight: 900; color: #e0b8ff; text-shadow: 0 3px 0 rgba(0,0,0,.6);
+  pointer-events: none; opacity: 0; transition: opacity .3s;
+}
+.wave-banner.show { opacity: 1; }
 .set-row select, .map-row select {
   background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 10px;
   padding: 8px 10px; font-size: 16px; min-height: 38px;

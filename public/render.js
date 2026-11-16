@@ -57,6 +57,7 @@
       this.hist = [];
       this.replay = null;
       this.items = [];
+      this.obj = null;
       this.offset = null;
       this.appliedK = 0;
       this.renderTick = 0;
@@ -81,7 +82,7 @@
       // 最新狀態（不延遲）：給自己坦克的預測用
       if (s.M) for (const [idx, ch] of s.M) this.liveTiles[idx] = ch;
       this.latest = { k: s.k, tanks, c: s.c };
-      const snap = { k: s.k, tanks, bullets, M: s.M, L: s.L, S: s.S, E: s.E, K: s.K, X: s.X, I: s.I, P: s.P };
+      const snap = { k: s.k, tanks, bullets, M: s.M, L: s.L, S: s.S, E: s.E, K: s.K, X: s.X, I: s.I, P: s.P, O: s.O, OE: s.OE };
       this.buf.push(snap);
       // 死亡重播用：保留最近約 6 秒
       this.hist.push(snap);
@@ -117,6 +118,8 @@
           this.particles.push({ type: 'float', x: x / 100, y: y / 100, t0: now, dur: 1200, text: `${it.icon} ${it.name}`, bits: [] });
           if (this.onPickup) this.onPickup(tankId, type);
         }
+        if (snap.O) this.obj = snap.O;
+        if (snap.OE && this.onObjEvent) for (const e of snap.OE) this.onObjEvent(e);
         if (snap.X && this.onBaseKill) for (const [sideKey, shooter] of snap.X) this.onBaseKill(sideKey, shooter);
         if (snap.K) for (const [v, k, cause] of snap.K) {
           if (this.myTank && v === this.myTank.id && cause !== 'base') this._startReplay(snap.k, k, cause, now);
@@ -149,7 +152,7 @@
     addEffect(type, x, y, now) {
       if (this.onEvent) this.onEvent(type, x, y);
       if (type === 'shot') return;   // 只有音效，沒有畫面特效
-      const dur = { boom: 650, blast: 500, baseBoom: 1200, brick: 380, spark: 180, armor: 300, spawn: 500, emp: 600, timestop: 900, freezeHit: 400, confuseHit: 400, itemSpawn: 600 }[type] || 300;
+      const dur = { capture: 900, waveStart: 1200, boom: 650, blast: 500, baseBoom: 1200, brick: 380, spark: 180, armor: 300, spawn: 500, emp: 600, timestop: 900, freezeHit: 400, confuseHit: 400, itemSpawn: 600 }[type] || 300;
       const p = { type, x, y, t0: now, dur, bits: [] };
       if (type === 'brick' || type === 'boom' || type === 'baseBoom' || type === 'blast') {
         const n = type === 'brick' ? 6 : type === 'baseBoom' ? 24 : 12;
@@ -335,6 +338,31 @@
         if (!side.base) continue;
         const st = this.sideState.get(side.key);
         this._drawBase(ctx, side.base.x * tp, side.base.y * tp, tp, side.color, st && st.base === 1);
+      }
+
+      // 遊戲目標：佔點區域、旗子
+      if (this.obj && this.obj.type === 'koth') {
+        const [hx, hy, hr] = this.obj.hill;
+        const holder = this.obj.h && this.obj.h !== 'contested' ? this.sideMeta.get(this.obj.h) : null;
+        const pulse = 0.5 + 0.5 * Math.sin(now / 300);
+        ctx.fillStyle = holder ? holder.color + '40' : this.obj.h === 'contested' ? 'rgba(255,80,80,.25)' : 'rgba(255,255,255,.08)';
+        ctx.fillRect((hx - hr) * tp, (hy - hr) * tp, hr * 2 * tp, hr * 2 * tp);
+        ctx.strokeStyle = holder ? holder.color : `rgba(255,255,255,${0.4 + 0.4 * pulse})`;
+        ctx.lineWidth = Math.max(2, tp * 0.1); ctx.setLineDash([tp * 0.3, tp * 0.2]);
+        ctx.strokeRect((hx - hr) * tp, (hy - hr) * tp, hr * 2 * tp, hr * 2 * tp);
+        ctx.setLineDash([]);
+      }
+      if (this.obj && this.obj.type === 'ctf') {
+        for (const [side, fx, fy, carrier, atHome] of this.obj.f) {
+          const sm = this.sideMeta.get(side);
+          let x = fx / 100, y = fy / 100;
+          if (carrier && A.tanks.has(carrier)) { const p = pos(carrier, A.tanks, B.tanks); x = p[0]; y = p[1] - 0.55; }
+          const px = x * tp, py = y * tp, h = tp * 0.9;
+          ctx.fillStyle = '#e8edf3'; ctx.fillRect(px - tp * 0.05, py - h / 2, tp * 0.1, h);
+          ctx.fillStyle = sm.color;
+          ctx.beginPath(); ctx.moveTo(px + tp * 0.05, py - h / 2); ctx.lineTo(px + tp * 0.55, py - h / 4); ctx.lineTo(px + tp * 0.05, py); ctx.fill();
+          if (!atHome && !carrier) { ctx.strokeStyle = sm.color; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(px, py, tp * 0.6 * (1 + 0.15 * Math.sin(now / 150)), 0, 7); ctx.stroke(); }
+        }
       }
 
       // 場地道具

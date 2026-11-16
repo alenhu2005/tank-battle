@@ -251,3 +251,34 @@ console.log('ALL OK');
   r2.dispose();
   console.log('map styles + custom map + item picker OK');
 }
+
+// 新模式：佔點、搶旗、打怪 — 全部用內建 AI 跑完整一局，確認會用模式自己的方式分出勝負
+{
+  const { Round } = require('../server/game');
+  const D = require('../server/defaultBot');
+  const C = require('../server/constants');
+  const run = (objective, n, extra = {}) => {
+    const sides = Array.from({ length: n }, (_, i) => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: D, aiPilot: true, cls: 'assault' }] }));
+    const r = new Round({ mode: 'ffa', baseMode: true, timeLimit: 300, sides, objective, ...extra });
+    let objEvents = 0;
+    while (!r.over) { r.step(); objEvents += r.objEvents.length; const s = r.snapshotFor('p0'); if (s.O && objective !== 'survival') assert.strictEqual(s.O.type, objective); }
+    const res = r.result; r.dispose();
+    return { reason: res.reason, ticks: res.ticks, objEvents, score: res.objScore, wave: res.pveWave };
+  };
+  const reasons = { koth: [], ctf: [], pve: [] };
+  for (let k = 0; k < 4; k++) {
+    reasons.koth.push(run('koth', 2 + (k % 2)).reason);
+    reasons.ctf.push(run('ctf', 2).reason);
+    // 打怪：一隊玩家（2 個 AI 玩家）
+    const sides = [{ key: 'players', name: '玩家隊', color: '#3ddc84', members: [0, 1].map(i => ({ playerId: 'p' + i, name: 'P' + i, code: D, aiPilot: true, cls: 'heavy' })) }];
+    const r = new Round({ mode: 'ffa', baseMode: k % 2 === 0, timeLimit: 0, sides, objective: 'pve' });
+    let maxWave = 0; while (!r.over) { r.step(); maxWave = Math.max(maxWave, r.pveWave); }
+    reasons.pve.push(r.result.reason + '@wave' + maxWave);
+    r.dispose();
+  }
+  console.log('objective results:', JSON.stringify(reasons));
+  assert(reasons.koth.some(x => x === 'koth'), 'koth wins by holding the hill');
+  assert(reasons.ctf.some(x => x === 'ctf'), 'ctf wins by captures');
+  assert(reasons.pve.every(x => /^pve(Win|Lose)@wave[1-5]$/.test(x)), 'pve ends by waves');
+  console.log('objectives OK');
+}

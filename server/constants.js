@@ -13,6 +13,7 @@ module.exports = {
   PLAYER_LIVES: 3,
   BOT_LIVES: 1,
   RESPAWN_DELAY: 2 * TICK_RATE,
+  BOT_RESPAWN_DELAY: 4 * TICK_RATE,   // 佔點、搶旗模式電腦的重生時間
   SHIELD_TICKS: 2 * TICK_RATE,
   FOG_RADIUS: 5.5,          // 迷霧模式下玩家的視野半徑（格）
   END_DELAY: Math.round(1.5 * TICK_RATE), // 分出勝負後再播一下爆炸
@@ -47,6 +48,16 @@ module.exports = {
     demo:    { name: '爆破', speed: 3.8, cooldown: 14, bulletSpeed: 8, maxBullets: 1, hp: 1, vision: 5.5, blast: true,
       desc: '子彈命中或被抵消時爆炸：炸毀 3×3 磚牆，並波及周圍 1 格的敵人' },
   },
+  MONSTER_CLASS: { name: '怪物', speed: 3.4, cooldown: 30, bulletSpeed: 7, maxBullets: 1, hp: 1, vision: 0 },
+
+  // 遊戲目標（模式）
+  OBJECTIVES: ['survival', 'koth', 'ctf', 'pve'],
+  KOTH_RADIUS: 1.5,                 // 佔點區域：中心 ±1.5 格（3×3）
+  KOTH_TARGET_TICKS: 45 * TICK_RATE,
+  CTF_CAPTURES: 3,
+  FLAG_RETURN_TICKS: 20 * TICK_RATE,
+  PVE_WAVES: 5,
+  PVE_MAX_MONSTERS: 12,
   BOT_CLASS: { name: '電腦', speed: 4.0, cooldown: 24, bulletSpeed: 8, maxBullets: 1, hp: 1, vision: 0 },
   BLAST_RADIUS: 1.1,        // 爆炸傷害：坦克中心與爆炸中心的直線距離
   HIT_MARGIN: 0.03,         // 子彈命中判定比坦克外框多出的距離（越小越不會「沒碰到就死」）

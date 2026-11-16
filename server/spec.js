@@ -43,11 +43,12 @@ module.exports = `# 坦克對戰：電腦隊友代碼規格
   enemies: [ 坦克 ],   // 所有還活著的敵方坦克
   bullets: [ { x, y, dir, speed, ally, blast, pierce, freeze, confuse, bounces } ],   // 場上所有子彈；speed 單位是格/秒；ally 表示是不是我方的；bounces 是剩餘反彈次數
   bases:   [ { x, y, ally, alive } ],    // 基地中心座標；非基地模式時是空陣列
+  objective: { type, ... },             // 遊戲目標，見下方「遊戲目標」
   items:   [ { x, y, type, ticksLeft } ],  // 場上的道具（格子中心座標）；沒開道具時是空陣列
   map:     { width, height, tiles },     // tiles[r][c] 是第 r 列第 c 欄的地形字元
   rules:   { tickRate, tankSize, blastRadius, mode, baseMode, fog, breakableWalls, codeOnly, classes, ricochet, bulletBounces, items }
 }
-坦克 = { id, x, y, dir, isBot, owner, cls, lives, hp, shield, buffs }
+坦克 = { id, x, y, dir, isBot, owner, cls, lives, hp, shield, carrying, buffs }
 - dir：八個方向之一
 - owner：這台坦克所屬玩家的 id。你的玩家是 allies 裡 isBot === false 且 owner === me.owner 的那台（他死掉等重生時不會出現在 allies）。
 - cls：職業，"bot" 表示電腦坦克，其他見下方職業表。各職業的數值也在 rules.classes[cls] 裡。
@@ -71,6 +72,13 @@ B  基地：擋坦克和子彈，被敵方子彈打中就會毀掉
 ${classLines}
 爆炸子彈：命中坦克、牆或被抵消時爆炸，炸毀周圍 3×3 的磚牆（牆可破時），並對坦克中心距離爆炸中心 ${C.BLAST_RADIUS} 格以內（直線距離）的敵方坦克造成傷害。
 子彈命中判定：子彈中心進入坦克方框（邊長 ${C.TANK_SIZE}）外擴 ${C.HIT_MARGIN} 格的範圍內就算命中。
+
+## 遊戲目標（view.objective）
+- { type: "survival" }：生存。打到剩最後一隊。
+- { type: "koth", x, y, radius, myScore, bestEnemyScore, target, holder }：佔點。地圖中央以 (x, y) 為中心、兩軸各 ±radius 的區域，只有你們隊在裡面時每 tick 加 1 分，先到 target 分獲勝。holder 是 "me" | "enemy" | "contested" | null。
+- { type: "ctf", flags: [ { x, y, homeX, homeY, ally, atHome, carrier } ], myCaptures, bestEnemyCaptures, target }：搶旗。碰到敵方的旗子就會撿起來（me.carrying 變成 true）；帶著它碰到「在家」的己方旗子就得 1 分，先到 target 分獲勝。帶旗的坦克被打掉時旗子會掉在原地，碰到自己掉落的旗子會把它送回家，掉落 ${C.FLAG_RETURN_TICKS / C.TICK_RATE} 秒沒人碰也會自己回家。
+- { type: "pve", wave, waves, monstersLeft }：打怪。所有玩家同一隊，怪物（cls 為 "monster"）會一波波出現，撐過 ${C.PVE_WAVES} 波就獲勝。每撐過一波，玩家坦克回 1 條命。
+- 佔點和搶旗模式所有坦克都會無限重生（電腦 ${C.BOT_RESPAWN_DELAY / C.TICK_RATE} 秒後重生）；生存和打怪模式照一般的命數規則。
 
 ## 子彈反彈（rules.ricochet 為 true 時）
 - 子彈撞到鋼牆、地圖邊界，或打不破的磚牆時會反彈，每顆最多反彈 ${C.BULLET_BOUNCES} 次，用完後再撞牆就消失。
