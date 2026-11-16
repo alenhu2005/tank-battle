@@ -50,6 +50,15 @@
 
 遊戲內「我的電腦代碼 → 規格」可以一鍵複製完整規格，貼給 AI 助手。規格只寫必要的事實（資料格式、地形、規則），策略留給玩家自己設計。代碼送出前，伺服器會用真正的遊戲引擎跑幾場測試對戰，確認能正常執行才會啟用。玩家代碼在隔離的 V8 沙盒（isolated-vm）裡執行，碰不到伺服器，無窮迴圈也會被逾時擋下。
 
+## 其他功能
+
+- **新手教學**、**代碼練習場**（單人、純代碼、可快轉 1×／2×／4×）、**代碼擂台**（每週排行榜，提交後立刻和其他參賽者對戰，Elo 計分）：都在首頁。
+- **遊戲目標**：生存、佔點、搶旗、打怪（合作，5 波怪物）。佔點和搶旗可以無限重生。
+- **地圖**：隨機、迷宮、開闊、河流、森林、堡壘，或用地圖編輯器自己畫。
+- **操作**：自己的坦克用本機預測移動（按下就動，不等網路），有瞄準輔助線（會畫出反彈路線）。設定裡可以調搖桿和按鈕大小、透明度、左手模式、音效、震動。
+- **賽後**：每局 MVP、命中率、閃避次數；整局重播（可快轉、拖曳、分享連結、下載重播檔）。
+- **電腦代碼**：四種範例打法（標準、守門員、刺客、保鑣）；代碼可以用 `debug.line / circle / text / path` 把想法畫在畫面上（只有自己看得到）。
+
 ## 在自己電腦上執行
 
 需要 Node.js 20 以上。
@@ -70,7 +79,7 @@ Google AI Pro 訂閱附有每月 10 美元的 Google Cloud 額度，Cloud Run �
 [![在 Cloud Shell 開啟](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https%3A%2F%2Fgithub.com%2Falenhu2005%2Ftank-battle&cloudshell_tutorial=TUTORIAL.md&show=terminal)
 
 1. 點上面的按鈕，用你的 Google 帳號登入。Cloud Shell 會自動下載程式，旁邊也會出現教學。
-2. 在終端機執行 `bash deploy.sh`。腳本會自動建立專案、連結帳單、啟用 Cloud Run、建置並部署。
+2. 在終端機執行 `bash deploy.sh`。腳本會自動建立專案、連結帳單、啟用 Cloud Run 和 Firestore（代碼擂台的排行榜）、建置並部署。
 3. 最後印出的 `https://tank-battle-….run.app` 就是遊戲網址。
 
 如果還沒有帳單帳戶，腳本會提示你先到 console.cloud.google.com/billing 建立。AI Pro 的 Cloud 額度要依照 Google Developer Program 福利說明（developers.google.com/profile/help/benefits）領取，並加到帳單帳戶。建議在「帳單 → 預算與快訊」設一個 5 美元的提醒。
@@ -104,6 +113,12 @@ server/
   spec.js          給玩家／AI 看的代碼規格
   defaultBot.js    範例代碼（也是內建電腦隊伍的 AI）
   constants.js     所有遊戲數值
+  objectives.js    佔點、搶旗、打怪
+  samples.js       四種範例打法
+  league.js        代碼擂台（Firestore 或記憶體）
+  match.js         擂台對戰
 public/            手機網頁（畫面、操作、編輯器）
+  physics.js       伺服器和手機共用的移動物理（本機預測用）
+  sfx.js           合成音效
 test/              引擎測試與平衡模擬
 ```
