@@ -24,6 +24,7 @@ module.exports = `# 坦克對戰：電腦隊友代碼規格
 - memory 是一個空物件，整局都會保留，每局開始時清空。
 - 每局開始有 ${C.COUNTDOWN_SECONDS} 秒倒數，倒數期間不會呼叫 think；倒數結束後 tick 從 1 開始。
 - console.log(...) 的輸出會在賽後顯示。
+- 除錯繪圖（只有你自己看得到，可以在設定裡關掉）：debug.line(x1, y1, x2, y2, 顏色)、debug.circle(x, y, 半徑, 顏色)、debug.text(x, y, 文字, 顏色)、debug.path([{x, y}, ...], 顏色)。座標單位是格，顏色是 CSS 顏色字串（例如 "#ff0" 或 "red"）。每個 tick 最多 60 個，畫的東西只會顯示到下一個 tick。
 - 每次 think 必須在 ${C.BOT_CALL_TIMEOUT_MS} 毫秒內回傳。超時、拋出錯誤或回傳格式錯誤時，該 tick 不動。
 - 代碼上限 ${C.BOT_CODE_MAX_BYTES / 1024}KB，記憶體上限 ${C.BOT_MEMORY_MB}MB。
 

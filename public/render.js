@@ -38,6 +38,8 @@
       this.dirtyTerrain = true;
       this.onKill = null;          // (victimId, killerId, cause) => void
       this.showAim = true;         // 瞄準輔助線（設定裡可關）
+      this.showBotDebug = true;    // 電腦代碼的除錯繪圖
+      this.debugOps = null;
     }
 
     setRound(meta, myTankId) {
@@ -474,6 +476,23 @@
       // 特效
       this.particles = this.particles.filter(p => now - p.t0 < p.dur);
       for (const p of this.particles) this._drawEffect(ctx, p, (now - p.t0) / p.dur, tp);
+
+      // 電腦代碼的除錯繪圖（只有代碼主人看得到）
+      if (this.showBotDebug && this.debugOps && now - this.debugOps.at < 400) {
+        ctx.save();
+        ctx.lineWidth = Math.max(1.5, tp * 0.07);
+        ctx.font = `700 ${Math.max(10, tp * 0.45)}px system-ui, sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        for (const ops of Object.values(this.debugOps.byTank)) for (const op of ops) {
+          const col = op[op.length - 1];
+          ctx.strokeStyle = col; ctx.fillStyle = col;
+          if (op[0] === 'l') { ctx.beginPath(); ctx.moveTo(op[1] * tp, op[2] * tp); ctx.lineTo(op[3] * tp, op[4] * tp); ctx.stroke(); }
+          else if (op[0] === 'c') { ctx.beginPath(); ctx.arc(op[1] * tp, op[2] * tp, Math.max(1, op[3] * tp), 0, 7); ctx.stroke(); }
+          else if (op[0] === 't') { ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.strokeText(op[3], op[1] * tp, op[2] * tp); ctx.fillText(op[3], op[1] * tp, op[2] * tp); ctx.lineWidth = Math.max(1.5, tp * 0.07); }
+          else if (op[0] === 'p') { const f = op[1]; ctx.beginPath(); for (let i = 0; i + 1 < f.length; i += 2) i ? ctx.lineTo(f[i] * tp, f[i + 1] * tp) : ctx.moveTo(f[i] * tp, f[i + 1] * tp); ctx.stroke(); }
+        }
+        ctx.restore();
+      }
 
       // 瞄準輔助線：子彈會飛到哪裡（包含反彈）
       if (this.showAim && this.pred && predPos && this.latest) {

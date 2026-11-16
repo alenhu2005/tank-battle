@@ -7,6 +7,7 @@ const C = require('./constants');
 const { Round } = require('./game');
 const { validateAsync } = require('./validateWorker');
 const DEFAULT_BOT = require('./defaultBot');
+const SAMPLES = require('./samples');
 
 const DISCONNECT_GRACE_MS = 20000;          // 房主斷線多久後轉移房主
 const LOBBY_REMOVE_MS = 10 * 60 * 1000;     // 大廳裡斷線多久後移出房間（手機切到背景會自動斷線）
@@ -226,7 +227,7 @@ class Room {
         return this.sendRoom();
       case 'code': {
         if (this.state === 'playing') return send(p.ws, { t: 'codeResult', ok: false, errors: ['遊戲進行中不能換代碼，請在局間調整'] });
-        const code = String(msg.code || '');
+        const code = msg.sample && SAMPLES[msg.sample] ? SAMPLES[msg.sample].code : String(msg.code || '');
         if (msg.useDefault) {
           p.code = null; p.codeInfo = null;
           send(p.ws, { t: 'codeResult', ok: true, usingDefault: true, errors: [], logs: [] });
@@ -363,6 +364,10 @@ class Room {
     for (const p of this.humans()) {
       if (!p.ws) continue;
       send(p.ws, perPlayer ? r.snapshotFor(p.id) : full);
+      // 電腦代碼用 debug.* 畫的東西，只送給代碼的主人
+      for (const t of r.tanks) {
+        if (t.owner === p.id && t.sandbox && t.sandbox.debugOps && t.alive) send(p.ws, { t: 'dbg', k: r.tick, id: t.id, ops: t.sandbox.debugOps });
+      }
     }
     if (r.over) this._endRound();
   }

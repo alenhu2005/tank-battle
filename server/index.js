@@ -8,6 +8,7 @@ const C = require('./constants');
 const { Room, send } = require('./room');
 const SPEC = require('./spec');
 const DEFAULT_BOT = require('./defaultBot');
+const SAMPLES = require('./samples');
 // 新手教學的練習靶：慢慢左右移動，不會開火
 const TARGET_BOT = 'function think(v, m) { m.t = (m.t || 0) + 1; var d = Math.floor(m.t / 50) % 2 ? "left" : "right"; return { move: m.t % 70 < 35 ? d : null, fire: false }; }';
 
@@ -50,6 +51,10 @@ const server = http.createServer((req, res) => {
     if (url.searchParams.get('download')) headers['Content-Disposition'] = `attachment; filename="tank-replay-${rm[1]}-${rm[2]}.json"`;
     res.writeHead(200, headers);
     return res.end(gz);
+  }
+  if (url.pathname === '/samples.json') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    return res.end(JSON.stringify(Object.entries(SAMPLES).map(([key, s]) => ({ key, name: s.name, desc: s.desc, code: s.code }))));
   }
   if (url.pathname === '/default-bot.js') {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });

@@ -100,6 +100,13 @@
 
   fetch('/spec.txt').then(r => r.text()).then(t => { specText = t; }).catch(() => {});
   fetch('/default-bot.js').then(r => r.text()).then(t => { defaultBot = t; }).catch(() => {});
+  let samples = [];
+  fetch('/samples.json').then(r => r.json()).then(list => {
+    samples = list;
+    $('#sampleList').innerHTML = list.map(s => `<li><b>${esc(s.name)}</b><span>${esc(s.desc)}</span>
+      <div class="row"><button class="btn small primary" data-use-sample="${s.key}">使用這個</button>
+      <button class="btn small" data-copy-sample="${s.key}">當作範本複製給 AI</button></div></li>`).join('');
+  }).catch(() => {});
 
   // ---------- 連線 ----------
   function connect(firstMsg) {
@@ -168,6 +175,12 @@
         hudDirty = true;
         break;
       case 'roundEnd': onRoundEnd(m); break;
+      case 'dbg': {
+        const d = renderer.debugOps && performance.now() - renderer.debugOps.at < 400 ? renderer.debugOps : { byTank: {} };
+        d.byTank[m.id] = m.ops; d.at = performance.now();
+        renderer.debugOps = d;
+        break;
+      }
       case 'codeChecking':
         $('#codeStatus').innerHTML = '<span class="muted">測試中…（放進測試對戰實際跑一遍）</span>';
         $('#checkBtn').disabled = true;
@@ -463,15 +476,30 @@
   $('#codeBtn2').onclick = openEditor;
   $('#editorClose').onclick = () => $('#editor').classList.remove('show');
 
-  function aiPrompt() {
+  $('#sampleList').addEventListener('click', async e => {
+    const use = e.target.closest('[data-use-sample]');
+    const cp = e.target.closest('[data-copy-sample]');
+    if (use) {
+      const s = samples.find(x => x.key === use.dataset.useSample);
+      store.set('pendingCode', s.code);
+      $('#codeStatus').innerHTML = `<span class="muted">已選「${esc(s.name)}」，測試中…</span>`;
+      send({ t: 'code', sample: s.key });
+    }
+    if (cp) {
+      const s = samples.find(x => x.key === cp.dataset.copySample);
+      toast((await copyText(aiPrompt(s))) ? `已複製（以「${s.name}」為範本），貼給 AI 再說你想怎麼改` : '複製失敗');
+    }
+  });
+
+  function aiPrompt(sample) {
     return `我在玩一款手機坦克對戰遊戲，需要你幫我寫「電腦隊友」的 JavaScript 代碼。
 請完全依照下面的規格，寫出完整、可以直接執行的代碼（定義 think(view, memory)，可以加輔助函式）。
 只輸出代碼，放在一個 \`\`\`javascript 區塊裡；不要用 import、require、setTimeout。
 
 ${specText}
-## 參考：遊戲內建的範例 AI（可以改進它，也可以完全重寫）
+## 參考：${sample ? `「${sample.name}」打法的範例（${sample.desc}）` : '遊戲內建的範例 AI'}（可以改進它，也可以完全重寫）
 \`\`\`javascript
-${defaultBot}\`\`\`
+${sample ? sample.code : defaultBot}\`\`\`
 
 ## 我想要的隊友
 `;

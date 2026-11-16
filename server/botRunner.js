@@ -15,15 +15,34 @@ var __fn = (typeof think === 'function') ? think
 var __memory = {};
 function __call(viewJson) {
   if (!__fn) throw new Error('找不到 think 函式：請定義 function think(view, memory) { ... }');
+  __dbg.length = 0;
   var r = __fn(JSON.parse(viewJson), __memory);
-  if (r === undefined || r === null) return 'null';
-  return JSON.stringify(r);
+  var out = JSON.stringify(r === undefined ? null : r);
+  return __dbg.length ? out + '\u0001' + JSON.stringify(__dbg) : out;
 }
 `;
 
 const PRELUDE = `
 var module = { exports: {} };
 var exports = module.exports;
+// 除錯繪圖：畫在遊戲畫面上，只有代碼的主人看得到（每個 tick 最多 60 個）
+var __dbg = [];
+var debug = (function () {
+  function push(op) { if (__dbg.length < 60) __dbg.push(op); }
+  function n(v) { return typeof v === 'number' && isFinite(v) ? Math.round(v * 100) / 100 : 0; }
+  function c(v) { return typeof v === 'string' ? v.slice(0, 24) : '#ff0'; }
+  return {
+    line: function (x1, y1, x2, y2, color) { push(['l', n(x1), n(y1), n(x2), n(y2), c(color)]); },
+    circle: function (x, y, r, color) { push(['c', n(x), n(y), n(r), c(color)]); },
+    text: function (x, y, s, color) { push(['t', n(x), n(y), String(s).slice(0, 40), c(color)]); },
+    path: function (pts, color) {
+      if (!pts || !pts.length) return;
+      var flat = [];
+      for (var i = 0; i < pts.length && i < 40; i++) { var p = pts[i]; flat.push(n(p.x !== undefined ? p.x : p[0]), n(p.y !== undefined ? p.y : p[1])); }
+      push(['p', flat, c(color)]);
+    }
+  };
+})();
 var console = (function () {
   function fmt(a) {
     var out = [];
@@ -138,6 +157,12 @@ class BotSandbox {
     } finally {
       const ms = Number(process.hrtime.bigint() - t0) / 1e6;
       this.calls++; this.totalMs += ms; if (ms > this.maxMs) this.maxMs = ms;
+    }
+    const sep = raw.indexOf('\u0001');
+    this.debugOps = null;
+    if (sep >= 0) {
+      try { this.debugOps = JSON.parse(raw.slice(sep + 1)); } catch { /* 忽略 */ }
+      raw = raw.slice(0, sep);
     }
     return this._parseAction(raw);
   }

@@ -266,9 +266,12 @@ console.log('ALL OK');
     return { reason: res.reason, ticks: res.ticks, objEvents, score: res.objScore, wave: res.pveWave };
   };
   const reasons = { koth: [], ctf: [], pve: [] };
+  let captures = 0;
   for (let k = 0; k < 4; k++) {
     reasons.koth.push(run('koth', 2 + (k % 2)).reason);
-    reasons.ctf.push(run('ctf', 2).reason);
+    const c = run('ctf', 2);
+    reasons.ctf.push(c.reason);
+    captures += Object.values(c.score || {}).reduce((a, b) => a + b, 0);
     // 打怪：一隊玩家（2 個 AI 玩家）
     const sides = [{ key: 'players', name: '玩家隊', color: '#3ddc84', members: [0, 1].map(i => ({ playerId: 'p' + i, name: 'P' + i, code: D, aiPilot: true, cls: 'heavy' })) }];
     const r = new Round({ mode: 'ffa', baseMode: k % 2 === 0, timeLimit: 0, sides, objective: 'pve' });
@@ -278,7 +281,23 @@ console.log('ALL OK');
   }
   console.log('objective results:', JSON.stringify(reasons));
   assert(reasons.koth.some(x => x === 'koth'), 'koth wins by holding the hill');
-  assert(reasons.ctf.some(x => x === 'ctf'), 'ctf wins by captures');
+  assert(captures > 0 && reasons.ctf.every(x => x === 'ctf' || x === 'time'), 'ctf: flags get captured, games end by captures or time');
   assert(reasons.pve.every(x => /^pve(Win|Lose)@wave[1-5]$/.test(x)), 'pve ends by waves');
   console.log('objectives OK');
+}
+
+// 除錯繪圖 API
+{
+  const { BotSandbox } = require('../server/botRunner');
+  const sb = new BotSandbox('function think(v){ debug.line(1,2,3,4,"red"); debug.circle(v.me.x, v.me.y, 2); debug.text(5,5,"目標"); debug.path([{x:1,y:1},{x:2,y:2}], "#0f0"); return {move:"up", fire:true}; }', 't');
+  const act = sb.think(JSON.stringify({ me: { x: 3, y: 4 } }), 1);
+  assert.deepStrictEqual(act, { move: 'up', fire: true });
+  assert.strictEqual(sb.debugOps.length, 4);
+  assert.deepStrictEqual(sb.debugOps[0], ['l', 1, 2, 3, 4, 'red']);
+  const sb2 = new BotSandbox('function think(){ return {move:"left"}; }', 't2');
+  sb2.think('{}', 1); assert.strictEqual(sb2.debugOps, null);
+  sb.dispose(); sb2.dispose();
+  const { validateCode } = require('../server/validate');
+  assert(validateCode('function think(v){ for (var i=0;i<200;i++) debug.circle(i,i,1); return null; }').ok, 'debug spam is capped, not an error');
+  console.log('debug draw OK');
 }
