@@ -2,9 +2,15 @@
 
 // 畫面繪製：地形快取、坦克/子彈插值、特效、迷霧、鏡頭
 (function () {
-  const DIRS = ['up', 'down', 'left', 'right'];
-  const ANGLE = [0, Math.PI, -Math.PI / 2, Math.PI / 2];
+  const DIRS = ['up', 'down', 'left', 'right', 'upleft', 'upright', 'downleft', 'downright'];
+  const ANGLE = [0, Math.PI, -Math.PI / 2, Math.PI / 2, -Math.PI / 4, Math.PI / 4, -Math.PI * 3 / 4, Math.PI * 3 / 4];
+  const R2 = Math.SQRT1_2;
+  const VEC = [[0, -1], [0, 1], [-1, 0], [1, 0], [-R2, -R2], [R2, -R2], [-R2, R2], [R2, R2]];
   const MIN_TILE_PX = 12;
+  const INTERP_DELAY = 2;   // tick
+  const REPLAY_BEFORE = 60; // 重播死前 2 秒
+  const REPLAY_AFTER = 12;  // 加上死後 0.4 秒
+  const REPLAY_SPEED = 0.5; // 慢動作
 
   function shade(hex, amt) {
     const n = parseInt(hex.slice(1), 16);
@@ -21,11 +27,14 @@
       this.ctx = canvas.getContext('2d');
       this.meta = null;
       this.particles = [];
-      this.prev = null; this.cur = null;
+      this.buf = [];               // 快照緩衝（依伺服器 tick 排序）
+      this.hist = [];              // 死亡重播用的歷史快照
+      this.replay = null;
       this.lives = new Map();
       this.sideState = new Map();
       this.layout = { ctrlBottom: 0 };
       this.dirtyTerrain = true;
+      this.onKill = null;          // (victimId, killerId, cause) => void
     }
 
     setRound(meta, myTankId) {
@@ -37,7 +46,12 @@
       this.sideMeta = new Map(meta.sides.map(s => [s.key, s]));
       this.myTank = this.tankMeta.get(myTankId) || null;
       this.mySide = this.myTank ? this.myTank.side : null;
-      this.prev = this.cur = null;
+      this.buf = [];
+      this.hist = [];
+      this.replay = null;
+      this.offset = null;
+      this.appliedK = 0;
+      this.renderTick = 0;
       this.particles = [];
       this.lives = new Map(meta.tanks.map(t => [t.id, { lives: t.maxLives, alive: true }]));
       this.sideState = new Map(meta.sides.map(s => [s.key, { out: false, base: s.base ? 1 : -1 }]));
@@ -47,25 +61,64 @@
       this.resize();
     }
 
+    // 收到快照：放進緩衝區，並估計「伺服器時鐘」與本機時鐘的差
     applySnapshot(s, now) {
+      const tickMs = 1000 / this.meta.tickRate;
       const tanks = new Map();
       for (const a of s.T) tanks.set(a[0], { x: a[1] / 100, y: a[2] / 100, dir: a[3], shield: a[4], hp: a[5] });
       const bullets = new Map();
       for (const a of s.B) bullets.set(a[0], { x: a[1] / 100, y: a[2] / 100, dir: a[3], kind: a[4] });
-      this.prev = this.cur;
-      this.cur = { tanks, bullets, at: now, tick: s.k };
-      this.tick = s.k;
-      if (s.M) {
-        for (const [idx, ch] of s.M) {
-          this.tiles[idx] = ch;
-          this.dirtyTiles = this.dirtyTiles || [];
-          this.dirtyTiles.push(idx);
-        }
-      }
-      if (s.L) for (const [id, lives, alive] of s.L) this.lives.set(id, { lives, alive: !!alive });
-      if (s.S) for (const [key, out, base] of s.S) this.sideState.set(key, { out: !!out, base });
-      if (s.E) for (const [type, x, y] of s.E) this.addEffect(type, x / 100, y / 100, now);
+      const last = this.buf[this.buf.length - 1];
+      if (last && s.k <= last.k) return;
+      const snap = { k: s.k, tanks, bullets, M: s.M, L: s.L, S: s.S, E: s.E, K: s.K, X: s.X };
+      this.buf.push(snap);
+      // 死亡重播用：保留最近約 6 秒
+      this.hist.push(snap);
+      while (this.hist.length && this.hist[0].k < s.k - 180) this.hist.shift();
+      const sample = now - s.k * tickMs;
+      if (this.offset == null || sample < this.offset) this.offset = sample;
+      else this.offset += (sample - this.offset) * 0.02; // 網路變慢時慢慢跟上
     }
+
+    // 畫面播放到的伺服器 tick（比最新快照晚約 2 tick，用來吸收網路抖動）
+    _renderTick(now) {
+      if (!this.buf.length) return 0;
+      const tickMs = 1000 / this.meta.tickRate;
+      let rt = (now - this.offset) / tickMs - INTERP_DELAY;
+      const first = this.buf[0].k, last = this.buf[this.buf.length - 1].k;
+      if (rt > last) rt = last;
+      if (rt < first) rt = first;
+      return rt;
+    }
+
+    // 快照裡的事件（爆炸、磚牆、命數、擊殺）在畫面播放到那個 tick 時才套用，跟子彈位置對齊
+    _applyUpTo(rt, now) {
+      for (const snap of this.buf) {
+        if (snap.k <= this.appliedK) continue;
+        if (snap.k > rt) break;
+        if (snap.M) for (const [idx, ch] of snap.M) { this.tiles[idx] = ch; (this.dirtyTiles = this.dirtyTiles || []).push(idx); }
+        if (snap.L) for (const [id, lives, alive] of snap.L) this.lives.set(id, { lives, alive: !!alive });
+        if (snap.S) for (const [key, out, base] of snap.S) this.sideState.set(key, { out: !!out, base });
+        if (snap.E) for (const [type, x, y] of snap.E) this.addEffect(type, x / 100, y / 100, now);
+        if (snap.X && this.onBaseKill) for (const [sideKey, shooter] of snap.X) this.onBaseKill(sideKey, shooter);
+        if (snap.K) for (const [v, k, cause] of snap.K) {
+          if (this.myTank && v === this.myTank.id && cause !== 'base') this._startReplay(snap.k, k, cause, now);
+          if (this.onKill) this.onKill(v, k, cause);
+        }
+        this.appliedK = snap.k;
+        this.tick = snap.k;
+      }
+      while (this.buf.length > 2 && this.buf[1].k < rt - 4 && this.buf[0].k <= this.appliedK) this.buf.shift();
+    }
+
+    // 開局倒數剩幾秒（null = 沒在倒數）
+    countdownLeft() {
+      if (!this.meta || !this.meta.startTicks) return null;
+      const left = this.meta.startTicks - this.renderTick;
+      return left > 0 ? left / this.meta.tickRate : null;
+    }
+
+    playTick() { return Math.max(0, this.renderTick - (this.meta ? this.meta.startTicks || 0 : 0)); }
 
     addEffect(type, x, y, now) {
       const dur = { boom: 650, blast: 500, baseBoom: 1200, brick: 380, spark: 180, armor: 300, spawn: 500 }[type] || 300;
@@ -99,13 +152,16 @@
       if (!spectator && fit < MIN_TILE_PX) { tile = MIN_TILE_PX; follow = true; }
       tile = Math.max(4, tile);
       if (tile !== this.tilePx) this.dirtyTerrain = true;
-      this.tilePx = tile; this.follow = follow; this.area = area;
+      this.tilePx = tile; this.fitTile = fit; this.follow = follow; this.area = area;
     }
 
     // ---------- 地形快取 ----------
 
     _buildTerrain() {
-      const S = this.size, tp = this.tilePx, dpr = this.dpr;
+      const S = this.size, tp = this.tilePx;
+      // 快取解析度：放大鏡頭時才不會太糊，但限制大小避免手機記憶體不夠
+      const dpr = Math.min(this.dpr * 2, Math.max(this.dpr, 2400 / (S * tp)));
+      this.cacheDpr = dpr;
       const mk = () => { const c = document.createElement('canvas'); c.width = Math.ceil(S * tp * dpr); c.height = Math.ceil(S * tp * dpr); return c; };
       this.ground = this.ground && this.ground.width === Math.ceil(S * tp * dpr) ? this.ground : mk();
       this.grass = this.grass && this.grass.width === this.ground.width ? this.grass : mk();
@@ -176,7 +232,11 @@
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       ctx.fillStyle = '#07090c';
       ctx.fillRect(0, 0, this.W, this.H);
-      if (!this.meta || !this.cur) return;
+      if (!this.meta || !this.buf.length) return;
+
+      const rt = this._renderTick(now);
+      this.renderTick = rt;
+      this._applyUpTo(rt, now);
       if (this.dirtyTerrain) this._buildTerrain();
       else if (this.dirtyTiles) {
         const g = this.ground.getContext('2d'), gr = this.grass.getContext('2d');
@@ -184,80 +244,98 @@
         this.dirtyTiles = null;
       }
 
-      const tp = this.tilePx, S = this.size;
-      const tickMs = 1000 / this.meta.tickRate;
-      const alpha = this.prev ? Math.min(1, Math.max(0, (now - this.cur.at) / tickMs)) : 1;
-      const lerpPos = (id, map, prevMap) => {
-        const c = map.get(id); const p = prevMap && prevMap.get(id);
-        if (!p || Math.abs(p.x - c.x) + Math.abs(p.y - c.y) > 1.5) return [c.x, c.y];
-        return [p.x + (c.x - p.x) * alpha, p.y + (c.y - p.y) * alpha];
+      // 找出 rt 前後的兩張快照來插值
+      let i = 0;
+      while (i + 1 < this.buf.length && this.buf[i + 1].k <= rt) i++;
+      const A = this.buf[i], B = this.buf[i + 1] || A;
+      const alpha = B.k > A.k ? Math.min(1, Math.max(0, (rt - A.k) / (B.k - A.k))) : 0;
+      const pos = (id, mapA, mapB) => {
+        const a = mapA.get(id), b = mapB.get(id);
+        if (!b || Math.abs(a.x - b.x) + Math.abs(a.y - b.y) > 1.5) return [a.x, a.y];
+        return [a.x + (b.x - a.x) * alpha, a.y + (b.y - a.y) * alpha];
       };
 
-      // 鏡頭
-      let ox, oy;
-      const mapW = S * tp;
-      const myPos = this.myTank && this.cur.tanks.has(this.myTank.id) ? lerpPos(this.myTank.id, this.cur.tanks, this.prev && this.prev.tanks) : null;
+      const S = this.size;
+      const myPos = this.myTank && A.tanks.has(this.myTank.id) ? pos(this.myTank.id, A.tanks, B.tanks) : null;
+      const sm = this.myTank ? this.sideMeta.get(this.mySide) : null;
+      const homeX = myPos ? myPos[0] : sm ? sm.anchor.x + 0.5 : S / 2;
+      const homeY = myPos ? myPos[1] : sm ? sm.anchor.y + 0.5 : S / 2;
+
+      // ---------- 鏡頭 ----------
+      const area = this.area;
+      const fullTile = Math.min(area.w / S, area.h / S);
+      const full = { x: S / 2, y: S / 2, tile: fullTile };
+      let normal;
       if (this.follow) {
-        let fx, fy;
-        if (myPos) { fx = myPos[0]; fy = myPos[1]; }
-        else { const sm = this.sideMeta.get(this.mySide); fx = sm.anchor.x + 0.5; fy = sm.anchor.y + 0.5; }
-        if (this.camX == null) { this.camX = fx; this.camY = fy; }
-        this.camX += (fx - this.camX) * 0.25; this.camY += (fy - this.camY) * 0.25;
-        ox = this.area.x + this.area.w / 2 - this.camX * tp;
-        oy = this.area.y + this.area.h / 2 - this.camY * tp;
-        if (mapW <= this.area.w) ox = this.area.x + (this.area.w - mapW) / 2;
-        else ox = Math.min(this.area.x, Math.max(this.area.x + this.area.w - mapW, ox));
-        if (mapW <= this.area.h) oy = this.area.y + (this.area.h - mapW) / 2;
-        else oy = Math.min(this.area.y, Math.max(this.area.y + this.area.h - mapW, oy));
-      } else {
-        ox = this.area.x + (this.area.w - mapW) / 2;
-        oy = this.area.y + (this.area.h - mapW) / 2;
+        if (this.camX == null) { this.camX = homeX; this.camY = homeY; }
+        this.camX += (homeX - this.camX) * 0.25; this.camY += (homeY - this.camY) * 0.25;
+        const t = this.tilePx, half = { w: area.w / 2 / t, h: area.h / 2 / t };
+        const cx = S * t <= area.w ? S / 2 : Math.min(S - half.w, Math.max(half.w, this.camX));
+        const cy = S * t <= area.h ? S / 2 : Math.min(S - half.h, Math.max(half.h, this.camY));
+        normal = { x: cx, y: cy, tile: t };
+      } else normal = full;
+
+      let cam = normal;
+      const startTicks = this.meta.startTicks || 0;
+      if (startTicks && rt < startTicks + 20) {
+        // 開場：先拉近到自己 → 拉遠到全圖 → 倒數結束後回到一般視角
+        const close = this.myTank ? { x: homeX, y: homeY, tile: Math.max(fullTile * 2.5, Math.min(area.w, area.h) / 7) } : full;
+        const p = rt / startTicks;
+        const ease = t => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        const mix = (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, tile: Math.exp(Math.log(a.tile) + (Math.log(b.tile) - Math.log(a.tile)) * t) });
+        if (p < 0.3) cam = close;
+        else if (p < 0.75) cam = mix(close, full, ease((p - 0.3) / 0.45));
+        else if (rt < startTicks) cam = full;
+        else cam = mix(full, normal, ease((rt - startTicks) / 20));
       }
-      ox = Math.round(ox); oy = Math.round(oy);
+      const tp = cam.tile;
+      const ox = Math.round(area.x + area.w / 2 - cam.x * tp);
+      const oy = Math.round(area.y + area.h / 2 - cam.y * tp);
+      const mapW = S * tp;
 
       ctx.save();
       ctx.translate(ox, oy);
+      ctx.imageSmoothingEnabled = true;
       ctx.drawImage(this.ground, 0, 0, mapW, mapW);
       ctx.strokeStyle = '#2f3845'; ctx.lineWidth = 2; ctx.strokeRect(-1, -1, mapW + 2, mapW + 2);
 
       // 基地
-      for (const s of this.meta.sides) {
-        if (!s.base) continue;
-        const st = this.sideState.get(s.key);
-        this._drawBase(ctx, s.base.x * tp, s.base.y * tp, tp, s.color, st && st.base === 1);
+      for (const side of this.meta.sides) {
+        if (!side.base) continue;
+        const st = this.sideState.get(side.key);
+        this._drawBase(ctx, side.base.x * tp, side.base.y * tp, tp, side.color, st && st.base === 1);
       }
 
       // 子彈
-      for (const [id, b] of this.cur.bullets) {
-        const [x, y] = lerpPos(id, this.cur.bullets, this.prev && this.prev.bullets);
+      for (const [id, b] of A.bullets) {
+        const [x, y] = pos(id, A.bullets, B.bullets);
         const r = (b.kind === 2 ? 0.15 : 0.1) * tp;
         ctx.fillStyle = b.kind === 2 ? '#ff9f43' : '#fff4b0';
         ctx.beginPath(); ctx.arc(x * tp, y * tp, Math.max(1.5, r), 0, 7); ctx.fill();
       }
 
       // 坦克
-      for (const [id, t] of this.cur.tanks) {
+      const drawn = [];
+      for (const [id, t] of A.tanks) {
         const m = this.tankMeta.get(id);
         if (!m) continue;
-        const [x, y] = lerpPos(id, this.cur.tanks, this.prev && this.prev.tanks);
-        const color = this.sideMeta.get(m.side).color;
-        this._drawTank(ctx, x * tp, y * tp, t.dir, color, m, tp * this.meta.tankSize, t, now);
+        const [x, y] = pos(id, A.tanks, B.tanks);
+        drawn.push([id, x, y]);
+        this._drawTank(ctx, x * tp, y * tp, t.dir, this.sideMeta.get(m.side).color, m, tp * this.meta.tankSize, t, now);
       }
 
       // 草叢（偵察職業看得穿）
-      const seeThroughGrass = this.myTank && this.myTank.grassSight;
-      ctx.globalAlpha = seeThroughGrass ? 0.45 : 0.94;
+      ctx.globalAlpha = this.myTank && this.myTank.grassSight ? 0.45 : 0.94;
       ctx.drawImage(this.grass, 0, 0, mapW, mapW);
       ctx.globalAlpha = 1;
 
       // 名字標籤
       if (tp >= 12) {
-        ctx.font = `700 ${Math.max(9, Math.min(13, tp * 0.55))}px system-ui, sans-serif`;
+        ctx.font = `700 ${Math.max(9, Math.min(15, tp * 0.55))}px system-ui, sans-serif`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-        for (const [id] of this.cur.tanks) {
+        for (const [id, x, y] of drawn) {
           const m = this.tankMeta.get(id);
           if (!m || (m.isBot && !this.meta.codeOnly)) continue;
-          const [x, y] = lerpPos(id, this.cur.tanks, this.prev && this.prev.tanks);
           const label = m.name.length > 6 ? m.name.slice(0, 6) + '…' : m.name;
           ctx.fillStyle = 'rgba(0,0,0,.6)';
           ctx.fillText(label, x * tp + 1, (y - 0.55) * tp + 1);
@@ -270,29 +348,134 @@
       this.particles = this.particles.filter(p => now - p.t0 < p.dur);
       for (const p of this.particles) this._drawEffect(ctx, p, (now - p.t0) / p.dur, tp);
 
-      // 我的坦克標記
-      if (myPos) {
-        const bob = Math.sin(now / 200) * 0.08;
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        const mx = myPos[0] * tp, my = (myPos[1] - 0.95 - bob) * tp;
-        ctx.moveTo(mx - tp * 0.18, my - tp * 0.2); ctx.lineTo(mx + tp * 0.18, my - tp * 0.2); ctx.lineTo(mx, my);
-        ctx.fill();
-      }
-
       // 迷霧
       if (this.meta.fog && this.myTank) {
-        let cx, cy;
-        if (myPos) { cx = myPos[0]; cy = myPos[1]; }
-        else { const sm = this.sideMeta.get(this.mySide); cx = sm.anchor.x + 0.5; cy = sm.anchor.y + 0.5; }
         const r = this.myTank.vision * tp;
-        const grad = ctx.createRadialGradient(cx * tp, cy * tp, r * 0.78, cx * tp, cy * tp, r);
+        const grad = ctx.createRadialGradient(homeX * tp, homeY * tp, r * 0.78, homeX * tp, homeY * tp, r);
         grad.addColorStop(0, 'rgba(4,6,9,0)');
         grad.addColorStop(1, 'rgba(4,6,9,0.86)');
         ctx.fillStyle = grad;
         ctx.fillRect(-ox, -oy, this.W, this.H);
       }
+
+      // 我的坦克標記（倒數時加上醒目的光圈和「你」）
+      if (myPos) {
+        const mx = myPos[0] * tp, my = myPos[1] * tp;
+        if (startTicks && rt < startTicks + 15) {
+          const pulse = (now % 900) / 900;
+          ctx.strokeStyle = `rgba(255,255,255,${1 - pulse})`;
+          ctx.lineWidth = Math.max(2, tp * 0.1);
+          ctx.beginPath(); ctx.arc(mx, my, tp * (0.7 + pulse * 1.3), 0, 7); ctx.stroke();
+          ctx.font = `900 ${Math.max(14, Math.min(28, tp * 0.9))}px system-ui, sans-serif`;
+          ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+          ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,.7)';
+          const ly = my - tp * 1.1 - Math.max(14, tp * 0.4);
+          ctx.strokeText('你', mx, ly); ctx.fillStyle = '#fff'; ctx.fillText('你', mx, ly);
+        }
+        const bob = Math.sin(now / 200) * 0.08;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        const ty = (myPos[1] - 0.95 - bob) * tp;
+        ctx.moveTo(mx - tp * 0.18, ty - tp * 0.2); ctx.lineTo(mx + tp * 0.18, ty - tp * 0.2); ctx.lineTo(mx, ty);
+        ctx.fill();
+      }
       ctx.restore();
+    }
+
+    // ---------- 死亡重播 ----------
+
+    _startReplay(kDeath, killerId, cause, now) {
+      const before = this.hist.filter(f => f.k < kDeath && f.tanks.has(this.myTank.id));
+      if (!before.length) return;
+      const last = before[before.length - 1].tanks.get(this.myTank.id);
+      const k0 = Math.max(this.hist[0].k, kDeath - REPLAY_BEFORE);
+      this.replay = {
+        kDeath, k0, k1: kDeath + REPLAY_AFTER, killerId, cause,
+        x: last.x, y: last.y,
+        start: now + 350,               // 先讓本體爆炸播一下
+        durMs: (kDeath + REPLAY_AFTER - k0) * (1000 / this.meta.tickRate) / REPLAY_SPEED,
+      };
+    }
+
+    replayActive(now) {
+      const r = this.replay;
+      if (!r) return false;
+      if (now > r.start + r.durMs + 900) { this.replay = null; return false; }
+      return now >= r.start;
+    }
+
+    closeReplay() { this.replay = null; }
+
+    drawReplay(canvas, now) {
+      const r = this.replay;
+      if (!r || !this.ground) return;
+      const dpr = this.dpr;
+      const W = canvas.clientWidth, H = canvas.clientHeight;
+      if (canvas.width !== Math.round(W * dpr)) { canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr); }
+      const ctx = canvas.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = '#07090c'; ctx.fillRect(0, 0, W, H);
+
+      const p = Math.min(1, (now - r.start) / r.durMs);
+      const rt = r.k0 + (r.k1 - r.k0) * p;
+      const frames = this.hist.filter(f => f.k >= r.k0 - 1 && f.k <= r.k1 + 1);
+      if (!frames.length) return;
+      let i = 0;
+      while (i + 1 < frames.length && frames[i + 1].k <= rt) i++;
+      const A = frames[i], B = frames[i + 1] || A;
+      const alpha = B.k > A.k ? Math.min(1, Math.max(0, (rt - A.k) / (B.k - A.k))) : 0;
+      const pos = (id, ma, mb) => {
+        const a = ma.get(id), b = mb.get(id);
+        if (!b || Math.abs(a.x - b.x) + Math.abs(a.y - b.y) > 1.5) return [a.x, a.y];
+        return [a.x + (b.x - a.x) * alpha, a.y + (b.y - a.y) * alpha];
+      };
+
+      const tp = Math.min(W, H) / 9;
+      const ox = W / 2 - r.x * tp, oy = H / 2 - r.y * tp;
+      const S = this.size;
+      ctx.save();
+      ctx.translate(ox, oy);
+      ctx.drawImage(this.ground, 0, 0, S * tp, S * tp);
+      for (const side of this.meta.sides) if (side.base) this._drawBase(ctx, side.base.x * tp, side.base.y * tp, tp, side.color, true);
+
+      // 子彈（拖尾讓軌跡更清楚）
+      for (const [id, b] of A.bullets) {
+        const [x, y] = pos(id, A.bullets, B.bullets);
+        const v = VEC[b.dir];
+        ctx.strokeStyle = 'rgba(255, 240, 160, .45)'; ctx.lineWidth = Math.max(2, tp * 0.12);
+        ctx.beginPath(); ctx.moveTo(x * tp, y * tp); ctx.lineTo((x - v[0] * 0.9) * tp, (y - v[1] * 0.9) * tp); ctx.stroke();
+        ctx.fillStyle = b.kind === 2 ? '#ff9f43' : '#fff4b0';
+        ctx.beginPath(); ctx.arc(x * tp, y * tp, Math.max(2, tp * 0.12), 0, 7); ctx.fill();
+      }
+      // 坦克
+      for (const [id, t] of A.tanks) {
+        const m = this.tankMeta.get(id);
+        if (!m) continue;
+        const [x, y] = pos(id, A.tanks, B.tanks);
+        this._drawTank(ctx, x * tp, y * tp, t.dir, this.sideMeta.get(m.side).color, m, tp * this.meta.tankSize, t, now);
+        if (id === r.killerId || id === this.myTank.id) {
+          ctx.strokeStyle = id === r.killerId ? '#ff4d4d' : '#ffffff';
+          ctx.lineWidth = Math.max(2, tp * 0.08);
+          ctx.beginPath(); ctx.arc(x * tp, y * tp, tp * 0.62, 0, 7); ctx.stroke();
+          ctx.font = `800 ${Math.max(10, tp * 0.36)}px system-ui, sans-serif`;
+          ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+          ctx.fillStyle = id === r.killerId ? '#ff4d4d' : '#ffffff';
+          ctx.fillText(id === r.killerId ? '擊殺者' : '你', x * tp, (y - 0.7) * tp);
+        }
+      }
+      ctx.globalAlpha = 0.9;
+      ctx.drawImage(this.grass, 0, 0, S * tp, S * tp);
+      ctx.globalAlpha = 1;
+      // 死亡瞬間的爆炸
+      if (rt >= r.kDeath) {
+        const k = Math.min(1, (rt - r.kDeath) / REPLAY_AFTER);
+        ctx.fillStyle = `rgba(255, ${Math.round(200 - 140 * k)}, 60, ${0.9 * (1 - k)})`;
+        ctx.beginPath(); ctx.arc(r.x * tp, r.y * tp, tp * (0.3 + 0.9 * k), 0, 7); ctx.fill();
+      }
+      ctx.restore();
+      // 進度條
+      ctx.fillStyle = 'rgba(255,255,255,.15)'; ctx.fillRect(0, H - 4, W, 4);
+      ctx.fillStyle = '#ff6b6b'; ctx.fillRect(0, H - 4, W * p, 4);
     }
 
     _drawBase(ctx, x, y, tp, color, alive) {
@@ -371,7 +554,7 @@
       const x = p.x * tp, y = p.y * tp;
       const ease = 1 - (1 - k) * (1 - k);
       if (p.type === 'boom' || p.type === 'baseBoom' || p.type === 'blast') {
-        const R = (p.type === 'baseBoom' ? 1.8 : p.type === 'blast' ? 1.3 : 0.9) * tp;
+        const R = (p.type === 'baseBoom' ? 1.8 : p.type === 'blast' ? (this.meta.blastRadius || 1.1) + 0.3 : 0.9) * tp;
         ctx.fillStyle = `rgba(255, ${Math.round(200 - 140 * k)}, 60, ${0.85 * (1 - k)})`;
         ctx.beginPath(); ctx.arc(x, y, R * (0.3 + 0.7 * ease), 0, 7); ctx.fill();
         ctx.fillStyle = `rgba(255, 250, 220, ${0.9 * (1 - k * 1.6)})`;

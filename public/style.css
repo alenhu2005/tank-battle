@@ -294,3 +294,67 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .bar i { flex: 1; height: 6px; border-radius: 3px; background: var(--line); position: relative; overflow: hidden; }
 .bar i::after { content: ""; position: absolute; inset: 0; width: var(--v); background: var(--accent); border-radius: 3px; }
 .icon-btn:disabled { opacity: .85; }
+
+/* ---------- 倒數、擊殺訊息、死亡重播 ---------- */
+.countdown {
+  /* 放在畫面下方，不要蓋住鏡頭正中央的自己 */
+  position: absolute; left: 50%; top: 76%; transform: translate(-50%, -50%);
+  font-size: min(22vw, 26vh); opacity: .92; font-weight: 900; color: #fff; pointer-events: none;
+  text-shadow: 0 4px 0 rgba(0,0,0,.5), 0 0 30px rgba(242,201,76,.5); display: none; line-height: 1;
+}
+.countdown.show { display: block; animation: cd-pop .9s ease-out; }
+.countdown.go { color: var(--accent); font-size: min(16vw, 18vh); }
+@keyframes cd-pop { from { transform: translate(-50%, -50%) scale(1.6); opacity: 0; } 25% { opacity: .92; } to { transform: translate(-50%, -50%) scale(1); } }
+@media (orientation: portrait) { .countdown { top: calc((100% - var(--ctrl-h, 230px)) * 0.8); } }
+.countdown-hint {
+  position: absolute; left: 50%; top: calc(50% + min(16vw, 16vh)); transform: translateX(-50%);
+  font-weight: 700; color: var(--muted); pointer-events: none; white-space: nowrap;
+}
+.kill-feed {
+  position: absolute; left: calc(var(--sal) + 10px); top: calc(var(--sat) + 44px);
+  display: flex; flex-direction: column; gap: 4px; pointer-events: none; z-index: 2;
+}
+.kill-feed div {
+  background: rgba(0,0,0,.55); border-radius: 6px; padding: 3px 8px; font-size: 12px; font-weight: 700;
+  animation: kf-in .2s ease-out; transition: opacity .4s; white-space: nowrap;
+}
+.kill-feed div.mine { outline: 1.5px solid #ff6b6b; }
+.kill-feed div.fade { opacity: 0; }
+@keyframes kf-in { from { transform: translateX(-12px); opacity: 0; } }
+.replay-box {
+  position: absolute; right: calc(var(--sar) + 10px); top: calc(var(--sat) + 46px);
+  width: min(40vw, 40vh, 230px); aspect-ratio: 1; border-radius: 12px; overflow: hidden;
+  border: 2px solid #ff6b6b; background: #07090c; display: none; z-index: 5; pointer-events: auto;
+  box-shadow: 0 6px 24px rgba(0,0,0,.5);
+}
+.replay-box.show { display: block; }
+.replay-box canvas { width: 100%; height: 100%; display: block; }
+.replay-label {
+  position: absolute; left: 0; right: 0; top: 0; padding: 4px 8px; font-size: 11px; font-weight: 800;
+  background: linear-gradient(rgba(0,0,0,.75), transparent); color: #ffb4b4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.replay-close { position: absolute; right: 6px; bottom: 8px; font-size: 12px; color: #fff; opacity: .7; }
+@media (orientation: portrait) { .replay-box { width: min(46vw, 230px); } }
+
+/* ---------- 電腦隊友面板（不顯示原始碼） ---------- */
+.modal-title { font-size: 17px; }
+.editor-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; -webkit-overflow-scrolling: touch; }
+.code-now { background: var(--panel-2); border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+.code-now b { color: var(--accent); }
+.steps { list-style: none; counter-reset: step; display: flex; flex-direction: column; gap: 14px; }
+.steps > li { counter-increment: step; position: relative; padding-left: 38px; display: flex; flex-direction: column; gap: 6px; }
+.steps > li::before {
+  content: counter(step); position: absolute; left: 0; top: 0; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--accent); color: var(--accent-ink); font-weight: 900; display: flex; align-items: center; justify-content: center;
+}
+.step-title { font-weight: 800; font-size: 15px; line-height: 26px; }
+.examples { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
+.examples li { background: var(--panel-2); border-radius: 8px; padding: 4px 8px; font-size: 12px; color: var(--text); }
+.file-btn { position: relative; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; }
+.file-btn input { position: absolute; inset: 0; opacity: 0; font-size: 0; cursor: pointer; }
+.link-btn { color: var(--muted); font-size: 13px; text-decoration: underline; text-align: left; padding: 4px 0; align-self: flex-start; }
+.manual { display: flex; flex-direction: column; gap: 6px; }
+.manual textarea {
+  min-height: 120px; resize: vertical; background: #0b0e12; border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px; font-size: 16px; outline: none; -webkit-text-security: none;
+}

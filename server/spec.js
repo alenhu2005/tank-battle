@@ -13,14 +13,16 @@ module.exports = `# 坦克對戰：電腦隊友代碼規格
 用 JavaScript 定義一個函式 think(view, memory)。遊戲每秒呼叫它 ${C.TICK_RATE} 次（每個 tick 一次），回傳你的電腦坦克在這個 tick 的動作。
 
 ## 回傳格式
-{ move: "up" | "down" | "left" | "right" | null, fire: true | false }
-- move：往該方向移動，砲管也會轉向該方向；null 表示停住。被擋住時只會轉向。
-- fire：true 表示朝砲管方向開火。冷卻中或自己的子彈數已達上限時會被忽略。
+{ move: 方向 | null, fire: true | false }
+方向 = "up" | "down" | "left" | "right" | "upleft" | "upright" | "downleft" | "downright"（八個方向）
+- move：往該方向移動，車身和砲管也會轉向該方向；null 表示停住（保持原本的方向）。被擋住時只會轉向。
+- fire：true 表示朝車身方向開火（八個方向都可以）。冷卻中或自己的子彈數已達上限時會被忽略。
 
 ## 執行環境
 - 標準 JavaScript，可以用 Math、JSON、Array、Map 等內建物件。沒有 DOM、網路、檔案、require/import、setTimeout。
 - 最上層的程式在每局開始時執行一次，可以放輔助函式和初始化。
 - memory 是一個空物件，整局都會保留，每局開始時清空。
+- 每局開始有 ${C.COUNTDOWN_SECONDS} 秒倒數，倒數期間不會呼叫 think；倒數結束後 tick 從 1 開始。
 - console.log(...) 的輸出會在賽後顯示。
 - 每次 think 必須在 ${C.BOT_CALL_TIMEOUT_MS} 毫秒內回傳。超時、拋出錯誤或回傳格式錯誤時，該 tick 不動。
 - 代碼上限 ${C.BOT_CODE_MAX_BYTES / 1024}KB，記憶體上限 ${C.BOT_MEMORY_MB}MB。
@@ -28,7 +30,9 @@ module.exports = `# 坦克對戰：電腦隊友代碼規格
 ## 座標
 - x 向右、y 向下，單位是「格」。第 c 欄第 r 列的格子範圍是 x∈[c,c+1)、y∈[r,r+1)，中心是 (c+0.5, r+0.5)。
 - 坦克座標是坦克中心。所有坦克都是邊長 ${C.TANK_SIZE} 格的正方形。
-- 改成垂直方向移動時，另一軸會自動對齊到所在格子的中心，所以坦克總是走在格子中心線上，可以通過 1 格寬的通道。
+- 斜向移動時，速度向量正規化（每軸速度為移速的 1/√2），撞牆時會沿著牆滑動。
+- 直向或橫向移動時，另一軸每 tick 會自動往所在格子的中心靠近（最多和移動距離一樣多），所以可以順利鑽進 1 格寬的通道。
+- 子彈從車身方向的邊緣（斜向時是車身角落）射出；斜向子彈的速度向量同樣正規化。
 
 ## view
 {
@@ -43,7 +47,7 @@ module.exports = `# 坦克對戰：電腦隊友代碼規格
   rules:   { tickRate, tankSize, blastRadius, mode, baseMode, fog, breakableWalls, codeOnly, classes }
 }
 坦克 = { id, x, y, dir, isBot, owner, cls, lives, hp, shield }
-- dir："up" | "down" | "left" | "right"
+- dir：八個方向之一
 - owner：這台坦克所屬玩家的 id。你的玩家是 allies 裡 isBot === false 且 owner === me.owner 的那台（他死掉等重生時不會出現在 allies）。
 - cls：職業，"bot" 表示電腦坦克，其他見下方職業表。各職業的數值也在 rules.classes[cls] 裡。
 - hp：這條命還能挨幾發；shield：剩餘無敵的 tick 數。
@@ -61,7 +65,8 @@ B  基地：擋坦克和子彈，被敵方子彈打中就會毀掉
 ## 職業（速度：格/秒，冷卻：tick）
   bot     電腦  移速 ${B.speed}  冷卻 ${B.cooldown}  彈速 ${B.bulletSpeed}  同時子彈 ${B.maxBullets}  每命耐久 ${B.hp}
 ${classLines}
-爆炸子彈：命中坦克、牆或被抵消時爆炸，炸毀周圍 3×3 的磚牆（牆可破時），並對中心 ${C.BLAST_RADIUS} 格內的敵方坦克造成傷害。
+爆炸子彈：命中坦克、牆或被抵消時爆炸，炸毀周圍 3×3 的磚牆（牆可破時），並對坦克中心距離爆炸中心 ${C.BLAST_RADIUS} 格以內（直線距離）的敵方坦克造成傷害。
+子彈命中判定：子彈中心進入坦克方框（邊長 ${C.TANK_SIZE}）外擴 ${C.HIT_MARGIN} 格的範圍內就算命中。
 
 ## 規則
 - 沒有友軍傷害：我方子彈會穿過我方坦克。但所有坦克之間都有碰撞，彼此會擋住。

@@ -83,6 +83,13 @@
     </div>
   </div>
   <div id="spectate" class="spectate"></div>
+  <div id="killFeed" class="kill-feed"></div>
+  <div id="countdown" class="countdown"></div>
+  <div id="replayBox" class="replay-box" role="button" aria-label="關閉重播">
+    <canvas id="replayCanvas"></canvas>
+    <div class="replay-label">死亡重播 0.5× <span id="replayCause"></span></div>
+    <div class="replay-close">✕</div>
+  </div>
   <div class="controls">
     <div id="stickZone" class="stick-zone">
       <div id="stickBase" class="stick-base"><div id="stickKnob" class="stick-knob"></div></div>
@@ -125,34 +132,49 @@
   </footer>
 </section>
 
-<!-- 代碼編輯器 -->
+<!-- 電腦隊友代碼 -->
 <div id="editor" class="modal">
   <div class="modal-card">
     <header class="modal-head">
-      <div class="tabs">
-        <button class="tab active" data-tab="code">代碼</button>
-        <button class="tab" data-tab="spec">規格</button>
-      </div>
+      <b class="modal-title">我的電腦隊友</b>
       <button id="editorClose" class="btn ghost small">關閉</button>
     </header>
-    <div class="tab-body" data-tab="code">
-      <p class="muted small-text">把下方「規格」複製給你的 AI 助手，討論出代碼後貼回來，按「檢查並使用」。</p>
-      <textarea id="codeArea" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off"></textarea>
-      <div class="editor-actions">
-        <button id="pasteBtn" class="btn small">貼上</button>
-        <button id="sampleBtn" class="btn small">範例</button>
-        <button id="clearBtn" class="btn small ghost">清空</button>
-        <button id="useDefaultBtn" class="btn small ghost">改用範例</button>
-        <button id="checkBtn" class="btn small primary">檢查並使用</button>
-      </div>
+    <div class="editor-body">
+      <div id="codeNow" class="code-now"></div>
+
+      <ol class="steps">
+        <li>
+          <div class="step-title">複製「AI 指令」</div>
+          <p class="muted small-text">裡面是遊戲規則和寫法說明，你不用看懂。</p>
+          <button id="copyPromptBtn" class="btn primary">📋 複製 AI 指令</button>
+        </li>
+        <li>
+          <div class="step-title">貼給你的 AI，說你想要什麼隊友</div>
+          <p class="muted small-text">打開 ChatGPT、Claude、Gemini 等任何 AI，貼上後在最後補一句，例如：</p>
+          <ul class="examples">
+            <li>「跟在我旁邊，幫我擋子彈」</li>
+            <li>「直接衝去炸敵人基地」</li>
+            <li>「躲在草叢裡，有人經過就偷襲」</li>
+            <li>「看到子彈飛過來要閃開」</li>
+          </ul>
+        </li>
+        <li>
+          <div class="step-title">把 AI 寫好的代碼交給遊戲</div>
+          <p class="muted small-text">複製 AI 給的代碼按「貼上」，或存成 .txt / .js 檔後上傳。會自動測試，通過就會在下一局使用。</p>
+          <div class="editor-actions">
+            <button id="pasteBtn" class="btn">📥 貼上代碼</button>
+            <label class="btn file-btn">📄 上傳檔案<input id="fileInput" type="file" accept=".txt,.js,.mjs,.md,text/plain,text/javascript,application/javascript"></label>
+          </div>
+          <button id="manualToggle" class="link-btn">沒辦法貼上？點這裡手動貼</button>
+          <div id="manualBox" class="manual hidden">
+            <textarea id="codeArea" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="長按這裡貼上 AI 給你的代碼"></textarea>
+            <button id="checkBtn" class="btn small primary">送出測試</button>
+          </div>
+        </li>
+      </ol>
+
       <div id="codeStatus" class="code-status"></div>
-    </div>
-    <div class="tab-body hidden" data-tab="spec">
-      <div class="editor-actions">
-        <button id="copySpecBtn" class="btn small primary">複製規格</button>
-        <button id="copySpecSampleBtn" class="btn small">複製規格＋範例代碼</button>
-      </div>
-      <pre id="specText" class="spec selectable"></pre>
+      <button id="useDefaultBtn" class="link-btn">改回內建 AI</button>
     </div>
   </div>
 </div>

@@ -85,7 +85,7 @@ wss.on('connection', (ws) => {
       } else if (msg.t === 'resume') {
         const r = rooms.get(String(msg.code || ''));
         const p = r && r.get(msg.id);
-        if (!p || p.token !== msg.token) return send(ws, { t: 'resumeFailed' });
+        if (!p || p.token !== msg.token) return send(ws, { t: 'resumeFailed', roomExists: !!r });
         room = r; player = p;
         send(ws, { t: 'joined', code: room.code, id: player.id, token: player.token, name: player.name, ...CLIENT_INFO });
         room.resume(player, ws);

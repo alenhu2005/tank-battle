@@ -75,8 +75,8 @@ function generateMap({ anchors: anchorCount, spawnsPerAnchor, size, baseMode, br
             g[a.y + dy][a.x + dx] = '#';
           }
         g[a.y][a.x] = 'B';
-        // 基地正上下左右 3 格放鋼牆：擋住遠距離直線狙擊，敵人得靠近才打得到基地
-        for (const [dx, dy] of [[0, -3], [0, 3], [-3, 0], [3, 0]]) {
+        // 基地上下左右與四個斜角距離 3 格放鋼牆：擋住遠距離直線／斜線狙擊，敵人得靠近才打得到基地
+        for (const [dx, dy] of [[0, -3], [0, 3], [-3, 0], [3, 0], [-3, -3], [3, -3], [-3, 3], [3, 3]]) {
           const x = a.x + dx, y = a.y + dy;
           if (x >= 0 && y >= 0 && x < size && y < size) g[y][x] = '@';
         }

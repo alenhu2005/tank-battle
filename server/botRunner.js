@@ -153,7 +153,7 @@ class BotSandbox {
     let move = r.move;
     if (move === undefined || move === '' || move === 'none' || move === 'stop') move = null;
     if (move !== null && !C.DIRS.includes(move)) {
-      this._error(`move 的值 ${JSON.stringify(move)} 無效，只能是 "up" "down" "left" "right" 或 null`);
+      this._error(`move 的值 ${JSON.stringify(move)} 無效，只能是 ${C.DIRS.map(d => '"' + d + '"').join(' ')} 或 null`);
       move = null;
     }
     return { move, fire: !!r.fire };

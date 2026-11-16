@@ -3,7 +3,9 @@
 // 範例電腦代碼：沒交代碼的玩家和「內建電腦隊伍」都用這份。
 // 也會顯示在編輯器裡當作起點。
 module.exports = `// 範例電腦隊友：找最近的敵人或敵方基地，對齊就開火，路上有磚牆就打掉
-var DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+var DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };          // 尋路用四方向
+var AIM = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0],               // 射擊可以八方向
+  upleft: [-1, -1], upright: [1, -1], downleft: [-1, 1], downright: [1, 1] };
 
 function think(view, memory) {
   var me = view.me, map = view.map;
@@ -22,7 +24,7 @@ function think(view, memory) {
     memory.wander = 12; memory.still = 0;
   }
 
-  // 1. 和目標在同一直線上、中間沒有鋼牆 → 轉過去開火
+  // 1. 和目標在同一直線或斜線上、中間沒有擋住 → 轉過去開火
   for (var i = 0; i < targets.length; i++) {
     var d = clearShot(me, targets[i], map, view.rules.breakableWalls);
     if (d) return { move: d === me.dir ? null : d, fire: d === me.dir };
@@ -45,11 +47,12 @@ function tileAt(map, x, y) {
 function clearShot(me, t, map, breakable) {
   var mx = Math.floor(me.x), my = Math.floor(me.y);
   var tx = Math.floor(t.x), ty = Math.floor(t.y);
-  var dir = null;
-  if (Math.abs(me.x - t.x) < 0.4) dir = t.y < me.y ? 'up' : 'down';
-  else if (Math.abs(me.y - t.y) < 0.4) dir = t.x < me.x ? 'left' : 'right';
+  var dir = null, dx = t.x - me.x, dy = t.y - me.y;
+  if (Math.abs(dx) < 0.4) dir = dy < 0 ? 'up' : 'down';
+  else if (Math.abs(dy) < 0.4) dir = dx < 0 ? 'left' : 'right';
+  else if (Math.abs(Math.abs(dx) - Math.abs(dy)) < 0.35) dir = (dy < 0 ? 'up' : 'down') + (dx < 0 ? 'left' : 'right');
   if (!dir) return null;
-  var v = DIRS[dir], x = mx, y = my;
+  var v = AIM[dir], x = mx, y = my;
   for (var n = 0; n < 60; n++) {
     x += v[0]; y += v[1];
     if (x === tx && y === ty) return dir;

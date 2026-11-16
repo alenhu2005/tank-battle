@@ -43,3 +43,54 @@ for (const opts of [{ mode: 'ffa', baseMode: true }, { mode: 'ffa', baseMode: fa
   round.dispose();
 }
 console.log('ALL OK');
+
+// 倒數：前 5 秒不模擬、不呼叫電腦代碼
+{
+  const { Round } = require('../server/game');
+  const sides = [0, 1].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: DEFAULT_BOT, aiPilot: true }] }));
+  const r = new Round({ mode: 'ffa', baseMode: true, timeLimit: 60, countdown: 5, sides });
+  const before = r.tanks.map(t => [t.x, t.y]).join();
+  let s;
+  for (let i = 0; i < 150; i++) { r.step(); s = r.snapshotFor(null); }
+  assert.strictEqual(r.tanks.map(t => [t.x, t.y]).join(), before, 'tanks moved during countdown');
+  assert.strictEqual(s.c, 0);
+  assert.strictEqual(r.tanks[1].sandbox.report().calls, 0);
+  for (let i = 0; i < 60; i++) r.step();
+  assert(r.tanks[1].sandbox.report().calls > 0);
+  let kills = 0;
+  while (!r.over) { r.step(); kills += r.kills.length; }
+  assert(kills > 0, 'kill feed events emitted');
+  console.log('countdown + kill feed OK, round ticks', r.result.ticks);
+  r.dispose();
+}
+
+// 八方向移動：偏離中心也能鑽進 1 格寬通道；斜走撞牆會沿牆滑動；斜向子彈
+{
+  const { Round } = require('../server/game');
+  const sides = [0, 1].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: 'function think(){return null}' }] }));
+  const r = new Round({ mode: 'ffa', baseMode: false, timeLimit: 0, sides, size: 21 });
+  const S = r.size;
+  r.tiles.fill('.');
+  // 第 10 列只有第 10 欄是通道，其他是鋼牆
+  for (let x = 0; x < S; x++) if (x !== 10) r.tiles[10 * S + x] = '@';
+  const t = r.tanks[0];
+  r.tanks.filter(o => o !== t).forEach((o, i) => { o.x = 18.5; o.y = 1.5 + i * 2; }); // 其他坦克移到角落，不擋路
+  t.x = 10.2; t.y = 7.5; t.shield = 0;
+  r.setInput('p0', { move: 'down' });
+  for (let i = 0; i < 40; i++) r.step();
+  assert(t.y > 11, 'tank should pass through the 1-wide gap, y=' + t.y);
+  assert(Math.abs(t.x - 10.5) < 0.01, 'aligned to lane center');
+  // 斜走沿牆滑動：往右下走，下方是牆
+  t.x = 3.5; t.y = 9.4;
+  r.setInput('p0', { move: 'downright' });
+  for (let i = 0; i < 10; i++) r.step();
+  assert(t.x > 4.2 && t.y < 9.6, 'slides along wall: ' + t.x + ',' + t.y);
+  // 斜向子彈
+  t.x = 5.5; t.y = 5.5; t.dir = 'upright'; t.cooldown = 0;
+  r.setInput('p0', { move: null, fire: true });
+  r.step();
+  const b = r.bullets.find(b => b.owner === t.id);
+  assert(b && b.x > 5.5 && b.y < 5.5 && Math.abs((b.x - 5.5) - (5.5 - b.y)) < 1e-6, 'diagonal bullet');
+  console.log('8-direction movement OK');
+  r.dispose();
+}

@@ -62,8 +62,8 @@
   const isHost = () => room && me && room.hostId === me.id;
   const myPlayer = () => room && room.players.find(p => p.id === me.id);
 
-  fetch('/spec.txt').then(r => r.text()).then(t => { specText = t; $('#specText').textContent = t; }).catch(() => {});
-  fetch('/default-bot.js').then(r => r.text()).then(t => { defaultBot = t; if (!$('#codeArea').value) $('#codeArea').value = store.get('botCode', '') || t; }).catch(() => {});
+  fetch('/spec.txt').then(r => r.text()).then(t => { specText = t; }).catch(() => {});
+  fetch('/default-bot.js').then(r => r.text()).then(t => { defaultBot = t; }).catch(() => {});
 
   // ---------- 連線 ----------
   function connect(firstMsg) {
@@ -110,7 +110,7 @@
         $('#connBanner').classList.remove('show');
         intentionalClose = true; ws.close();
         show('home');
-        toast('房間已經不存在了');
+        toast(m.roomExists ? '你太久沒回來，已經被移出房間了' : '房間已經不存在了');
         break;
       case 'error':
         toast(m.msg);
@@ -123,7 +123,7 @@
         break;
       case 'room': onRoom(m); break;
       case 'myCode':
-        if (m.code) { $('#codeArea').value = m.code; store.set('botCode', m.code); }
+        if (m.code) store.set('botCode', m.code);
         break;
       case 'roundStart': onRoundStart(m); break;
       case 's':
@@ -132,7 +132,7 @@
         break;
       case 'roundEnd': onRoundEnd(m); break;
       case 'codeChecking':
-        $('#codeStatus').innerHTML = '<span class="muted">檢查中…（在測試對戰裡實際跑一遍）</span>';
+        $('#codeStatus').innerHTML = '<span class="muted">測試中…（放進測試對戰實際跑一遍）</span>';
         $('#checkBtn').disabled = true;
         break;
       case 'codeResult': onCodeResult(m); break;
@@ -182,6 +182,7 @@
     $('#roomCode').textContent = m.code;
     renderLobby();
     renderResultButtons();
+    if ($('#editor').classList.contains('show')) renderCodeNow();
     if (m.state === 'lobby') {
       if (!$('#lobby').classList.contains('active')) show('lobby');
     } else if (m.state === 'intermission' || m.state === 'finished') {
@@ -310,78 +311,162 @@
   $('#endMatchBtn').onclick = () => { if (confirm('提前結束整場比賽？')) send({ t: 'endMatch' }); };
   $('#toLobbyBtn').onclick = () => send({ t: 'toLobby' });
 
-  // ---------- 代碼編輯器 ----------
-  function openEditor() {
-    if (!$('#codeArea').value) $('#codeArea').value = store.get('botCode', '') || defaultBot;
-    $('#editor').classList.add('show');
+  // ---------- 電腦隊友代碼（介面不顯示原始碼） ----------
+  function renderCodeNow() {
     const mc = room && room.myCode;
-    if (mc && !$('#codeStatus').dataset.touched) {
-      $('#codeStatus').innerHTML = mc.custom ? '<span class="ok">目前使用：你的自訂代碼</span>' : '<span class="muted">目前使用：範例代碼</span>';
-    }
+    const el = $('#codeNow');
+    if (!mc || !mc.custom) { el.innerHTML = '目前使用：<b>內建 AI</b>（還沒交過自己的代碼）'; return; }
+    const at = mc.info && mc.info.at ? new Date(mc.info.at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }) : '';
+    const lines = (store.get('botCode', '') || '').split('\n').length;
+    el.innerHTML = `目前使用：<b>你的自訂代碼</b>${lines > 1 ? `（${lines} 行）` : ''}${at ? `・${at} 啟用` : ''}`;
+  }
+  function openEditor() {
+    renderCodeNow();
+    $('#editor').classList.add('show');
   }
   $('#codeBtn').onclick = openEditor;
   $('#codeBtn2').onclick = openEditor;
   $('#editorClose').onclick = () => $('#editor').classList.remove('show');
-  $$('.tab').forEach(t => t.onclick = () => {
-    $$('.tab').forEach(x => x.classList.toggle('active', x === t));
-    $$('.tab-body').forEach(b => b.classList.toggle('hidden', b.dataset.tab !== t.dataset.tab));
-  });
-  $('#codeArea').addEventListener('input', () => store.set('botCode', $('#codeArea').value));
-  $('#codeArea').addEventListener('keydown', e => {
-    if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '  '); }
-  });
+
+  function aiPrompt() {
+    return `我在玩一款手機坦克對戰遊戲，需要你幫我寫「電腦隊友」的 JavaScript 代碼。
+請完全依照下面的規格，寫出完整、可以直接執行的代碼（定義 think(view, memory)，可以加輔助函式）。
+只輸出代碼，放在一個 \`\`\`javascript 區塊裡；不要用 import、require、setTimeout。
+
+${specText}
+## 參考：遊戲內建的範例 AI（可以改進它，也可以完全重寫）
+\`\`\`javascript
+${defaultBot}\`\`\`
+
+## 我想要的隊友
+`;
+  }
+  $('#copyPromptBtn').onclick = async () => {
+    if (!specText) return toast('還在載入，請稍等一下再按');
+    toast((await copyText(aiPrompt())) ? '已複製！貼給你的 AI，再補一句你想要的隊友' : '複製失敗，請再試一次');
+  };
+
+  // AI 回覆常常包在 ``` 裡，或前後有說明文字：自動取出代碼區塊
+  function extractCode(t) {
+    const blocks = [...String(t).matchAll(/```[a-zA-Z]*\s*\n([\s\S]*?)```/g)].map(m => m[1]);
+    if (!blocks.length) return String(t);
+    return blocks.find(b => /function\s+think|think\s*=|think\s*\(/.test(b)) || blocks.sort((a, b) => b.length - a.length)[0];
+  }
+  function submitCode(raw, source) {
+    const code = extractCode(raw).trim();
+    if (!code) return toast('沒有讀到代碼');
+    if (new Blob([code]).size > 100 * 1024) return toast('代碼超過 100KB');
+    if (!/think/.test(code)) {
+      $('#codeStatus').innerHTML = '<span class="bad">❌ 這看起來不是電腦代碼（找不到 think）</span><div class="muted small-text">請確認複製的是 AI 給的整段代碼。</div>';
+      return;
+    }
+    store.set('pendingCode', code);
+    $('#codeStatus').innerHTML = `<span class="muted">已收到${source}，測試中…</span>`;
+    send({ t: 'code', code });
+  }
   $('#pasteBtn').onclick = async () => {
     try {
       const t = await navigator.clipboard.readText();
-      if (!t) return toast('剪貼簿是空的');
-      $('#codeArea').value = extractCode(t);
-      store.set('botCode', $('#codeArea').value);
-      toast('已貼上');
-    } catch { toast('瀏覽器不允許讀取剪貼簿，請長按輸入框貼上'); $('#codeArea').focus(); }
+      if (!t || !t.trim()) return toast('剪貼簿是空的，先去 AI 那邊複製代碼');
+      submitCode(t, '剪貼簿的代碼');
+    } catch {
+      $('#manualBox').classList.remove('hidden');
+      toast('瀏覽器不讓讀剪貼簿，請在下方框框長按貼上');
+      $('#codeArea').focus();
+    }
   };
-  // AI 回覆常常包在 ``` 裡，自動取出代碼區塊
-  function extractCode(t) {
-    const m = t.match(/```(?:javascript|js)?\s*\n([\s\S]*?)```/i);
-    return m ? m[1] : t;
-  }
-  $('#sampleBtn').onclick = () => { if (confirm('用範例代碼覆蓋編輯器內容？')) { $('#codeArea').value = defaultBot; store.set('botCode', defaultBot); } };
-  $('#clearBtn').onclick = () => { $('#codeArea').value = ''; $('#codeArea').focus(); };
-  $('#useDefaultBtn').onclick = () => send({ t: 'code', useDefault: true });
-  $('#checkBtn').onclick = () => {
-    const code = extractCode($('#codeArea').value);
-    $('#codeArea').value = code;
-    if (!code.trim()) return toast('代碼是空的');
-    $('#codeStatus').dataset.touched = '1';
-    send({ t: 'code', code });
+  $('#fileInput').onchange = (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    if (f.size > 300 * 1024) return toast('檔案太大了');
+    const reader = new FileReader();
+    reader.onload = () => submitCode(String(reader.result), `檔案「${f.name}」`);
+    reader.onerror = () => toast('讀取檔案失敗');
+    reader.readAsText(f);
   };
+  $('#manualToggle').onclick = () => $('#manualBox').classList.toggle('hidden');
+  $('#checkBtn').onclick = () => { submitCode($('#codeArea').value, '代碼'); };
+  $('#useDefaultBtn').onclick = () => { if (confirm('改回內建 AI？')) send({ t: 'code', useDefault: true }); };
+
   function onCodeResult(m) {
     $('#checkBtn').disabled = false;
     const st = $('#codeStatus');
-    st.dataset.touched = '1';
-    if (m.usingDefault) { st.innerHTML = '<span class="ok">已改用範例代碼</span>'; return; }
+    if (m.usingDefault) { store.del('botCode'); st.innerHTML = '<span class="ok">已改回內建 AI</span>'; renderCodeNow(); return; }
     if (m.ok) {
-      st.innerHTML = `<span class="ok">✅ 通過！之後的對戰會使用這份代碼</span>
-        <div class="muted">測試對戰中呼叫 ${m.stats.calls} 次，平均 ${m.stats.avgMs}ms，最慢 ${m.stats.maxMs}ms</div>
-        ${m.logs && m.logs.length ? `<div class="logbox selectable">${esc(m.logs.join('\n'))}</div>` : ''}`;
+      store.set('botCode', store.get('pendingCode', ''));
+      $('#codeArea').value = '';
+      $('#manualBox').classList.add('hidden');
+      st.innerHTML = `<span class="ok">✅ 測試通過！下一局就會使用這份代碼</span>
+        <div class="muted small-text">測試對戰中跑了 ${m.stats.calls} 次，平均 ${m.stats.avgMs}ms</div>`;
       toast('代碼已啟用');
     } else {
-      st.innerHTML = `<span class="bad">❌ 沒有通過，對戰會繼續使用${room && room.myCode.custom ? '上一份通過的代碼' : '範例代碼'}</span>
+      st.innerHTML = `<span class="bad">❌ 測試沒通過，先繼續用${room && room.myCode.custom ? '上一份能用的代碼' : '內建 AI'}</span>
         <div class="logbox err selectable">${esc(m.errors.join('\n'))}</div>
-        <button class="btn small" id="copyErrBtn" style="margin-top:6px">複製錯誤訊息（貼給 AI 修正）</button>`;
-      $('#copyErrBtn').onclick = async () => toast((await copyText('我的坦克代碼檢查失敗，錯誤如下：\n' + m.errors.join('\n'))) ? '已複製' : '複製失敗');
+        <button class="btn small primary" id="copyErrBtn" style="margin-top:6px">📋 複製錯誤，貼回給 AI 修</button>`;
+      $('#copyErrBtn').onclick = async () => toast((await copyText('你寫的坦克代碼在遊戲測試時出錯了，請修正後給我完整的新代碼。錯誤訊息：\n' + m.errors.join('\n'))) ? '已複製，貼給 AI 就好' : '複製失敗');
     }
+    renderCodeNow();
   }
-  $('#copySpecBtn').onclick = async () => toast((await copyText(specText)) ? '已複製規格，貼給你的 AI 助手吧' : '複製失敗，請手動選取');
-  $('#copySpecSampleBtn').onclick = async () => toast((await copyText(specText + '\n\n## 範例代碼\n```javascript\n' + defaultBot + '```\n')) ? '已複製規格＋範例' : '複製失敗');
 
   // ---------- 遊戲 ----------
   let hudDirty = true;
   let wakeLock = null;
+  let lastDeath = null;    // { killer, cause, at }
+
+  const tankName = (id) => {
+    const m = renderer.tankMeta && renderer.tankMeta.get(id);
+    if (!m) return '？';
+    return m.isBot ? `${m.name}的電腦` : m.name;
+  };
+  const tankColor = (id) => {
+    const m = renderer.tankMeta && renderer.tankMeta.get(id);
+    return m ? renderer.sideMeta.get(m.side).color : '#fff';
+  };
+
+  // 擊殺訊息
+  renderer.onKill = (victim, killer, cause) => {
+    const feed = $('#killFeed');
+    const el = document.createElement('div');
+    const icon = cause === 'blast' ? '💥' : cause === 'base' ? '🏳️' : '➜';
+    const mine = renderer.myTank && (victim === renderer.myTank.id || killer === renderer.myTank.id);
+    el.className = mine ? 'mine' : '';
+    el.innerHTML = cause === 'base'
+      ? `<span style="color:${tankColor(victim)}">${esc(tankName(victim))}</span> 基地被毀`
+      : `<span style="color:${tankColor(killer)}">${esc(killer ? tankName(killer) : '？')}</span> ${icon} <span style="color:${tankColor(victim)}">${esc(tankName(victim))}</span>`;
+    feed.prepend(el);
+    while (feed.children.length > 4) feed.lastChild.remove();
+    setTimeout(() => el.classList.add('fade'), 3500);
+    setTimeout(() => el.remove(), 4000);
+    if (renderer.myTank && victim === renderer.myTank.id) {
+      lastDeath = { killer, cause, at: performance.now() };
+      if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
+      $('#replayCause').textContent = cause === 'blast' ? `被 ${tankName(killer)} 炸到` : `被 ${tankName(killer)} 擊中`;
+    }
+    hudDirty = true;
+  };
+  renderer.onBaseKill = (sideKey, shooter) => {
+    const side = renderer.sideMeta.get(sideKey);
+    const feed = $('#killFeed');
+    const el = document.createElement('div');
+    const mine = renderer.myTank && renderer.myTank.side === sideKey;
+    el.className = mine ? 'mine' : '';
+    el.innerHTML = `<span style="color:${tankColor(shooter)}">${esc(shooter ? tankName(shooter) : '？')}</span> 🏳️ 摧毀了 <span style="color:${side.color}">${esc(side.name)}</span> 的基地`;
+    feed.prepend(el);
+    while (feed.children.length > 4) feed.lastChild.remove();
+    setTimeout(() => el.classList.add('fade'), 4500);
+    setTimeout(() => el.remove(), 5000);
+    if (mine) { lastDeath = { killer: shooter, cause: 'base', at: performance.now() }; if (navigator.vibrate) navigator.vibrate([100, 50, 100]); }
+    hudDirty = true;
+  };
+  $('#replayBox').addEventListener('pointerdown', (e) => { e.stopPropagation(); renderer.closeReplay(); $('#replayBox').classList.remove('show'); });
 
   function onRoundStart(m) {
     roundMeta = m;
     lastResult = null;
+    lastDeath = null;
     $('#editor').classList.remove('show');
+    $('#killFeed').innerHTML = '';
     renderer.setRound(m.meta, m.myTank);
     document.body.classList.toggle('spectator', !m.myTank);
     $('#game .controls').classList.toggle('hidden', !m.myTank);
@@ -397,7 +482,9 @@
     roundMeta = null;
     resetInput();
     releaseWakeLock();
-    setTimeout(() => { renderResult(); show('result'); }, 400);
+    $('#replayBox').classList.remove('show');
+    $('#countdown').classList.remove('show');
+    setTimeout(() => { renderResult(); show('result'); }, 600);
   }
 
   function layoutGame() {
@@ -412,27 +499,45 @@
   window.addEventListener('resize', () => { if ($('#game').classList.contains('active')) layoutGame(); });
   window.addEventListener('orientationchange', () => setTimeout(layoutGame, 200));
 
+  let shownCount = null, goUntil = 0, lastHudAt = 0;
   function frame(now) {
     if ($('#game').classList.contains('active')) {
       renderer.draw(now);
-      if (hudDirty) { updateHud(); hudDirty = false; }
+      // 開局倒數
+      const left = renderer.countdownLeft();
+      const cd = $('#countdown');
+      if (left !== null) {
+        const n = Math.ceil(left);
+        if (n !== shownCount) {
+          shownCount = n;
+          cd.textContent = n; cd.className = 'countdown';
+          void cd.offsetWidth; cd.classList.add('show');
+          if (navigator.vibrate && n <= 3) navigator.vibrate(15);
+        }
+      } else if (shownCount !== null) {
+        shownCount = null; goUntil = now + 700;
+        cd.textContent = '開始！'; cd.className = 'countdown go';
+        void cd.offsetWidth; cd.classList.add('show');
+      } else if (goUntil && now > goUntil) { goUntil = 0; cd.classList.remove('show'); }
+      // 死亡重播（子母畫面）
+      const box = $('#replayBox');
+      if (renderer.replayActive(now)) { box.classList.add('show'); renderer.drawReplay($('#replayCanvas'), now); }
+      else if (box.classList.contains('show')) box.classList.remove('show');
+      if (hudDirty || now - lastHudAt > 200) { updateHud(); hudDirty = false; lastHudAt = now; }
     }
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
 
-  let lastHudTick = -1;
   function updateHud() {
     const r = renderer;
     if (!r.meta) return;
     $('#hudRound').textContent = roundMeta ? `第 ${roundMeta.roundNo}/${roundMeta.rounds} 局` : '';
-    if (r.tick !== lastHudTick) {
-      lastHudTick = r.tick;
-      if (r.meta.timeLimitTicks) {
-        const left = Math.max(0, Math.ceil((r.meta.timeLimitTicks - r.tick) / r.meta.tickRate));
-        $('#hudTimer').textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
-      } else $('#hudTimer').textContent = `${Math.floor(r.tick / r.meta.tickRate)}s`;
-    }
+    const played = r.playTick();
+    if (r.meta.timeLimitTicks) {
+      const left = Math.max(0, Math.ceil((r.meta.timeLimitTicks - played) / r.meta.tickRate));
+      $('#hudTimer').textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+    } else $('#hudTimer').textContent = `${Math.floor(played / r.meta.tickRate)}s`;
     $('#hudSides').innerHTML = r.meta.sides.map(s => {
       const st = r.sideState.get(s.key);
       return `<span class="${st && st.out ? 'out' : ''}" style="background:${s.color}">${esc(s.name)}</span>`;
@@ -444,9 +549,10 @@
       const bot = botMeta ? r.lives.get(botMeta.id) : null;
       $('#hudLives').innerHTML = `${'♥'.repeat(mine.lives)}<span style="opacity:.3">${'♥'.repeat(Math.max(0, 3 - mine.lives))}</span> 電腦${bot && bot.alive ? '✓' : '✕'}`;
       const sideOut = (r.sideState.get(r.myTank.side) || {}).out;
-      if (sideOut) { spect.textContent = '你的隊伍已出局，觀戰中'; spect.classList.add('show'); }
-      else if (!mine.alive && mine.lives > 0) { spect.textContent = '重生中…'; spect.classList.add('show'); }
-      else if (!mine.alive) { spect.textContent = '沒有命了，看你的電腦表現吧'; spect.classList.add('show'); }
+      const why = !lastDeath ? '' : lastDeath.cause === 'base' ? '基地被摧毀' : lastDeath.cause === 'blast' ? `被 ${tankName(lastDeath.killer)} 的爆炸波及` : `被 ${tankName(lastDeath.killer)} 擊中`;
+      if (sideOut) { spect.innerHTML = `${lastDeath && lastDeath.cause === 'base' ? '基地被摧毀，' : ''}你的隊伍已出局<br><small>觀戰中</small>`; spect.classList.add('show'); }
+      else if (!mine.alive && mine.lives > 0) { spect.innerHTML = `${esc(why)}<br><small>重生中…</small>`; spect.classList.add('show'); }
+      else if (!mine.alive && r.countdownLeft() === null) { spect.innerHTML = `${esc(why)}<br><small>沒有命了，看你的電腦表現吧</small>`; spect.classList.add('show'); }
       else spect.classList.remove('show');
     } else {
       $('#hudLives').textContent = '觀戰中';
@@ -454,7 +560,8 @@
     }
   }
 
-  // ---------- 操作：虛擬搖桿、開火鍵、鍵盤 ----------
+  // ---------- 操作：虛擬搖桿（八方向）、開火鍵、鍵盤 ----------
+  // 方向編號與伺服器一致：0 上 1 下 2 左 3 右 4 左上 5 右上 6 左下 7 右下
   const input = { move: -1, fire: false };
   let sentInput = '';
   function pushInput(force) {
@@ -471,6 +578,8 @@
     pushInput(true);
   }
 
+  // 角度（0 = 右，逆時針）每 45° 一區
+  const SECTOR_TO_DIR = [3, 5, 0, 4, 2, 6, 1, 7];
   const stick = { id: null, ox: 0, oy: 0 };
   const zone = $('#stickZone'), base = $('#stickBase'), knob = $('#stickKnob');
   zone.addEventListener('pointerdown', e => {
@@ -498,7 +607,11 @@
     if (d > maxR) { dx = dx / d * maxR; dy = dy / d * maxR; }
     knob.style.transform = `translate(${dx}px, ${dy}px)`;
     let mv = -1;
-    if (d > 12) mv = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 3 : 2) : (dy > 0 ? 1 : 0);
+    if (d > 12) {
+      const ang = Math.atan2(-dy, dx);                       // 螢幕 y 向下，翻轉成數學角度
+      const sector = ((Math.round(ang / (Math.PI / 4)) % 8) + 8) % 8;
+      mv = SECTOR_TO_DIR[sector];
+    }
     if (mv !== input.move && mv >= 0 && navigator.vibrate) navigator.vibrate(6);
     input.move = mv; pushInput();
   }
@@ -516,19 +629,19 @@
   fz.addEventListener('pointercancel', endFire);
 
   const keys = new Set();
-  const KEYMAP = { ArrowUp: 0, KeyW: 0, ArrowDown: 1, KeyS: 1, ArrowLeft: 2, KeyA: 2, ArrowRight: 3, KeyD: 3 };
+  const KEY_VEC = { ArrowUp: [0, -1], KeyW: [0, -1], ArrowDown: [0, 1], KeyS: [0, 1], ArrowLeft: [-1, 0], KeyA: [-1, 0], ArrowRight: [1, 0], KeyD: [1, 0] };
+  const VEC_TO_DIR = { '0,-1': 0, '0,1': 1, '-1,0': 2, '1,0': 3, '-1,-1': 4, '1,-1': 5, '-1,1': 6, '1,1': 7 };
   function keyInput() {
-    let mv = -1;
-    for (const k of keys) if (k in KEYMAP) mv = KEYMAP[k];
-    input.move = mv;
+    let x = 0, y = 0;
+    for (const k of keys) if (KEY_VEC[k]) { x += KEY_VEC[k][0]; y += KEY_VEC[k][1]; }
+    x = Math.sign(x); y = Math.sign(y);
+    input.move = (x || y) ? VEC_TO_DIR[x + ',' + y] : -1;
     input.fire = keys.has('Space') || keys.has('KeyJ');
     pushInput();
   }
   window.addEventListener('keydown', e => {
     if (!$('#game').classList.contains('active') || e.target.closest('input, textarea')) return;
-    if (e.code in KEYMAP || e.code === 'Space' || e.code === 'KeyJ') {
-      e.preventDefault(); keys.delete(e.code); keys.add(e.code); keyInput();
-    }
+    if (e.code in KEY_VEC || e.code === 'Space' || e.code === 'KeyJ') { e.preventDefault(); keys.add(e.code); keyInput(); }
   });
   window.addEventListener('keyup', e => { if (keys.delete(e.code)) keyInput(); });
   window.addEventListener('blur', () => { keys.clear(); if (roundMeta) resetInput(); });
@@ -554,7 +667,31 @@
     try { if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch { /* ignore */ }
   }
   function releaseWakeLock() { try { if (wakeLock) wakeLock.release(); } catch { /* ignore */ } wakeLock = null; }
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && roundMeta) requestWakeLock(); });
+
+  // ---------- 省錢：網頁切到背景超過 2 分鐘就自動斷線，回來時自動連回 ----------
+  const HIDDEN_DISCONNECT_MS = 2 * 60 * 1000;
+  let hiddenTimer = null, pausedForHidden = false;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      clearTimeout(hiddenTimer);
+      hiddenTimer = setTimeout(() => {
+        if (ws && ws.readyState <= 1 && store.get('session', null)) {
+          pausedForHidden = true;
+          intentionalClose = true;
+          clearTimeout(reconnectTimer);
+          ws.close();
+        }
+      }, HIDDEN_DISCONNECT_MS);
+    } else {
+      clearTimeout(hiddenTimer);
+      if (pausedForHidden) {
+        pausedForHidden = false;
+        const saved = store.get('session', null);
+        if (saved) { saved.at = Date.now(); store.set('session', saved); connect({ t: 'resume', ...saved }); }
+      }
+      if (roundMeta) requestWakeLock();
+    }
+  });
 
   // ---------- 局後結果 ----------
   const REASONS = { last: '最後存活', draw: '同歸於盡', time: '時間到，剩餘命數較多', timeDraw: '時間到，平手' };

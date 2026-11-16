@@ -6,8 +6,9 @@ const { Round } = require('./game');
 const { validateAsync } = require('./validateWorker');
 const DEFAULT_BOT = require('./defaultBot');
 
-const DISCONNECT_GRACE_MS = 20000;
-const EMPTY_ROOM_MS = 5 * 60 * 1000;
+const DISCONNECT_GRACE_MS = 20000;          // 房主斷線多久後轉移房主
+const LOBBY_REMOVE_MS = 10 * 60 * 1000;     // 大廳裡斷線多久後移出房間（手機切到背景會自動斷線）
+const EMPTY_ROOM_MS = 15 * 60 * 1000;
 
 function send(ws, obj) {
   if (ws && ws.readyState === 1) ws.send(typeof obj === 'string' ? obj : JSON.stringify(obj));
@@ -129,7 +130,7 @@ class Room {
     const now = Date.now();
     for (const p of this.humans()) {
       if (p.connected || now - p.disconnectedAt < DISCONNECT_GRACE_MS) continue;
-      if (this.state === 'lobby') { this.remove(p); continue; }
+      if (this.state === 'lobby' && now - p.disconnectedAt > LOBBY_REMOVE_MS) { this.remove(p); continue; }
       if (this.hostId === p.id) { this._reassignHost(); this.sendRoom(); }
     }
     const anyone = this.humans().some(p => p.connected);
@@ -277,7 +278,7 @@ class Room {
     this.roundNo++;
     this.round = new Round({
       mode: s.mode, baseMode: s.baseMode, fog: s.fog, breakableWalls: !s.hardWalls, codeOnly: s.codeOnly,
-      timeLimit: s.timeLimit, sides: this._buildSides(),
+      timeLimit: s.timeLimit, sides: this._buildSides(), countdown: C.COUNTDOWN_SECONDS,
     });
     this.state = 'playing';
     for (const p of this.players) p.ready = p.isAI;

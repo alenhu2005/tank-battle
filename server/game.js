@@ -10,7 +10,12 @@ const C = require('./constants');
 const { generateMap } = require('./mapgen');
 const { BotSandbox } = require('./botRunner');
 
-const DIR_IDX = { up: 0, down: 1, left: 2, right: 3 };
+const DIR_IDX = Object.fromEntries(C.DIRS.map((d, i) => [d, i]));
+// 單位向量（斜向為 1/√2）
+const UNIT = Object.fromEntries(C.DIRS.map(d => {
+  const [x, y] = C.DIR_VEC[d], n = Math.hypot(x, y);
+  return [d, [x / n, y / n]];
+}));
 const TANK_SOLID = new Set(['#', '@', '~', 'B']);
 const HALF = C.TANK_SIZE / 2;
 const BULLET_SUB = 8;
@@ -39,6 +44,9 @@ class Round {
     this.breakableWalls = opts.breakableWalls !== false;
     this.codeOnly = !!opts.codeOnly;
     this.timeLimitTicks = opts.timeLimit ? opts.timeLimit * C.TICK_RATE : 0;
+    this.startTicks = Math.round((opts.countdown || 0) * C.TICK_RATE); // 開局倒數，期間不模擬
+    this.kills = [];
+    this.baseKillsNow = [];
     this.tick = 0;
     this.over = false;
     this.endTimer = -1;
@@ -90,7 +98,7 @@ class Round {
             kills: 0, deaths: 0, baseKills: 0,
             sandbox: null,
           };
-          if (isBot || m.aiPilot) tank.sandbox = new BotSandbox(m.code, `${m.name}${isBot ? ' 電腦' : ''}`);
+          if (isBot || m.aiPilot) tank.sandbox = new BotSandbox(isBot ? m.code : (m.pilotCode || m.code), `${m.name}${isBot ? ' 電腦' : ''}`);
           this.tanks.push(tank);
         }
       }
@@ -108,6 +116,8 @@ class Round {
     t.input = { move: C.DIRS.includes(input.move) ? input.move : null, fire: !!input.fire };
   }
 
+  get playTick() { return Math.max(0, this.tick - this.startTicks); }
+
   playerTank(playerId) { return this.tanks.find(t => t.owner === playerId && !t.isBot); }
 
   meta() {
@@ -115,7 +125,7 @@ class Round {
       size: this.size,
       tiles: this.tiles.join(''),
       mode: this.mode, baseMode: this.baseMode, fog: this.fog && !this.codeOnly, breakableWalls: this.breakableWalls,
-      codeOnly: this.codeOnly, timeLimitTicks: this.timeLimitTicks,
+      codeOnly: this.codeOnly, timeLimitTicks: this.timeLimitTicks, startTicks: this.startTicks, blastRadius: C.BLAST_RADIUS,
       tickRate: C.TICK_RATE, tankSize: C.TANK_SIZE,
       sides: this.sides.map(s => ({ key: s.key, name: s.name, color: s.color, base: s.base ? { x: s.base.x, y: s.base.y } : null, anchor: s.anchor })),
       tanks: this.tanks.map(t => ({
@@ -133,6 +143,9 @@ class Round {
     this.tick++;
     this.events = [];
     this.tileChanges = [];
+    this.kills = [];
+    this.baseKillsNow = [];
+    if (this.tick <= this.startTicks) return; // 倒數中
 
     // 1. 電腦代碼決策
     this.rowsCache = null;
@@ -222,23 +235,38 @@ class Round {
   }
 
   _move(t, dir) {
-    const [vx, vy] = C.DIR_VEC[dir];
-    const turning = (vx !== 0) !== (C.DIR_VEC[t.dir][0] !== 0);
+    const [ux, uy] = UNIT[dir];
     t.dir = dir;
-    if (turning) {
-      // 轉向時另一軸對齊到格子中心
-      if (vx !== 0) { const ny = Math.floor(t.y) + 0.5; if (!this._blocked(t, t.x, ny)) t.y = ny; }
-      else { const nx = Math.floor(t.x) + 0.5; if (!this._blocked(t, nx, t.y)) t.x = nx; }
-    }
     const step = t.stats.speed / C.TICK_RATE;
+    // 兩軸分開移動：斜走撞牆時會沿著牆滑動
+    this._moveAxis(t, ux * step, 0);
+    this._moveAxis(t, 0, uy * step);
+    // 直向/橫向移動時，另一軸自動靠向格子中心，才鑽得進 1 格寬的通道
+    if (ux === 0) this._align(t, 'x', step * C.ALIGN_RATE);
+    if (uy === 0) this._align(t, 'y', step * C.ALIGN_RATE);
+    t.x = Math.round(t.x * 1e4) / 1e4;
+    t.y = Math.round(t.y * 1e4) / 1e4;
+  }
+
+  _moveAxis(t, mx, my) {
+    if (!mx && !my) return;
     const parts = 8;
     for (let i = 0; i < parts; i++) {
-      const nx = t.x + (vx * step) / parts, ny = t.y + (vy * step) / parts;
+      const nx = t.x + mx / parts, ny = t.y + my / parts;
       if (this._blocked(t, nx, ny)) break;
       t.x = nx; t.y = ny;
     }
-    t.x = Math.round(t.x * 1e4) / 1e4;
-    t.y = Math.round(t.y * 1e4) / 1e4;
+  }
+
+  _align(t, axis, maxStep) {
+    const c = t[axis];
+    const d = Math.floor(c) + 0.5 - c;
+    if (Math.abs(d) < 1e-4) return;
+    const mv = Math.sign(d) * Math.min(Math.abs(d), maxStep);
+    for (const f of [1, 0.5, 0.25]) {
+      const nx = axis === 'x' ? t.x + mv * f : t.x, ny = axis === 'y' ? t.y + mv * f : t.y;
+      if (!this._blocked(t, nx, ny)) { t.x = nx; t.y = ny; return; }
+    }
   }
 
   _ownBullets(t) {
@@ -249,7 +277,7 @@ class Round {
 
   _fire(t) {
     if (t.cooldown > 0 || this._ownBullets(t) >= t.stats.maxBullets) return;
-    const [vx, vy] = C.DIR_VEC[t.dir];
+    const [vx, vy] = C.DIR_VEC[t.dir]; // 從砲口（斜向時為車身角落）射出
     this.bullets.push({
       id: this.nextBulletId++, owner: t.id, side: t.side, dir: t.dir,
       x: t.x + vx * HALF, y: t.y + vy * HALF,
@@ -262,7 +290,7 @@ class Round {
     for (let s = 0; s < BULLET_SUB; s++) {
       for (const b of this.bullets) {
         if (b.dead) continue;
-        const [vx, vy] = C.DIR_VEC[b.dir];
+        const [vx, vy] = UNIT[b.dir];
         const step = b.speed / C.TICK_RATE / BULLET_SUB;
         b.x += vx * step; b.y += vy * step;
         this._bulletHitWorld(b);
@@ -335,23 +363,23 @@ class Round {
     const shooter = this.tankById.get(b.owner);
     for (const t of this.tanks) {
       if (!t.alive || t === directHit || t.side === b.side) continue;
-      if (Math.abs(t.x - x) <= C.BLAST_RADIUS && Math.abs(t.y - y) <= C.BLAST_RADIUS) this._damage(t, shooter, x, y);
+      if (Math.hypot(t.x - x, t.y - y) <= C.BLAST_RADIUS) this._damage(t, shooter, x, y, 'blast');
     }
   }
 
   _bulletHitTank(b) {
     for (const t of this.tanks) {
       if (!t.alive || t.side === b.side) continue; // 沒有友軍傷害：子彈穿過隊友
-      if (Math.abs(t.x - b.x) < HALF + 0.08 && Math.abs(t.y - b.y) < HALF + 0.08) {
+      if (Math.abs(t.x - b.x) < HALF + C.HIT_MARGIN && Math.abs(t.y - b.y) < HALF + C.HIT_MARGIN) {
         b.dead = true;
-        this._damage(t, this.tankById.get(b.owner), b.x, b.y);
+        this._damage(t, this.tankById.get(b.owner), b.x, b.y, 'shot');
         if (b.blast) this._blast(b, b.x, b.y, t);
         return;
       }
     }
   }
 
-  _damage(t, shooter, x, y) {
+  _damage(t, shooter, x, y, cause) {
     if (!t.alive) return;
     if (t.shield > 0) { this.events.push(['spark', x, y]); return; }
     if (t.hp > 1) { t.hp--; this.events.push(['armor', t.x, t.y]); return; }
@@ -362,6 +390,7 @@ class Round {
     t.respawnTimer = C.RESPAWN_DELAY;
     t.input = { move: null, fire: false };
     this.events.push(['boom', t.x, t.y]);
+    this.kills.push([t.id, shooter ? shooter.id : 0, cause]);
   }
 
   _destroyBase(side, b) {
@@ -372,14 +401,19 @@ class Round {
     this.events.push(['baseBoom', side.base.x + 0.5, side.base.y + 0.5]);
     const shooter = this.tankById.get(b.owner);
     if (shooter) shooter.baseKills++;
-    this._eliminate(side);
+    this.baseKillsNow.push([side.key, shooter ? shooter.id : 0]);
+    this._eliminate(side, shooter);
   }
 
-  _eliminate(side) {
+  _eliminate(side, shooter) {
     side.eliminated = true;
     for (const t of this.tanks) {
       if (t.side !== side.key) continue;
-      if (t.alive) { t.alive = false; t.deaths++; this.events.push(['boom', t.x, t.y]); }
+      if (t.alive) {
+        t.alive = false; t.deaths++;
+        this.events.push(['boom', t.x, t.y]);
+        this.kills.push([t.id, shooter ? shooter.id : 0, 'base']);
+      }
       t.lives = 0;
     }
   }
@@ -403,7 +437,7 @@ class Round {
     if (alive.length <= 1) {
       winner = alive[0] || null;
       reason = alive.length ? 'last' : 'draw';
-    } else if (this.timeLimitTicks && this.tick >= this.timeLimitTicks) {
+    } else if (this.timeLimitTicks && this.playTick >= this.timeLimitTicks) {
       // 時間到：剩餘命數多的獲勝，再比擊殺數
       const score = s => this._sideStrength(s) * 1000 + this.tanks.filter(t => t.side === s.key).reduce((a, t) => a + t.kills, 0);
       const sorted = alive.slice().sort((a, b) => score(b) - score(a));
@@ -414,7 +448,7 @@ class Round {
     this.result = {
       winner: winner ? winner.key : null,
       reason,
-      ticks: this.tick,
+      ticks: this.playTick,
       tanks: this.tanks.map(t => ({
         id: t.id, side: t.side, owner: t.owner, name: t.ownerName, isBot: t.isBot, cls: t.cls,
         kills: t.kills, deaths: t.deaths, lives: t.lives, baseKills: t.baseKills,
@@ -454,8 +488,8 @@ class Round {
       this.classTable.bot = { speed: C.BOT_CLASS.speed, cooldown: C.BOT_CLASS.cooldown, bulletSpeed: C.BOT_CLASS.bulletSpeed, maxBullets: C.BOT_CLASS.maxBullets, hp: C.BOT_CLASS.hp, pierce: false, blast: false };
     }
     const view = {
-      tick: this.tick,
-      ticksLeft: this.timeLimitTicks ? Math.max(0, this.timeLimitTicks - this.tick) : null,
+      tick: this.playTick,
+      ticksLeft: this.timeLimitTicks ? Math.max(0, this.timeLimitTicks - this.playTick) : null,
       me: {
         ...this._tankView(me),
         cooldown: me.cooldown,
@@ -502,6 +536,9 @@ class Round {
     }
     const E = vis ? this.events.filter(e => vis.see(e[1], e[2]) || e[0] === 'baseBoom') : this.events;
     const snap = { t: 's', k: this.tick, T, B };
+    if (this.tick <= this.startTicks) snap.c = this.startTicks - this.tick;
+    if (this.kills.length) snap.K = this.kills;
+    if (this.baseKillsNow.length) snap.X = this.baseKillsNow;
     if (E.length) snap.E = E.map(e => [e[0], Math.round(e[1] * 100), Math.round(e[2] * 100)]);
     if (this.tileChanges.length) snap.M = this.tileChanges;
     if (this.tick % 10 === 1 || this.events.length) {
