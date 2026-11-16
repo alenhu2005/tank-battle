@@ -279,10 +279,13 @@
       <div class="set-desc">玩家只看得到自己周圍；電腦不受影響</div>
       <div class="set-row"><span>牆壁打不破</span>${sw('hardWalls', s.hardWalls)}</div>
       <div class="set-row"><span>場地道具</span>${sw('items', s.items)}</div>
-      <details class="item-guide" ${itemGuideOpen ? 'open' : ''}><summary>每 8 秒刷新一個道具，共 ${info.itemTypes.length} 種（點開看說明）</summary>
-        <ul>${info.itemTypes.map(t => `<li><span class="ic">${t.icon}</span><div><b>${esc(t.name)}</b>${esc(t.desc)}</div></li>`).join('')}</ul></details>
+      <details class="item-guide ${host ? 'host' : ''}" ${itemGuideOpen ? 'open' : ''}><summary>每 8 秒刷新一個道具，開放 ${info.itemTypes.length - (s.disabledItems || []).length} / ${info.itemTypes.length} 種（點開看說明${host ? '，點道具可以關掉' : ''}）</summary>
+        <ul>${info.itemTypes.map(t => `<li data-item="${t.key}" class="${(s.disabledItems || []).includes(t.key) ? 'off' : ''}"><span class="ic">${t.icon}</span><div><b>${esc(t.name)}</b>${esc(t.desc)}</div></li>`).join('')}</ul></details>
       <div class="set-row"><span>子彈反彈</span>${sw('ricochet', s.ricochet)}</div>
       <div class="set-desc">子彈撞到鋼牆和邊界會反彈，最多 2 次</div>
+      <div class="set-row"><span>地圖</span><div style="display:flex;gap:6px;align-items:center">
+        ${s.mapStyle === 'custom' && host ? '<button class="btn small" id="editMapBtn">✏️ 編輯</button>' : ''}
+        <select id="mapStyleSel" ${dis}>${[['random', '隨機'], ['maze', '迷宮'], ['open', '開闊'], ['river', '河流'], ['forest', '森林'], ['fortress', '堡壘'], ['custom', '自訂']].map(([v, l]) => `<option value="${v}" ${s.mapStyle === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
       <div class="set-row"><span>局數</span><div class="stepper">
         <button data-set="rounds" data-val="${s.rounds - 1}" ${dis}>−</button><b>${s.rounds}</b><button data-set="rounds" data-val="${s.rounds + 1}" ${dis}>＋</button></div></div>
       <div class="set-row"><span>每局時間</span>${seg('timeLimit', TIME_OPTS, s.timeLimit)}</div>`;
@@ -339,7 +342,21 @@
       send({ t: 'cls', id, cls: keys[(keys.indexOf(p.cls) + 1) % keys.length] });
     }
   });
+  $('#settings').addEventListener('change', e => {
+    if (e.target.id !== 'mapStyleSel' || !isHost()) return;
+    const v = e.target.value;
+    if (v === 'custom') return openMapEditor();
+    send({ t: 'settings', mapStyle: v });
+  });
   $('#settings').addEventListener('click', e => {
+    if (e.target.closest('#editMapBtn')) return openMapEditor();
+    const li = e.target.closest('.item-guide li[data-item]');
+    if (li && isHost() && room.state === 'lobby') {
+      const off = new Set(room.settings.disabledItems || []);
+      if (off.has(li.dataset.item)) off.delete(li.dataset.item); else off.add(li.dataset.item);
+      if (off.size >= info.itemTypes.length) return toast('至少要留一種道具（或直接關掉場地道具）');
+      return send({ t: 'settings', disabledItems: [...off] });
+    }
     const b = e.target.closest('[data-set]'); if (!b || !isHost()) return;
     const key = b.dataset.set; let val = b.dataset.val;
     if (val === 'true' || val === 'false') val = val === 'true';
@@ -360,6 +377,71 @@
   $('#nextBtn').onclick = () => { send({ t: 'start' }); tryFullscreen(); };
   $('#endMatchBtn').onclick = () => { if (confirm('提前結束整場比賽？')) send({ t: 'endMatch' }); };
   $('#toLobbyBtn').onclick = () => send({ t: 'toLobby' });
+
+  // ---------- 地圖編輯器 ----------
+  const MAP_COLORS = { '.': '#1b1f26', '#': '#a9552c', '@': '#9aa5af', '~': '#2a63b0', '*': '#3f9a44' };
+  const ed = { size: 21, tiles: [], brush: '.', painting: false };
+  function openMapEditor() {
+    const saved = (room && room.settings.customMap) || store.get('customMap', null);
+    if (saved) { ed.size = saved.size; ed.tiles = saved.tiles.split(''); }
+    else { ed.size = 21; ed.tiles = Array(21 * 21).fill('.'); }
+    $('#mapSize').value = String(ed.size);
+    $('#mapEditor').classList.add('show');
+    requestAnimationFrame(drawEditor);
+  }
+  function drawEditor() {
+    const cv = $('#mapCanvas'), wrap = cv.parentElement;
+    const px = Math.max(140, Math.floor(Math.min(wrap.clientWidth, wrap.clientHeight || wrap.clientWidth)));
+    const dpr = window.devicePixelRatio || 1;
+    cv.style.width = cv.style.height = px + 'px';
+    cv.width = cv.height = Math.round(px * dpr);
+    const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const t = px / ed.size;
+    for (let i = 0; i < ed.tiles.length; i++) {
+      c.fillStyle = MAP_COLORS[ed.tiles[i]] || '#000';
+      c.fillRect((i % ed.size) * t, Math.floor(i / ed.size) * t, t - 0.5, t - 0.5);
+    }
+    // 出生區大概位置（上下中央與四個角）
+    c.strokeStyle = 'rgba(242,201,76,.55)'; c.setLineDash([3, 3]);
+    const m = ed.size - 1, z = [[m / 2, 3], [m / 2, m - 3], [3, 3], [m - 3, 3], [3, m - 3], [m - 3, m - 3]];
+    for (const [x, y] of z) c.strokeRect((x - 3) * t, (y - 3) * t, 7 * t, 7 * t);
+    c.setLineDash([]);
+  }
+  function paintAt(e) {
+    const cv = $('#mapCanvas'), r = cv.getBoundingClientRect();
+    const x = Math.floor((e.clientX - r.left) / r.width * ed.size), y = Math.floor((e.clientY - r.top) / r.height * ed.size);
+    if (x < 0 || y < 0 || x >= ed.size || y >= ed.size) return;
+    const m = ed.size - 1, sym = $('#mapSym').value;
+    const pts = [[x, y]];
+    if (sym === 'h' || sym === '4') pts.push([m - x, y]);
+    if (sym === 'v' || sym === '4') pts.push([x, m - y]);
+    if (sym === '4') pts.push([m - x, m - y]);
+    for (const [px, py] of pts) ed.tiles[py * ed.size + px] = ed.brush;
+    drawEditor();
+  }
+  $('#mapCanvas').addEventListener('pointerdown', e => { e.preventDefault(); ed.painting = true; $('#mapCanvas').setPointerCapture(e.pointerId); paintAt(e); });
+  $('#mapCanvas').addEventListener('pointermove', e => { if (ed.painting) paintAt(e); });
+  $('#mapCanvas').addEventListener('pointerup', () => { ed.painting = false; });
+  $('#mapPalette').addEventListener('click', e => {
+    const b = e.target.closest('[data-tile]'); if (!b) return;
+    ed.brush = b.dataset.tile;
+    $$('#mapPalette button').forEach(x => x.classList.toggle('sel', x === b));
+  });
+  $('#mapSize').onchange = () => { ed.size = Number($('#mapSize').value); ed.tiles = Array(ed.size * ed.size).fill('.'); drawEditor(); };
+  $('#mapClear').onclick = () => { ed.tiles.fill('.'); drawEditor(); };
+  $('#mapRandom').onclick = () => {
+    ed.tiles = ed.tiles.map(() => { const r = Math.random(); return r < 0.12 ? '#' : r < 0.16 ? '@' : r < 0.19 ? '~' : r < 0.24 ? '*' : '.'; });
+    drawEditor();
+  };
+  $('#mapCancel').onclick = () => { $('#mapEditor').classList.remove('show'); renderLobby(); };
+  $('#mapApply').onclick = () => {
+    const customMap = { size: ed.size, tiles: ed.tiles.join('') };
+    store.set('customMap', customMap);
+    send({ t: 'settings', customMap });
+    $('#mapEditor').classList.remove('show');
+    toast('已使用自訂地圖');
+  };
+  window.addEventListener('resize', () => { if ($('#mapEditor').classList.contains('show')) drawEditor(); });
 
   // ---------- 電腦隊友代碼（介面不顯示原始碼） ----------
   function renderCodeNow() {

@@ -228,3 +228,26 @@ console.log('ALL OK');
   }
   console.log('22 items + 30 random item rounds OK');
 }
+
+// 地圖風格、自訂地圖（連不通時自動挖路）、房主關閉道具
+{
+  const { Round } = require('../server/game');
+  const C = require('../server/constants');
+  const mkSides = () => [0, 1].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: 'function think(){return null}' }] }));
+  for (const mapStyle of ['random', 'open', 'forest', 'fortress', 'river', 'maze']) {
+    const r = new Round({ mode: 'ffa', baseMode: true, timeLimit: 0, sides: mkSides(), mapStyle }); r.dispose();
+  }
+  // 中間一整排鋼牆：一定連不通，要自動挖出通道
+  const size = 21, rows = [];
+  for (let y = 0; y < size; y++) rows.push(y === 10 ? '@'.repeat(size) : '.'.repeat(size));
+  const r = new Round({ mode: 'ffa', baseMode: true, timeLimit: 0, sides: mkSides(), customMap: { size, tiles: rows.join('') } });
+  assert(r.tiles.slice(10 * size, 11 * size).includes('.'), 'custom map got a carved path');
+  r.dispose();
+  // 只開放護盾
+  const only = C.ITEM_TYPES.filter(t => t.key !== 'shield').map(t => t.key);
+  const r2 = new Round({ mode: 'ffa', baseMode: false, timeLimit: 0, sides: mkSides(), items: true, disabledItems: only });
+  for (let i = 0; i < 40; i++) r2._spawnItem();
+  assert(r2.items.length > 0 && r2.items.every(it => C.ITEM_TYPES[it.type].key === 'shield'), 'only enabled items spawn');
+  r2.dispose();
+  console.log('map styles + custom map + item picker OK');
+}

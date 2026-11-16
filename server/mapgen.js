@@ -26,29 +26,92 @@ function orbit(x, y, size, symmetry) {
   return [[x, y]];
 }
 
-function randomTerrain(size) {
-  const g = Array.from({ length: size }, () => Array(size).fill('.'));
-  const structures = Math.round(size * size * 0.105);
-  for (let i = 0; i < structures; i++) {
+// 地圖風格：密度、各地形比例（磚 / 鋼 / 水 / 草）、區塊大小
+const STYLES = {
+  random:   { density: 0.105, mix: [0.55, 0.12, 0.13, 0.20], block: 3 },
+  open:     { density: 0.05,  mix: [0.45, 0.30, 0.10, 0.15], block: 2 },
+  forest:   { density: 0.13,  mix: [0.30, 0.08, 0.05, 0.57], block: 3 },
+  fortress: { density: 0.09,  mix: [0.45, 0.45, 0.10, 0.00], block: 3, minBlock: 2 },
+  river:    { density: 0.06,  mix: [0.60, 0.15, 0.00, 0.25], block: 2 },
+  maze:     null,
+};
+
+function pickTile(mix) {
+  const r = Math.random();
+  return r < mix[0] ? '#' : r < mix[0] + mix[1] ? '@' : r < mix[0] + mix[1] + mix[2] ? '~' : '*';
+}
+
+// 迷宮：在奇數格之間挖通道，牆是磚牆，再隨機打通一些牆形成迴路
+function mazeTerrain(size) {
+  const g = Array.from({ length: size }, () => Array(size).fill('#'));
+  const stack = [[1, 1]];
+  g[1][1] = '.';
+  while (stack.length) {
+    const [x, y] = stack[stack.length - 1];
+    const nb = [[2, 0], [-2, 0], [0, 2], [0, -2]].map(([dx, dy]) => [x + dx, y + dy, dx, dy])
+      .filter(([nx, ny]) => nx > 0 && ny > 0 && nx < size - 1 && ny < size - 1 && g[ny][nx] === '#');
+    if (!nb.length) { stack.pop(); continue; }
+    const [nx, ny, dx, dy] = nb[Math.floor(Math.random() * nb.length)];
+    g[y + dy / 2][x + dx / 2] = '.'; g[ny][nx] = '.';
+    stack.push([nx, ny]);
+  }
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    if (g[y][x] !== '#') continue;
     const r = Math.random();
-    const t = r < 0.55 ? '#' : r < 0.67 ? '@' : r < 0.8 ? '~' : '*';
-    const w = 1 + Math.floor(Math.random() * 3);
-    const h = 1 + Math.floor(Math.random() * 3);
+    if (r < 0.35) g[y][x] = '.';          // 打通，形成迴路
+    else if (r < 0.42) g[y][x] = '@';
+    else if (r < 0.47) g[y][x] = '*';
+  }
+  return g;
+}
+
+function randomTerrain(size, styleName) {
+  if (styleName === 'maze') return mazeTerrain(size);
+  const st = STYLES[styleName] || STYLES.random;
+  const g = Array.from({ length: size }, () => Array(size).fill('.'));
+  const structures = Math.round(size * size * st.density);
+  for (let i = 0; i < structures; i++) {
+    const t = pickTile(st.mix);
+    const minB = st.minBlock || 1;
+    const w = minB + Math.floor(Math.random() * (st.block - minB + 1));
+    const h = minB + Math.floor(Math.random() * (st.block - minB + 1));
     const x0 = Math.floor(Math.random() * size);
     const y0 = Math.floor(Math.random() * size);
     for (let y = y0; y < Math.min(size, y0 + h); y++)
       for (let x = x0; x < Math.min(size, x0 + w); x++) g[y][x] = t;
   }
+  if (styleName === 'river') {
+    // 十字河道，每隔幾格留一座橋
+    // 河道在正中央、橋的位置左右對稱，地圖對稱後才不會把橋堵住
+    const c = (size - 1) / 2;
+    for (let i = 0; i < size; i++) {
+      const k = Math.abs(i - c) % 6;
+      if (k === 2 || k === 3) continue;
+      g[c][i] = '~'; g[i][c] = '~';
+    }
+  }
   return g;
 }
 
-function generateMap({ anchors: anchorCount, spawnsPerAnchor, size, baseMode, breakableWalls = true }) {
-  const symmetry = anchorCount === 2 ? 2 : anchorCount === 4 ? 4 : 1;
+// 自訂地圖連不通時，挖出 L 形通道把各出生點連起來
+function carvePath(g, a, b) {
+  const size = g.length;
+  const open = (x, y) => { if (x >= 0 && y >= 0 && x < size && y < size && (g[y][x] === '@' || g[y][x] === '~')) g[y][x] = '.'; };
+  for (let x = Math.min(a.x, b.x); x <= Math.max(a.x, b.x); x++) open(x, a.y);
+  for (let y = Math.min(a.y, b.y); y <= Math.max(a.y, b.y); y++) open(b.x, y);
+}
+
+function generateMap({ anchors: anchorCount, spawnsPerAnchor, size, baseMode, breakableWalls = true, style = 'random', custom = null }) {
+  if (custom) size = custom.size;
+  const symmetry = custom ? 1 : anchorCount === 2 ? 2 : anchorCount === 4 ? 4 : 1;
   const anchors = anchorPositions(anchorCount, size);
   const center = (size - 1) / 2;
 
   for (let attempt = 0; attempt < 60; attempt++) {
-    const raw = randomTerrain(size);
+    const raw = custom
+      ? Array.from({ length: size }, (_, y) => custom.tiles.slice(y * size, (y + 1) * size).split('').map(c => '.#@~*'.includes(c) ? c : '.'))
+      : randomTerrain(size, style);
+    if (custom && attempt > 0) for (let i = 1; i < anchors.length; i++) carvePath(raw, anchors[0], anchors[i]);
     const g = Array.from({ length: size }, () => Array(size).fill('.'));
     for (let y = 0; y < size; y++)
       for (let x = 0; x < size; x++) {

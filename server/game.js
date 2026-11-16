@@ -55,6 +55,8 @@ class Round {
     this.alignRate = C.ALIGN_RATE;
     this.ricochet = !!opts.ricochet;
     this.itemsOn = !!opts.items;
+    const off = new Set(opts.disabledItems || []);
+    this.allowedItems = C.ITEM_TYPES.map((t, i) => i).filter(i => !off.has(C.ITEM_TYPES[i].key));   // 房主可以關掉部分道具
     this.items = [];
     this.nextItemId = 1;
     this.itemInterval = opts.itemInterval ? opts.itemInterval * C.TICK_RATE : C.ITEM_INTERVAL;
@@ -83,6 +85,8 @@ class Round {
       size,
       baseMode: this.baseMode,
       breakableWalls: this.breakableWalls,
+      style: opts.mapStyle,
+      custom: opts.customMap || null,
     });
     this.size = size;
     this.tiles = map.tiles;
@@ -321,9 +325,11 @@ class Round {
       const x = cx + 0.5, y = cy + 0.5;
       if (this.tanks.some(t => t.alive && Math.abs(t.x - x) < 1.5 && Math.abs(t.y - y) < 1.5)) continue;
       if (this.items.some(it => Math.abs(it.x - x) < 2 && Math.abs(it.y - y) < 2)) continue;
-      const total = C.ITEM_TYPES.reduce((a, t) => a + t.weight, 0);
-      let roll = Math.random() * total, type = 0;
-      while (roll >= C.ITEM_TYPES[type].weight) { roll -= C.ITEM_TYPES[type].weight; type++; }
+      if (!this.allowedItems.length) return;
+      const total = this.allowedItems.reduce((a, i) => a + C.ITEM_TYPES[i].weight, 0);
+      let roll = Math.random() * total, k = 0;
+      while (roll >= C.ITEM_TYPES[this.allowedItems[k]].weight) { roll -= C.ITEM_TYPES[this.allowedItems[k]].weight; k++; }
+      const type = this.allowedItems[k];
       this.items.push({ id: this.nextItemId++, x, y, type, until: this.playTick + C.ITEM_LIFETIME });
       this.itemsChanged = true;
       this.events.push(['itemSpawn', x, y]);

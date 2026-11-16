@@ -28,7 +28,8 @@ class Room {
     this.onClose = onClose;
     this.players = [];
     this.hostId = null;
-    this.settings = { mode: 'ffa', baseMode: true, fog: false, hardWalls: false, codeOnly: false, items: true, ricochet: false, rounds: 3, timeLimit: 180 };
+    this.settings = { mode: 'ffa', baseMode: true, fog: false, hardWalls: false, codeOnly: false, items: true, ricochet: false, rounds: 3, timeLimit: 180,
+      mapStyle: 'random', customMap: null, disabledItems: [] };
     this.state = 'lobby'; // lobby | playing | intermission | finished
     this.roundNo = 0;
     this.round = null;
@@ -172,6 +173,17 @@ class Room {
         if (typeof msg.codeOnly === 'boolean') s.codeOnly = msg.codeOnly;
         if (typeof msg.items === 'boolean') s.items = msg.items;
         if (typeof msg.ricochet === 'boolean') s.ricochet = msg.ricochet;
+        if (['random', 'open', 'forest', 'fortress', 'river', 'maze', 'custom'].includes(msg.mapStyle)) s.mapStyle = msg.mapStyle;
+        if (msg.customMap !== undefined) {
+          const cm = msg.customMap;
+          const ok = cm && Number.isInteger(cm.size) && cm.size >= 15 && cm.size <= 35 && typeof cm.tiles === 'string'
+            && cm.tiles.length === cm.size * cm.size && /^[.#@~*]+$/.test(cm.tiles);
+          if (ok) { s.customMap = { size: cm.size, tiles: cm.tiles }; s.mapStyle = 'custom'; }
+        }
+        if (Array.isArray(msg.disabledItems)) {
+          const keys = new Set(C.ITEM_TYPES.map(t => t.key));
+          s.disabledItems = msg.disabledItems.filter(k => keys.has(k));
+        }
         if (Number.isInteger(msg.rounds)) s.rounds = Math.min(15, Math.max(1, msg.rounds));
         if (Number.isInteger(msg.timeLimit)) s.timeLimit = [0, 120, 180, 300, 480].includes(msg.timeLimit) ? msg.timeLimit : s.timeLimit;
         return this.sendRoom();
@@ -297,6 +309,7 @@ class Room {
     this.roundNo++;
     this.round = new Round({
       mode: s.mode, baseMode: s.baseMode, fog: s.fog, breakableWalls: !s.hardWalls, codeOnly: s.codeOnly, items: s.items, ricochet: s.ricochet,
+      mapStyle: s.mapStyle, customMap: s.mapStyle === 'custom' ? s.customMap : null, disabledItems: s.disabledItems,
       timeLimit: s.timeLimit, sides: this._buildSides(), countdown: this.kind === 'tutorial' ? 3 : C.COUNTDOWN_SECONDS,
       itemFirstDelay: this.kind === 'tutorial' ? 2 : undefined, itemInterval: this.kind === 'tutorial' ? 4 : undefined,
     });

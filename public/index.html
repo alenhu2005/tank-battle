@@ -196,6 +196,34 @@
   </div>
 </div>
 
+<!-- 地圖編輯器 -->
+<div id="mapEditor" class="modal">
+  <div class="modal-card">
+    <header class="modal-head">
+      <b class="modal-title">地圖編輯器</b>
+      <button id="mapCancel" class="btn ghost small">取消</button>
+    </header>
+    <div class="map-tools">
+      <div class="seg" id="mapPalette">
+        <button data-tile="." class="sel"><i style="background:#1b1f26"></i>空地</button>
+        <button data-tile="#"><i style="background:#a9552c"></i>磚</button>
+        <button data-tile="@"><i style="background:#9aa5af"></i>鋼</button>
+        <button data-tile="~"><i style="background:#2a63b0"></i>水</button>
+        <button data-tile="*"><i style="background:#3f9a44"></i>草</button>
+      </div>
+      <div class="map-row">
+        <select id="mapSize" aria-label="地圖大小"><option value="21">21×21</option><option value="25">25×25</option><option value="29">29×29</option></select>
+        <select id="mapSym" aria-label="對稱繪製"><option value="none">不對稱</option><option value="h">左右對稱</option><option value="v">上下對稱</option><option value="4">四向對稱</option></select>
+        <button id="mapRandom" class="btn small">隨機</button>
+        <button id="mapClear" class="btn small ghost">清空</button>
+      </div>
+    </div>
+    <div class="map-canvas-wrap"><canvas id="mapCanvas"></canvas></div>
+    <p class="muted small-text">用手指畫上地形。出生點和基地會自動放在地圖四周（黃色虛線框），附近 3 格會被清空；如果有地方走不到，遊戲會自動挖出通道。</p>
+    <button id="mapApply" class="btn primary">使用這張地圖</button>
+  </div>
+</div>
+
 <!-- 個人設定（只存在這支手機） -->
 <div id="prefs" class="modal">
   <div class="modal-card prefs-card">
