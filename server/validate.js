@@ -13,7 +13,10 @@ const SCENARIOS = [
 ];
 
 function validateCode(code) {
-  const result = { ok: false, errors: [], logs: [], stats: null };
+  const result = { ok: false, errors: [], warnings: [], logs: [], stats: null };
+  let timeouts = 0;
+  // 偶爾超時多半是伺服器忙碌（例如雲端主機剛開機），不算代碼寫錯；超過這個次數才判定失敗
+  const TIMEOUT_TOLERANCE = 3;
   let calls = 0, totalMs = 0, maxMs = 0;
 
   for (const sc of SCENARIOS) {
@@ -40,7 +43,9 @@ function validateCode(code) {
         const rep = t.sandbox.report();
         calls += rep.calls; totalMs += rep.avgMs * rep.calls; maxMs = Math.max(maxMs, rep.maxMs);
         result.logs.push(...rep.logs.slice(-10));
-        if (rep.errorCount > 0) {
+        const realErrors = rep.errorCount - rep.timeoutCount;
+        timeouts += rep.timeoutCount;
+        if (realErrors > 0 || timeouts > TIMEOUT_TOLERANCE) {
           result.errors.push(...rep.errors);
           result.errors.push(`（測試中共發生 ${rep.errorCount} 次錯誤）`);
           return result;
@@ -50,6 +55,7 @@ function validateCode(code) {
       round.dispose();
     }
   }
+  if (timeouts > 0) result.warnings.push(`測試中有 ${timeouts} 次超過時間上限（可能是伺服器剛好忙碌），實戰中那幾個 tick 會不動。如果常常發生，請讓代碼算快一點。`);
   result.ok = true;
   result.stats = { calls, avgMs: calls ? +(totalMs / calls).toFixed(3) : 0, maxMs: +maxMs.toFixed(2) };
   result.logs = result.logs.slice(-15);

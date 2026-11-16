@@ -94,3 +94,13 @@ console.log('ALL OK');
   console.log('8-direction movement OK');
   r.dispose();
 }
+
+// 偶爾一次超時：通過但有警告；一直超時：失敗
+{
+  const { validateCode } = require('../server/validate');
+  const once = validateCode('function think(v,m){ if (v.tick === 5 && !m.done) { m.done = 1; var t = Date.now(); while (Date.now() - t < 60) {} } return null }');
+  assert(once.ok && once.warnings.length === 1, 'single timeout tolerated: ' + JSON.stringify(once));
+  const always = validateCode('function think(v){ var t = Date.now(); while (Date.now() - t < 60) {} return null }');
+  assert(!always.ok, 'repeated timeouts fail');
+  console.log('timeout tolerance OK');
+}

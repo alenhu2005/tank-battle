@@ -398,7 +398,8 @@ ${defaultBot}\`\`\`
       $('#codeArea').value = '';
       $('#manualBox').classList.add('hidden');
       st.innerHTML = `<span class="ok">✅ 測試通過！下一局就會使用這份代碼</span>
-        <div class="muted small-text">測試對戰中跑了 ${m.stats.calls} 次，平均 ${m.stats.avgMs}ms</div>`;
+        <div class="muted small-text">測試對戰中跑了 ${m.stats.calls} 次，平均 ${m.stats.avgMs}ms</div>
+        ${m.warnings && m.warnings.length ? `<div class="small-text" style="color:var(--accent)">⚠️ ${esc(m.warnings.join(' '))}</div>` : ''}`;
       toast('代碼已啟用');
     } else {
       st.innerHTML = `<span class="bad">❌ 測試沒通過，先繼續用${room && room.myCode.custom ? '上一份能用的代碼' : '內建 AI'}</span>
