@@ -1,0 +1,16 @@
+{
+  "name": "tank-battle",
+  "version": "1.0.0",
+  "private": true,
+  "description": "手機可玩的線上坦克對戰，玩家可以用自己寫的代碼控制電腦隊友",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node --no-node-snapshot server/index.js",
+    "test": "node --no-node-snapshot test/sim-test.js"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "isolated-vm": "^6.2.0",
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#101318">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="坦克對戰">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<title>坦克對戰</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- 首頁 -->
+<section id="home" class="screen active">
+  <div class="home-card">
+    <h1 class="logo">坦克對戰</h1>
+    <p class="sub">帶著你寫的電腦隊友上戰場</p>
+    <label class="field">
+      <span>暱稱</span>
+      <input id="nameInput" maxlength="12" autocomplete="off" placeholder="輸入暱稱">
+    </label>
+    <button id="createBtn" class="btn primary big">建立房間</button>
+    <div class="or"><span>或輸入房號加入</span></div>
+    <div class="join-row">
+      <input id="codeInput" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" placeholder="4 位數房號">
+      <button id="joinBtn" class="btn">加入</button>
+    </div>
+  </div>
+</section>
+
+<!-- 大廳 -->
+<section id="lobby" class="screen">
+  <header class="lobby-head">
+    <button id="leaveBtn" class="btn ghost small">離開</button>
+    <div class="room-code">
+      <span class="label">房號</span>
+      <span id="roomCode" class="code">----</span>
+    </div>
+    <button id="shareBtn" class="btn ghost small">分享</button>
+  </header>
+  <div class="lobby-body">
+    <div class="panel">
+      <div class="panel-title"><span>玩家</span><span id="playerCount" class="muted"></span></div>
+      <ul id="playerList" class="player-list"></ul>
+      <button id="addAIBtn" class="btn small ghost host-only">＋ 加入電腦隊伍</button>
+    </div>
+    <div class="panel">
+      <div class="panel-title"><span>我的職業</span></div>
+      <div id="classPicker" class="cls-grid"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title"><span>對戰設定</span><span id="hostHint" class="muted"></span></div>
+      <div id="settings" class="settings"></div>
+    </div>
+  </div>
+  <footer class="lobby-foot">
+    <button id="codeBtn" class="btn">我的電腦代碼 <span id="codeBadge" class="badge"></span></button>
+    <button id="readyBtn" class="btn">準備</button>
+    <button id="startBtn" class="btn primary host-only">開始</button>
+  </footer>
+  <p id="startError" class="start-error"></p>
+</section>
+
+<!-- 遊戲 -->
+<section id="game" class="screen">
+  <canvas id="canvas"></canvas>
+  <div class="hud">
+    <div class="hud-left">
+      <span id="hudRound"></span>
+      <span id="hudTimer"></span>
+    </div>
+    <div id="hudSides" class="hud-sides"></div>
+    <div class="hud-right">
+      <span id="hudLives"></span>
+      <button id="fsBtn" class="hud-btn" aria-label="全螢幕">⛶</button>
+    </div>
+  </div>
+  <div id="spectate" class="spectate"></div>
+  <div class="controls">
+    <div id="stickZone" class="stick-zone">
+      <div id="stickBase" class="stick-base"><div id="stickKnob" class="stick-knob"></div></div>
+    </div>
+    <div id="fireZone" class="fire-zone">
+      <div id="fireBtn" class="fire-btn">開火</div>
+    </div>
+  </div>
+</section>
+
+<!-- 局後結果 -->
+<section id="result" class="screen">
+  <div class="result-wrap">
+    <h2 id="resultTitle"></h2>
+    <p id="resultSub" class="muted center"></p>
+    <div class="panel">
+      <div class="panel-title"><span>本局戰績</span></div>
+      <div id="roundTable"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title"><span>總積分</span><span id="matchProgress" class="muted"></span></div>
+      <div id="standings"></div>
+    </div>
+    <div id="classPanel2" class="panel">
+      <div class="panel-title"><span>下一局職業</span></div>
+      <div id="classPicker2" class="cls-grid"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title"><span>我的電腦這局表現</span></div>
+      <div id="botReport"></div>
+    </div>
+    <div id="readyList" class="muted center small-text"></div>
+  </div>
+  <footer class="lobby-foot">
+    <button id="codeBtn2" class="btn">調整代碼</button>
+    <button id="readyBtn2" class="btn">準備</button>
+    <button id="nextBtn" class="btn primary host-only">下一局</button>
+    <button id="endMatchBtn" class="btn ghost host-only">結束比賽</button>
+    <button id="toLobbyBtn" class="btn primary host-only">回到大廳</button>
+  </footer>
+</section>
+
+<!-- 代碼編輯器 -->
+<div id="editor" class="modal">
+  <div class="modal-card">
+    <header class="modal-head">
+      <div class="tabs">
+        <button class="tab active" data-tab="code">代碼</button>
+        <button class="tab" data-tab="spec">規格</button>
+      </div>
+      <button id="editorClose" class="btn ghost small">關閉</button>
+    </header>
+    <div class="tab-body" data-tab="code">
+      <p class="muted small-text">把下方「規格」複製給你的 AI 助手，討論出代碼後貼回來，按「檢查並使用」。</p>
+      <textarea id="codeArea" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off"></textarea>
+      <div class="editor-actions">
+        <button id="pasteBtn" class="btn small">貼上</button>
+        <button id="sampleBtn" class="btn small">範例</button>
+        <button id="clearBtn" class="btn small ghost">清空</button>
+        <button id="useDefaultBtn" class="btn small ghost">改用範例</button>
+        <button id="checkBtn" class="btn small primary">檢查並使用</button>
+      </div>
+      <div id="codeStatus" class="code-status"></div>
+    </div>
+    <div class="tab-body hidden" data-tab="spec">
+      <div class="editor-actions">
+        <button id="copySpecBtn" class="btn small primary">複製規格</button>
+        <button id="copySpecSampleBtn" class="btn small">複製規格＋範例代碼</button>
+      </div>
+      <pre id="specText" class="spec selectable"></pre>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+<div id="connBanner" class="conn-banner">連線中斷，正在重新連線…</div>
+
+<script src="/render.js"></script>
+<script src="/client.js"></script>
+</body>
+</html>
