@@ -30,12 +30,35 @@
     <div class="home-alt">
       <button id="tutorialBtn" class="btn">🎓 新手教學</button>
       <button id="practiceBtn" class="btn">🧪 代碼練習場</button>
+      <button id="leagueBtn" class="btn span2">🏆 代碼擂台（每週排行榜）</button>
     </div>
     <label class="link-btn file-link">📂 開啟重播檔<input id="replayFile" type="file" accept=".json,application/json"></label>
     <div class="or"><span>或輸入房號加入</span></div>
     <div class="join-row">
       <input id="codeInput" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" placeholder="4 位數房號">
       <button id="joinBtn" class="btn">加入</button>
+    </div>
+  </div>
+</section>
+
+<!-- 代碼擂台 -->
+<section id="league" class="screen">
+  <header class="lobby-head">
+    <button id="leagueBack" class="btn ghost small">返回</button>
+    <b>🏆 代碼擂台</b>
+    <span id="leagueWeek" class="muted small-text"></span>
+  </header>
+  <div class="lobby-body">
+    <div class="panel">
+      <div class="panel-title"><span>參賽</span></div>
+      <p class="small-text muted">提交電腦代碼後，它會馬上和本週其他參賽者各打兩場（純代碼 1 對 1），依勝負計算分數排名。每週一重新開始；重新提交會更新你的代碼並再打一輪。</p>
+      <div class="set-row"><span>參賽代碼</span><select id="leagueCodeSel" aria-label="參賽代碼"></select></div>
+      <button id="leagueSubmit" class="btn primary">⚔️ 參賽</button>
+      <div id="leagueResult" class="code-status"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title"><span>本週排行榜</span><span id="leagueCount" class="muted"></span></div>
+      <div id="leagueTable"></div>
     </div>
   </div>
 </section>

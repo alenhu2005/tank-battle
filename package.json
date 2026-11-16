@@ -8,8 +8,11 @@
     "start": "node --no-node-snapshot server/index.js",
     "test": "node --no-node-snapshot test/sim-test.js"
   },
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
+    "@google-cloud/firestore": "^9.4.1",
     "isolated-vm": "^6.2.0",
     "ws": "^8.18.0"
   }

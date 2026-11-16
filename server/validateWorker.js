@@ -5,9 +5,14 @@ const { Worker, isMainThread, parentPort } = require('worker_threads');
 
 if (!isMainThread) {
   const { validateCode } = require('./validate');
-  parentPort.on('message', ({ id, code }) => {
+  const { runMatch } = require('./match');
+  parentPort.on('message', ({ id, code, type, a, b }) => {
     let res;
-    try { res = validateCode(code); } catch (e) { res = { ok: false, errors: ['檢查失敗：' + e.message], logs: [] }; }
+    if (type === 'match') {
+      try { res = runMatch(a, b); } catch (e) { res = { games: 1, wins: 0, losses: 0, draws: 1, error: e.message }; }
+    } else {
+      try { res = validateCode(code); } catch (e) { res = { ok: false, errors: ['檢查失敗：' + e.message], logs: [] }; }
+    }
     parentPort.postMessage({ id, res });
   });
 } else {
@@ -29,6 +34,20 @@ if (!isMainThread) {
     });
     return worker;
   }
+
+  // 擂台對戰（同一條背景執行緒，依序處理）
+  module.exports.matchAsync = function matchAsync(a, b) {
+    return new Promise((resolve) => {
+      const id = nextId++;
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        resolve({ games: 1, wins: 0, losses: 0, draws: 1 });
+        if (worker) worker.terminate();
+      }, 40000);
+      pending.set(id, { resolve, timer });
+      getWorker().postMessage({ id, type: 'match', a, b });
+    });
+  };
 
   module.exports.validateAsync = function validateAsync(code) {
     return new Promise((resolve) => {

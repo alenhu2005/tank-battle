@@ -20,7 +20,21 @@ const MIME = {
   '.webmanifest': 'application/manifest+json',
 };
 
+const league = require('./league');
 const rooms = new Map();
+
+function json(res, status, data) {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-cache' });
+  res.end(JSON.stringify(data));
+}
+function readBody(req, limit) {
+  return new Promise((resolve, reject) => {
+    let size = 0; const chunks = [];
+    req.on('data', c => { size += c.length; if (size > limit) { reject(new Error('資料太大')); req.destroy(); } else chunks.push(c); });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
 const CLIENT_INFO = {
   classes: C.CLASSES, botClass: C.BOT_CLASS, colors: C.FFA_COLORS, factionColors: C.FACTION_COLORS,
   teamCount: C.TEAM_COUNT, tickRate: C.TICK_RATE, itemTypes: C.ITEM_TYPES,
@@ -51,6 +65,17 @@ const server = http.createServer((req, res) => {
     if (url.searchParams.get('download')) headers['Content-Disposition'] = `attachment; filename="tank-replay-${rm[1]}-${rm[2]}.json"`;
     res.writeHead(200, headers);
     return res.end(gz);
+  }
+  // 代碼擂台 API
+  if (url.pathname === '/api/league' && req.method === 'GET') {
+    league.standings(url.searchParams.get('key') || '').then(data => json(res, 200, data)).catch(e => json(res, 500, { error: e.message }));
+    return;
+  }
+  if (url.pathname === '/api/league/submit' && req.method === 'POST') {
+    readBody(req, 300 * 1024).then(body => league.submit(JSON.parse(body)))
+      .then(data => json(res, 200, data))
+      .catch(e => json(res, 400, { ok: false, error: e.message }));
+    return;
   }
   if (url.pathname === '/samples.json') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });

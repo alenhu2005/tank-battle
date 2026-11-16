@@ -47,7 +47,14 @@ echo "帳單已啟用"
 
 # 3. 啟用需要的服務
 say "3/5 啟用 Cloud Run 相關服務（第一次大約 1～2 分鐘）"
-gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com compute.googleapis.com --quiet
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com compute.googleapis.com firestore.googleapis.com --quiet
+
+# 代碼擂台的排行榜存在 Firestore（免費額度內）；已經建立過就略過
+if ! gcloud firestore databases describe --database='(default)' >/dev/null 2>&1; then
+  gcloud firestore databases create --location="$REGION" --quiet >/dev/null 2>&1 \
+    && echo "已建立 Firestore 資料庫" \
+    || echo "（Firestore 資料庫建立失敗，擂台會改用記憶體，伺服器重開時排行榜會清空）"
+fi
 
 # 4. 新專案的建置權限（讓 Cloud Build 能把程式打包成容器）
 say "4/5 設定建置權限"
@@ -56,6 +63,9 @@ for SA in "${PNUM}-compute@developer.gserviceaccount.com" "${PNUM}@cloudbuild.gs
   gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:$SA" \
     --role="roles/run.builder" --condition=None --quiet >/dev/null 2>&1 || true
 done
+# 讓遊戲伺服器可以讀寫擂台排行榜
+gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:${PNUM}-compute@developer.gserviceaccount.com" \
+  --role="roles/datastore.user" --condition=None --quiet >/dev/null 2>&1 || true
 
 # 存放建置結果的 Artifact Registry。新專案剛啟用服務時，權限要等一兩分鐘才會生效，所以失敗會自動重試
 AR_REPO="cloud-run-source-deploy"

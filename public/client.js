@@ -1024,6 +1024,58 @@ ${sample ? sample.code : defaultBot}\`\`\`
     }
   });
 
+  // ---------- 代碼擂台 ----------
+  function leagueKey() {
+    let k = store.get('leagueKey', '');
+    if (!k) { k = Array.from(crypto.getRandomValues(new Uint8Array(10)), b => b.toString(16).padStart(2, '0')).join(''); store.set('leagueKey', k); }
+    return k;
+  }
+  function leagueTable(data) {
+    $('#leagueWeek').textContent = data.week || '';
+    $('#leagueCount').textContent = data.total ? `${data.total} 人參賽` : '';
+    if (!data.entries || !data.entries.length) { $('#leagueTable').innerHTML = '<p class="muted small-text">本週還沒有人參賽，搶頭香！</p>'; return; }
+    const rows = data.entries.map(e => `<tr class="${e.me ? 'me' : ''}"><td>${e.rank === 1 ? '🥇' : e.rank === 2 ? '🥈' : e.rank === 3 ? '🥉' : e.rank}</td><td>${esc(e.name)}${e.me ? '（你）' : ''}</td><td class="num">${e.rating}</td><td class="num">${e.wins}/${e.losses}/${e.draws}</td></tr>`).join('');
+    const mine = data.mine && !data.entries.some(e => e.me) ? `<tr class="me"><td>${data.mine.rank}</td><td>${esc(data.mine.name)}（你）</td><td class="num">${data.mine.rating}</td><td class="num">${data.mine.wins}/${data.mine.losses}/${data.mine.draws}</td></tr>` : '';
+    $('#leagueTable').innerHTML = `<table><tr><th>#</th><th>玩家</th><th class="num">分數</th><th class="num">勝/敗/和</th></tr>${rows}${mine}</table>`
+      + (data.storage === 'memory' ? '<p class="muted small-text">（目前排行榜存在伺服器記憶體，伺服器重開時會清空）</p>' : '');
+  }
+  async function openLeague() {
+    show('league');
+    const opts = [];
+    if (store.get('botCode', '')) opts.push(['mine', '我的自訂代碼']);
+    for (const s of samples) opts.push(['sample:' + s.key, `範例・${s.name}`]);
+    $('#leagueCodeSel').innerHTML = opts.map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join('');
+    $('#leagueResult').innerHTML = store.get('botCode', '') ? '' : '<span class="muted">你還沒有自訂代碼：可以先用範例參賽，或在房間裡交出自己的代碼後再來。</span>';
+    try { leagueTable(await (await fetch('/api/league?key=' + leagueKey())).json()); }
+    catch { $('#leagueTable').innerHTML = '<p class="muted">讀取排行榜失敗</p>'; }
+  }
+  $('#leagueBtn').onclick = openLeague;
+  $('#leagueBack').onclick = () => show('home');
+  $('#leagueSubmit').onclick = async () => {
+    const sel = $('#leagueCodeSel').value;
+    const code = sel === 'mine' ? store.get('botCode', '') : (samples.find(s => 'sample:' + s.key === sel) || {}).code;
+    if (!code) return toast('沒有可以參賽的代碼');
+    const btn = $('#leagueSubmit');
+    btn.disabled = true; btn.textContent = '對戰中…（約 10～30 秒）';
+    $('#leagueResult').innerHTML = '';
+    try {
+      const res = await (await fetch('/api/league/submit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: leagueKey(), name: $('#nameInput').value.trim() || store.get('name', '') || '無名氏', code }),
+      })).json();
+      if (!res.ok) {
+        $('#leagueResult').innerHTML = `<span class="bad">❌ ${esc(res.error || '參賽失敗')}</span>${res.errors ? `<div class="logbox err selectable">${esc(res.errors.join('\n'))}</div>` : ''}`;
+      } else {
+        const total = res.results.reduce((a, r) => a + r.delta, 0);
+        $('#leagueResult').innerHTML = `<span class="ok">✅ 打完了！分數 ${res.rating}（${total >= 0 ? '+' : ''}${total}）</span>
+          <div class="league-res">${res.results.map(r => `<div><span>vs ${esc(r.opponent)}</span><span>${r.wins} 勝 ${r.losses} 敗 ${r.draws} 和 <b class="${r.delta >= 0 ? 'up' : 'down'}">${r.delta >= 0 ? '+' : ''}${r.delta}</b></span></div>`).join('')}</div>`;
+        leagueTable(res.standings);
+        window.Sfx.play(total >= 0 ? 'win' : 'lose');
+      }
+    } catch { $('#leagueResult').innerHTML = '<span class="bad">連線失敗，請再試一次</span>'; }
+    btn.disabled = false; btn.textContent = '⚔️ 參賽';
+  };
+
   // ---------- 整局重播 ----------
   const rp = { renderer: new window.Renderer($('#replayMain')), data: null, frames: [], next: 0, tick: 0, playing: true, speed: 1, lastNow: 0, id: null };
   function openReplay(data, id) {
