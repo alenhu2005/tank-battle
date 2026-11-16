@@ -51,6 +51,54 @@ module.exports = {
   BLAST_RADIUS: 1.1,        // 爆炸傷害：坦克中心與爆炸中心的直線距離
   HIT_MARGIN: 0.03,         // 子彈命中判定比坦克外框多出的距離（越小越不會「沒碰到就死」）
   COUNTDOWN_SECONDS: 5,
+  BULLET_BOUNCES: 2,        // 子彈反彈模式：每顆子彈最多反彈幾次
+
+  // 場地道具
+  // icon 盡量一眼看得出功能；label 是地圖上道具下方的兩個字；weight 越大越常出現
+  ITEM_TYPES: [
+    { key: 'shield',   icon: '🛡️', name: '護盾',     label: '護盾', weight: 3, desc: '4 秒內無敵' },
+    { key: 'speed',    icon: '👟', name: '加速',     label: '加速', weight: 3, desc: '8 秒內移動速度 ×1.4' },
+    { key: 'rapid',    icon: '🔥', name: '火力全開', label: '連射', weight: 3, desc: '8 秒內開火冷卻減半，同時子彈 +1' },
+    { key: 'life',     icon: '❤️', name: '加命',     label: '加命', weight: 2, desc: '玩家坦克 +1 條命（最多 3 條）；電腦撿到改給護盾' },
+    { key: 'blast',    icon: '💣', name: '爆裂彈',   label: '爆裂', weight: 2, desc: '接下來 3 發子彈會爆炸，波及周圍敵人' },
+    { key: 'pierce',   icon: '🗡️', name: '穿甲彈',   label: '穿甲', weight: 2, desc: '接下來 5 發子彈撞到敵方子彈不會被抵消' },
+    { key: 'spread',   icon: '🔱', name: '散彈',     label: '散彈', weight: 2, desc: '8 秒內每次開火射出 3 發（扇形）' },
+    { key: 'bounce',   icon: '🏀', name: '彈跳彈',   label: '彈跳', weight: 2, desc: '8 秒內子彈撞牆會反彈，最多 3 次' },
+    { key: 'swift',    icon: '💨', name: '疾風彈',   label: '快彈', weight: 2, desc: '8 秒內子彈速度 ×1.6' },
+    { key: 'armor',    icon: '🪖', name: '裝甲',     label: '裝甲', weight: 2, desc: '這條命可以多挨 1 發' },
+    { key: 'cloak',    icon: '👻', name: '隱形',     label: '隱形', weight: 2, desc: '6 秒內敵人（包括敵方電腦）看不到你' },
+    { key: 'phase',    icon: '🌀', name: '穿牆',     label: '穿牆', weight: 2, desc: '5 秒內可以穿過磚牆和水' },
+    { key: 'freeze',   icon: '❄️', name: '冰凍彈',   label: '冰凍', weight: 2, desc: '接下來 3 發命中敵人時，把他凍住 2 秒（不扣命）' },
+    { key: 'confuse',  icon: '😵', name: '混亂彈',   label: '混亂', weight: 2, desc: '接下來 3 發命中敵人時，讓他方向顛倒 3 秒（不扣命）' },
+    { key: 'emp',      icon: '⚡', name: '電磁脈衝', label: '電磁', weight: 2, desc: '身邊 6 格內的敵人立刻凍住 1.5 秒' },
+    { key: 'timestop', icon: '⏸️', name: '時間暫停', label: '暫停', weight: 1, desc: '全場敵人立刻凍住 1.5 秒' },
+    { key: 'revive',   icon: '🤖', name: '復活電腦', label: '復活', weight: 1, desc: '你的電腦隊友如果陣亡就復活它；還活著就給它護盾' },
+    { key: 'fortify',  icon: '🏰', name: '基地加固', label: '加固', weight: 2, desc: '把你們基地周圍的磚牆補回來（沒有基地時改給護盾）' },
+    { key: 'quake',    icon: '⛏️', name: '拆牆',     label: '拆牆', weight: 2, desc: '炸掉你身邊 2 格內的所有磚牆' },
+    { key: 'home',     icon: '🏠', name: '回城',     label: '回城', weight: 2, desc: '瞬間傳送回自己的出生點，並有 1 秒無敵' },
+    { key: 'radar',    icon: '👁️', name: '全視',     label: '全視', weight: 2, desc: '10 秒內看得到全場（無視迷霧、看穿草叢）' },
+    { key: 'swap',     icon: '🔄', name: '換位',     label: '換位', weight: 1, desc: '和離你最近的敵人互換位置' },
+  ],
+  ITEM_FIRST_DELAY: 6 * TICK_RATE,
+  ITEM_INTERVAL: 8 * TICK_RATE,
+  ITEM_MAX: 4,
+  ITEM_LIFETIME: 20 * TICK_RATE,
+  ITEM_PICKUP_RANGE: 0.6,
+  ITEM_SHIELD_TICKS: 4 * TICK_RATE,
+  BUFF_TICKS: 8 * TICK_RATE,
+  SPEED_BUFF: 1.4,
+  BLAST_SHOTS: 3,
+  PIERCE_SHOTS: 5,
+  STATUS_SHOTS: 3,                 // 冰凍彈、混亂彈的發數
+  SWIFT_BULLET: 1.6,
+  CLOAK_TICKS: 6 * TICK_RATE,
+  PHASE_TICKS: 5 * TICK_RATE,
+  RADAR_TICKS: 10 * TICK_RATE,
+  FREEZE_HIT_TICKS: 2 * TICK_RATE,
+  CONFUSE_TICKS: 3 * TICK_RATE,
+  EMP_TICKS: Math.round(1.5 * TICK_RATE),
+  EMP_RADIUS: 6,
+  BOUNCE_BUFF: 3,
 
   // 大亂鬥時各隊的顏色；陣營戰固定紅藍
   FFA_COLORS: ['#f2c94c', '#3ddc84', '#4aa8ff', '#ff6b6b', '#c084fc', '#ff9f43'],

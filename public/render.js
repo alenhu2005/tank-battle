@@ -5,6 +5,8 @@
   const DIRS = ['up', 'down', 'left', 'right', 'upleft', 'upright', 'downleft', 'downright'];
   const ANGLE = [0, Math.PI, -Math.PI / 2, Math.PI / 2, -Math.PI / 4, Math.PI / 4, -Math.PI * 3 / 4, Math.PI * 3 / 4];
   const R2 = Math.SQRT1_2;
+  // 子彈顏色：0 一般、1 穿甲、2 爆炸、3 冰凍、4 混亂
+  const BULLET_COLORS = ['#fff4b0', '#e6ecff', '#ff9f43', '#7fdcff', '#d48bff'];
   const VEC = [[0, -1], [0, 1], [-1, 0], [1, 0], [-R2, -R2], [R2, -R2], [-R2, R2], [R2, R2]];
   const MIN_TILE_PX = 12;
   const INTERP_DELAY = 2;   // tick
@@ -49,6 +51,7 @@
       this.buf = [];
       this.hist = [];
       this.replay = null;
+      this.items = [];
       this.offset = null;
       this.appliedK = 0;
       this.renderTick = 0;
@@ -65,12 +68,12 @@
     applySnapshot(s, now) {
       const tickMs = 1000 / this.meta.tickRate;
       const tanks = new Map();
-      for (const a of s.T) tanks.set(a[0], { x: a[1] / 100, y: a[2] / 100, dir: a[3], shield: a[4], hp: a[5] });
+      for (const a of s.T) tanks.set(a[0], { x: a[1] / 100, y: a[2] / 100, dir: a[3], shield: a[4], hp: a[5], buffs: a[6] || 0 });
       const bullets = new Map();
       for (const a of s.B) bullets.set(a[0], { x: a[1] / 100, y: a[2] / 100, dir: a[3], kind: a[4] });
       const last = this.buf[this.buf.length - 1];
       if (last && s.k <= last.k) return;
-      const snap = { k: s.k, tanks, bullets, M: s.M, L: s.L, S: s.S, E: s.E, K: s.K, X: s.X };
+      const snap = { k: s.k, tanks, bullets, M: s.M, L: s.L, S: s.S, E: s.E, K: s.K, X: s.X, I: s.I, P: s.P };
       this.buf.push(snap);
       // 死亡重播用：保留最近約 6 秒
       this.hist.push(snap);
@@ -100,6 +103,12 @@
         if (snap.L) for (const [id, lives, alive] of snap.L) this.lives.set(id, { lives, alive: !!alive });
         if (snap.S) for (const [key, out, base] of snap.S) this.sideState.set(key, { out: !!out, base });
         if (snap.E) for (const [type, x, y] of snap.E) this.addEffect(type, x / 100, y / 100, now);
+        if (snap.I) this.items = snap.I.map(a => ({ id: a[0], x: a[1] / 100, y: a[2] / 100, type: a[3], left: a[4], k: snap.k }));
+        if (snap.P) for (const [tankId, type, x, y] of snap.P) {
+          const it = this.meta.itemTypes[type];
+          this.particles.push({ type: 'float', x: x / 100, y: y / 100, t0: now, dur: 1200, text: `${it.icon} ${it.name}`, bits: [] });
+          if (this.onPickup) this.onPickup(tankId, type);
+        }
         if (snap.X && this.onBaseKill) for (const [sideKey, shooter] of snap.X) this.onBaseKill(sideKey, shooter);
         if (snap.K) for (const [v, k, cause] of snap.K) {
           if (this.myTank && v === this.myTank.id && cause !== 'base') this._startReplay(snap.k, k, cause, now);
@@ -118,10 +127,19 @@
       return left > 0 ? left / this.meta.tickRate : null;
     }
 
+    // 我的坦克目前的道具效果（bit：1 加速、2 速射、4 爆裂彈）
+    myBuffs() {
+      if (!this.myTank || !this.buf.length) return 0;
+      let snap = this.buf[0];
+      for (const s of this.buf) { if (s.k <= this.renderTick) snap = s; else break; }
+      const t = snap.tanks.get(this.myTank.id);
+      return t ? t.buffs : 0;
+    }
+
     playTick() { return Math.max(0, this.renderTick - (this.meta ? this.meta.startTicks || 0 : 0)); }
 
     addEffect(type, x, y, now) {
-      const dur = { boom: 650, blast: 500, baseBoom: 1200, brick: 380, spark: 180, armor: 300, spawn: 500 }[type] || 300;
+      const dur = { boom: 650, blast: 500, baseBoom: 1200, brick: 380, spark: 180, armor: 300, spawn: 500, emp: 600, timestop: 900, freezeHit: 400, confuseHit: 400, itemSpawn: 600 }[type] || 300;
       const p = { type, x, y, t0: now, dur, bits: [] };
       if (type === 'brick' || type === 'boom' || type === 'baseBoom' || type === 'blast') {
         const n = type === 'brick' ? 6 : type === 'baseBoom' ? 24 : 12;
@@ -306,12 +324,38 @@
         this._drawBase(ctx, side.base.x * tp, side.base.y * tp, tp, side.color, st && st.base === 1);
       }
 
+      // 場地道具
+      for (const it of this.items) {
+        const left = it.left - (rt - it.k);
+        if (left <= 0) continue;
+        if (left < 90 && Math.floor(now / 150) % 2) continue;   // 快消失時閃爍
+        const type = this.meta.itemTypes[it.type];
+        const bob = Math.sin(now / 300 + it.id) * tp * 0.05;
+        const cx = it.x * tp, cy = it.y * tp + bob, r = tp * 0.4;
+        ctx.fillStyle = 'rgba(20, 24, 30, .85)';
+        ctx.strokeStyle = '#f2c94c'; ctx.lineWidth = Math.max(1.5, tp * 0.06);
+        ctx.beginPath(); ctx.roundRect ? ctx.roundRect(cx - r, cy - r, r * 2, r * 2, r * 0.35) : ctx.rect(cx - r, cy - r, r * 2, r * 2);
+        ctx.fill(); ctx.stroke();
+        ctx.font = `${Math.max(9, tp * 0.55)}px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#fff';
+        ctx.fillText(type.icon, cx, cy + tp * 0.03);
+        if (tp >= 16) {   // 道具下方的兩字說明
+          ctx.font = `800 ${Math.max(9, tp * 0.34)}px system-ui, sans-serif`;
+          ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.75)';
+          ctx.strokeText(type.label, cx, cy + r + tp * 0.22);
+          ctx.fillStyle = '#ffe9a6';
+          ctx.fillText(type.label, cx, cy + r + tp * 0.22);
+        }
+      }
+
       // 子彈
       for (const [id, b] of A.bullets) {
         const [x, y] = pos(id, A.bullets, B.bullets);
-        const r = (b.kind === 2 ? 0.15 : 0.1) * tp;
-        ctx.fillStyle = b.kind === 2 ? '#ff9f43' : '#fff4b0';
+        const r = (b.kind === 2 ? 0.15 : b.kind >= 3 ? 0.13 : 0.1) * tp;
+        ctx.fillStyle = BULLET_COLORS[b.kind] || '#fff4b0';
         ctx.beginPath(); ctx.arc(x * tp, y * tp, Math.max(1.5, r), 0, 7); ctx.fill();
+        if (b.kind === 1) { ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1; ctx.stroke(); }
       }
 
       // 坦克
@@ -321,11 +365,39 @@
         if (!m) continue;
         const [x, y] = pos(id, A.tanks, B.tanks);
         drawn.push([id, x, y]);
+        const ghost = t.buffs & (8 | 128);       // 隱形或穿牆：半透明
+        if (ghost) ctx.globalAlpha = t.buffs & 8 ? 0.35 : 0.6;
         this._drawTank(ctx, x * tp, y * tp, t.dir, this.sideMeta.get(m.side).color, m, tp * this.meta.tankSize, t, now);
+        ctx.globalAlpha = 1;
+        if (t.buffs & 32) {                       // 冰凍
+          ctx.fillStyle = 'rgba(150, 220, 255, .45)';
+          ctx.fillRect((x - 0.48) * tp, (y - 0.48) * tp, 0.96 * tp, 0.96 * tp);
+          ctx.strokeStyle = '#bfefff'; ctx.lineWidth = Math.max(1, tp * 0.05);
+          ctx.strokeRect((x - 0.48) * tp, (y - 0.48) * tp, 0.96 * tp, 0.96 * tp);
+        }
+        if (t.buffs & 64) {                       // 混亂：頭上轉圈的星星
+          ctx.font = `${Math.max(9, tp * 0.45)}px system-ui, "Apple Color Emoji", sans-serif`;
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText('💫', (x + Math.cos(now / 150) * 0.3) * tp, (y - 0.7) * tp);
+        }
+        if (t.buffs) {
+          // 道具效果：坦克周圍的彩色光圈
+          const colors = [];
+          if (t.buffs & 1) colors.push('#4fd1ff');
+          if (t.buffs & (2 | 256)) colors.push('#ff8a3d');
+          if (t.buffs & (4 | 512 | 1024)) colors.push('#ff4d6d');
+          colors.forEach((c, i) => {
+            ctx.strokeStyle = c; ctx.lineWidth = Math.max(1, tp * 0.05);
+            ctx.setLineDash([tp * 0.12, tp * 0.1]); ctx.lineDashOffset = -now / 40;
+            ctx.beginPath(); ctx.arc(x * tp, y * tp, tp * (0.56 + i * 0.09), 0, 7); ctx.stroke();
+          });
+          ctx.setLineDash([]);
+        }
       }
 
       // 草叢（偵察職業看得穿）
-      ctx.globalAlpha = this.myTank && this.myTank.grassSight ? 0.45 : 0.94;
+      const radarOn = this.myBuffs() & 16;
+      ctx.globalAlpha = this.myTank && (this.myTank.grassSight || radarOn) ? 0.45 : 0.94;
       ctx.drawImage(this.grass, 0, 0, mapW, mapW);
       ctx.globalAlpha = 1;
 
@@ -349,7 +421,7 @@
       for (const p of this.particles) this._drawEffect(ctx, p, (now - p.t0) / p.dur, tp);
 
       // 迷霧
-      if (this.meta.fog && this.myTank) {
+      if (this.meta.fog && this.myTank && !radarOn) {
         const r = this.myTank.vision * tp;
         const grad = ctx.createRadialGradient(homeX * tp, homeY * tp, r * 0.78, homeX * tp, homeY * tp, r);
         grad.addColorStop(0, 'rgba(4,6,9,0)');
@@ -570,6 +642,23 @@
       } else if (p.type === 'armor') {
         ctx.strokeStyle = `rgba(200, 230, 255, ${1 - k})`; ctx.lineWidth = Math.max(1, tp * 0.08);
         ctx.beginPath(); ctx.arc(x, y, tp * (0.4 + 0.4 * ease), 0, 7); ctx.stroke();
+      } else if (p.type === 'float') {
+        ctx.font = `800 ${Math.max(11, tp * 0.5)}px system-ui, "Apple Color Emoji", sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = `rgba(255, 236, 160, ${1 - k})`;
+        ctx.strokeStyle = `rgba(0, 0, 0, ${0.6 * (1 - k)})`; ctx.lineWidth = 3;
+        ctx.strokeText(p.text, x, y - ease * tp * 1.2); ctx.fillText(p.text, x, y - ease * tp * 1.2);
+      } else if (p.type === 'emp' || p.type === 'timestop') {
+        const R = (p.type === 'emp' ? 6 : 3) * tp;
+        ctx.strokeStyle = p.type === 'emp' ? `rgba(120, 200, 255, ${1 - k})` : `rgba(255, 255, 255, ${1 - k})`;
+        ctx.lineWidth = Math.max(2, tp * 0.12);
+        ctx.beginPath(); ctx.arc(x, y, R * ease, 0, 7); ctx.stroke();
+      } else if (p.type === 'freezeHit' || p.type === 'confuseHit') {
+        ctx.fillStyle = p.type === 'freezeHit' ? `rgba(160, 230, 255, ${0.8 * (1 - k)})` : `rgba(212, 139, 255, ${0.8 * (1 - k)})`;
+        ctx.beginPath(); ctx.arc(x, y, tp * (0.4 + 0.5 * ease), 0, 7); ctx.fill();
+      } else if (p.type === 'itemSpawn' || p.type === 'pickup') {
+        ctx.strokeStyle = `rgba(242, 201, 76, ${1 - k})`; ctx.lineWidth = Math.max(1, tp * 0.06);
+        ctx.beginPath(); ctx.arc(x, y, tp * (0.3 + 0.7 * ease), 0, 7); ctx.stroke();
       } else if (p.type === 'spawn') {
         ctx.strokeStyle = `rgba(255, 255, 255, ${0.8 * (1 - k)})`; ctx.lineWidth = Math.max(1, tp * 0.06);
         ctx.beginPath(); ctx.arc(x, y, tp * (1.2 - 0.8 * ease), 0, 7); ctx.stroke();

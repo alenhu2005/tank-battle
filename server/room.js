@@ -25,7 +25,7 @@ class Room {
     this.onClose = onClose;
     this.players = [];
     this.hostId = null;
-    this.settings = { mode: 'ffa', baseMode: true, fog: false, hardWalls: false, codeOnly: false, rounds: 3, timeLimit: 180 };
+    this.settings = { mode: 'ffa', baseMode: true, fog: false, hardWalls: false, codeOnly: false, items: true, ricochet: false, rounds: 3, timeLimit: 180 };
     this.state = 'lobby'; // lobby | playing | intermission | finished
     this.roundNo = 0;
     this.round = null;
@@ -163,6 +163,8 @@ class Room {
         if (typeof msg.fog === 'boolean') s.fog = msg.fog;
         if (typeof msg.hardWalls === 'boolean') s.hardWalls = msg.hardWalls;
         if (typeof msg.codeOnly === 'boolean') s.codeOnly = msg.codeOnly;
+        if (typeof msg.items === 'boolean') s.items = msg.items;
+        if (typeof msg.ricochet === 'boolean') s.ricochet = msg.ricochet;
         if (Number.isInteger(msg.rounds)) s.rounds = Math.min(15, Math.max(1, msg.rounds));
         if (Number.isInteger(msg.timeLimit)) s.timeLimit = [0, 120, 180, 300, 480].includes(msg.timeLimit) ? msg.timeLimit : s.timeLimit;
         return this.sendRoom();
@@ -216,6 +218,10 @@ class Room {
       case 'start':
         if (!isHost) return;
         if (this.state === 'lobby' || this.state === 'intermission') return this.startRound();
+        return;
+      case 'forceEnd':   // 房主強制結束這一局（算平手）
+        if (!isHost || this.state !== 'playing' || !this.round) return;
+        this.round.forceEnd();
         return;
       case 'endMatch':
         if (!isHost || this.state === 'playing') return;
@@ -277,7 +283,7 @@ class Room {
     if (this.state === 'lobby') { this.roundNo = 0; for (const p of this.players) { p.wins = 0; p.kills = 0; } }
     this.roundNo++;
     this.round = new Round({
-      mode: s.mode, baseMode: s.baseMode, fog: s.fog, breakableWalls: !s.hardWalls, codeOnly: s.codeOnly,
+      mode: s.mode, baseMode: s.baseMode, fog: s.fog, breakableWalls: !s.hardWalls, codeOnly: s.codeOnly, items: s.items, ricochet: s.ricochet,
       timeLimit: s.timeLimit, sides: this._buildSides(), countdown: C.COUNTDOWN_SECONDS,
     });
     this.state = 'playing';
@@ -313,7 +319,7 @@ class Room {
     let shared = null;
     for (const p of this.humans()) {
       if (!p.ws) continue;
-      if (r.fog && !r.codeOnly) send(p.ws, r.snapshotFor(p.id));
+      if (r.needsPerPlayerSnapshots()) send(p.ws, r.snapshotFor(p.id));
       else send(p.ws, shared || (shared = JSON.stringify(r.snapshotFor(null))));
     }
     if (r.over) this._endRound();

@@ -7,7 +7,7 @@ const { Round } = require('./game');
 const DEFAULT_BOT = require('./defaultBot');
 
 const SCENARIOS = [
-  { mode: 'ffa', baseMode: true, fog: false, opponents: 2, ticks: 120 },
+  { mode: 'ffa', baseMode: true, fog: false, opponents: 2, ticks: 240, items: true, ricochet: true },
   { mode: 'team', baseMode: false, fog: true, opponents: 1, ticks: 90 },
   { mode: 'ffa', baseMode: true, fog: false, opponents: 2, ticks: 60, hard: true, codeOnly: true },
 ];
@@ -27,7 +27,7 @@ function validateCode(code) {
 
     let round;
     try {
-      round = new Round({ mode: sc.mode, baseMode: sc.baseMode, fog: sc.fog, breakableWalls: !sc.hard, codeOnly: !!sc.codeOnly, timeLimit: 0, sides, size: 21 });
+      round = new Round({ mode: sc.mode, baseMode: sc.baseMode, fog: sc.fog, breakableWalls: !sc.hard, codeOnly: !!sc.codeOnly, items: !!sc.items, ricochet: !!sc.ricochet, timeLimit: 0, sides, size: 21 });
     } catch (e) {
       result.errors.push('測試環境建立失敗：' + e.message);
       return result;

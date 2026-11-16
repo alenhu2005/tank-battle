@@ -101,7 +101,7 @@
     switch (m.t) {
       case 'joined':
         me = { id: m.id, token: m.token, code: m.code };
-        info = { classes: m.classes, botClass: m.botClass, colors: m.colors, factionColors: m.factionColors, teamCount: m.teamCount };
+        info = { classes: m.classes, botClass: m.botClass, colors: m.colors, factionColors: m.factionColors, teamCount: m.teamCount, itemTypes: m.itemTypes || [] };
         store.set('session', { code: m.code, id: m.id, token: m.token, at: Date.now() });
         history.replaceState(null, '', '?room=' + m.code);
         break;
@@ -193,6 +193,9 @@
     }
   }
 
+  let itemGuideOpen = false;
+  document.addEventListener('toggle', e => { if (e.target.classList && e.target.classList.contains('item-guide')) itemGuideOpen = e.target.open; }, true);
+
   function renderLobby() {
     const s = room.settings;
     const host = isHost();
@@ -233,6 +236,11 @@
       <div class="set-row"><span>迷霧</span>${sw('fog', s.fog)}</div>
       <div class="set-desc">玩家只看得到自己周圍；電腦不受影響</div>
       <div class="set-row"><span>牆壁打不破</span>${sw('hardWalls', s.hardWalls)}</div>
+      <div class="set-row"><span>場地道具</span>${sw('items', s.items)}</div>
+      <details class="item-guide" ${itemGuideOpen ? 'open' : ''}><summary>每 8 秒刷新一個道具，共 ${info.itemTypes.length} 種（點開看說明）</summary>
+        <ul>${info.itemTypes.map(t => `<li><span class="ic">${t.icon}</span><div><b>${esc(t.name)}</b>${esc(t.desc)}</div></li>`).join('')}</ul></details>
+      <div class="set-row"><span>子彈反彈</span>${sw('ricochet', s.ricochet)}</div>
+      <div class="set-desc">子彈撞到鋼牆和邊界會反彈，最多 2 次</div>
       <div class="set-row"><span>局數</span><div class="stepper">
         <button data-set="rounds" data-val="${s.rounds - 1}" ${dis}>−</button><b>${s.rounds}</b><button data-set="rounds" data-val="${s.rounds + 1}" ${dis}>＋</button></div></div>
       <div class="set-row"><span>每局時間</span>${seg('timeLimit', TIME_OPTS, s.timeLimit)}</div>`;
@@ -460,6 +468,32 @@ ${defaultBot}\`\`\`
     if (mine) { lastDeath = { killer: shooter, cause: 'base', at: performance.now() }; if (navigator.vibrate) navigator.vibrate([100, 50, 100]); }
     hudDirty = true;
   };
+  // 房主強制結束
+  let forceArmed = 0;
+  $('#forceEndBtn').addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    if (Date.now() - forceArmed < 3000) { send({ t: 'forceEnd' }); forceArmed = 0; toast('已強制結束這一局'); return; }
+    forceArmed = Date.now();
+    toast('再按一次 ⏹ 強制結束這一局（算平手）');
+  });
+
+  // 撿到道具：飄字
+  let bannerTimer = null;
+  renderer.onPickup = (tankId, type) => {
+    hudDirty = true;
+    if (!renderer.myTank) return;
+    const it = info.itemTypes[type];
+    const mine = tankId === renderer.myTank.id;
+    const myBot = renderer.tankMeta.get(tankId);
+    const isMyBot = myBot && myBot.isBot && myBot.owner === renderer.myTank.owner;
+    if (!mine && !isMyBot) return;
+    if (mine && navigator.vibrate) navigator.vibrate(25);
+    const el = $('#pickupBanner');
+    el.innerHTML = `<div class="ic">${it.icon}</div><div><b>${mine ? '' : '你的電腦撿到 '}${esc(it.name)}</b><span>${esc(it.desc)}</span></div>`;
+    el.classList.add('show');
+    clearTimeout(bannerTimer);
+    bannerTimer = setTimeout(() => el.classList.remove('show'), mine ? 2800 : 1800);
+  };
   $('#replayBox').addEventListener('pointerdown', (e) => { e.stopPropagation(); renderer.closeReplay(); $('#replayBox').classList.remove('show'); });
 
   function onRoundStart(m) {
@@ -548,7 +582,10 @@ ${defaultBot}\`\`\`
       const mine = r.lives.get(r.myTank.id) || { lives: 0, alive: false };
       const botMeta = r.meta.tanks.find(t => t.owner === r.myTank.owner && t.isBot);
       const bot = botMeta ? r.lives.get(botMeta.id) : null;
-      $('#hudLives').innerHTML = `${'♥'.repeat(mine.lives)}<span style="opacity:.3">${'♥'.repeat(Math.max(0, 3 - mine.lives))}</span> 電腦${bot && bot.alive ? '✓' : '✕'}`;
+      const buffs = r.myBuffs();
+      const BUFF_ICONS = [[1, '👟'], [2, '🔥'], [4, '💣'], [8, '👻'], [16, '👁️'], [32, '❄️'], [64, '😵'], [128, '🌀'], [256, '🔱'], [512, '🏀'], [1024, '💨']];
+      const buffIcons = BUFF_ICONS.filter(([bit]) => buffs & bit).map(([, ic]) => ic).join('');
+      $('#hudLives').innerHTML = `${buffIcons ? `<span class="buffs">${buffIcons}</span>` : ''}${'♥'.repeat(mine.lives)}<span style="opacity:.3">${'♥'.repeat(Math.max(0, 3 - mine.lives))}</span> 電腦${bot && bot.alive ? '✓' : '✕'}`;
       const sideOut = (r.sideState.get(r.myTank.side) || {}).out;
       const why = !lastDeath ? '' : lastDeath.cause === 'base' ? '基地被摧毀' : lastDeath.cause === 'blast' ? `被 ${tankName(lastDeath.killer)} 的爆炸波及` : `被 ${tankName(lastDeath.killer)} 擊中`;
       if (sideOut) { spect.innerHTML = `${lastDeath && lastDeath.cause === 'base' ? '基地被摧毀，' : ''}你的隊伍已出局<br><small>觀戰中</small>`; spect.classList.add('show'); }
@@ -695,7 +732,7 @@ ${defaultBot}\`\`\`
   });
 
   // ---------- 局後結果 ----------
-  const REASONS = { last: '最後存活', draw: '同歸於盡', time: '時間到，剩餘命數較多', timeDraw: '時間到，平手' };
+  const REASONS = { last: '最後存活', draw: '同歸於盡', time: '時間到，剩餘命數較多', timeDraw: '時間到，平手', forced: '房主強制結束' };
 
   function renderResult() {
     if (!lastResult || !room) return;

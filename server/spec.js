@@ -41,16 +41,20 @@ module.exports = `# 坦克對戰：電腦隊友代碼規格
   me:      { ...坦克, cooldown, canFire },   // cooldown：還要幾個 tick 才能再開火
   allies:  [ 坦克 ],   // 同隊、還活著的其他坦克（包含你的玩家）
   enemies: [ 坦克 ],   // 所有還活著的敵方坦克
-  bullets: [ { x, y, dir, speed, ally, blast } ],   // 場上所有子彈；speed 單位是格/秒；ally 表示是不是我方的
+  bullets: [ { x, y, dir, speed, ally, blast, pierce, freeze, confuse, bounces } ],   // 場上所有子彈；speed 單位是格/秒；ally 表示是不是我方的；bounces 是剩餘反彈次數
   bases:   [ { x, y, ally, alive } ],    // 基地中心座標；非基地模式時是空陣列
+  items:   [ { x, y, type, ticksLeft } ],  // 場上的道具（格子中心座標）；沒開道具時是空陣列
   map:     { width, height, tiles },     // tiles[r][c] 是第 r 列第 c 欄的地形字元
-  rules:   { tickRate, tankSize, blastRadius, mode, baseMode, fog, breakableWalls, codeOnly, classes }
+  rules:   { tickRate, tankSize, blastRadius, mode, baseMode, fog, breakableWalls, codeOnly, classes, ricochet, bulletBounces, items }
 }
-坦克 = { id, x, y, dir, isBot, owner, cls, lives, hp, shield }
+坦克 = { id, x, y, dir, isBot, owner, cls, lives, hp, shield, buffs }
 - dir：八個方向之一
 - owner：這台坦克所屬玩家的 id。你的玩家是 allies 裡 isBot === false 且 owner === me.owner 的那台（他死掉等重生時不會出現在 allies）。
 - cls：職業，"bot" 表示電腦坦克，其他見下方職業表。各職業的數值也在 rules.classes[cls] 裡。
 - hp：這條命還能挨幾發；shield：剩餘無敵的 tick 數。
+- buffs：道具效果 { speed, rapid, spread, bounce, swift, cloak, phase, radar, frozen, confused, blastShots, pierceShots, freezeShots, confuseShots }。
+  前面幾個是剩餘 tick 數（0 = 沒有），…Shots 是還剩幾發。frozen > 0 時不能動也不能射；confused > 0 時移動方向會被顛倒。
+- 隱形（cloak）中的敵人不會出現在 enemies 裡。
 - 電腦沒有視野限制：草叢和迷霧只會擋住人類玩家的畫面。
 
 ## 地形
@@ -67,6 +71,17 @@ B  基地：擋坦克和子彈，被敵方子彈打中就會毀掉
 ${classLines}
 爆炸子彈：命中坦克、牆或被抵消時爆炸，炸毀周圍 3×3 的磚牆（牆可破時），並對坦克中心距離爆炸中心 ${C.BLAST_RADIUS} 格以內（直線距離）的敵方坦克造成傷害。
 子彈命中判定：子彈中心進入坦克方框（邊長 ${C.TANK_SIZE}）外擴 ${C.HIT_MARGIN} 格的範圍內就算命中。
+
+## 子彈反彈（rules.ricochet 為 true 時）
+- 子彈撞到鋼牆、地圖邊界，或打不破的磚牆時會反彈，每顆最多反彈 ${C.BULLET_BOUNCES} 次，用完後再撞牆就消失。
+- 撞到正面時方向反轉；斜向子彈撞到牆面時，只翻轉撞到的那一軸（像撞球一樣）。
+- 打得破的磚牆、基地照樣會擋下子彈（磚牆照樣被打掉）。爆炸子彈不會反彈，撞牆直接爆炸。
+
+## 場地道具（rules.items 為 true 時）
+- 開局 ${C.ITEM_FIRST_DELAY / C.TICK_RATE} 秒後出現第一個，之後每 ${C.ITEM_INTERVAL / C.TICK_RATE} 秒在隨機空地刷新一個，場上最多 ${C.ITEM_MAX} 個，${C.ITEM_LIFETIME / C.TICK_RATE} 秒沒人撿就消失。
+- 坦克中心距離道具中心兩軸都小於 ${C.ITEM_PICKUP_RANGE} 格就會撿到。玩家和電腦都能撿。items[].type 是下面的英文名稱。
+${C.ITEM_TYPES.map(t => `- ${t.key}（${t.name}）：${t.desc}`).join('\n')}
+- 散彈的額外兩發不佔「同時子彈」數量。冰凍彈和混亂彈命中時不扣命，也不會爆炸。
 
 ## 規則
 - 沒有友軍傷害：我方子彈會穿過我方坦克。但所有坦克之間都有碰撞，彼此會擋住。

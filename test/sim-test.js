@@ -104,3 +104,127 @@ console.log('ALL OK');
   assert(!always.ok, 'repeated timeouts fail');
   console.log('timeout tolerance OK');
 }
+
+// 子彈反彈、道具、強制結束
+{
+  const { Round } = require('../server/game');
+  const C = require('../server/constants');
+  const sides = [0, 1].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: 'function think(){return null}' }] }));
+  const r = new Round({ mode: 'ffa', baseMode: false, timeLimit: 0, sides, size: 21, ricochet: true, items: true });
+  const S = r.size;
+  r.tiles.fill('.');
+  r.tiles[5 * S + 10] = '@';
+  const t = r.tanks[0];
+  r.tanks.filter(o => o !== t).forEach((o, i) => { o.x = 18.5; o.y = 18.5 - i * 2; });
+  // 正面打鋼牆：反彈回來
+  t.x = 10.5; t.y = 9.5; t.dir = 'up'; t.cooldown = 0;
+  r.setInput('p0', { fire: true }); r.step(); r.setInput('p0', { fire: false });
+  let b = r.bullets.find(b => b.owner === t.id);
+  for (let i = 0; i < 20 && b.dir === 'up'; i++) r.step();
+  assert.strictEqual(b.dir, 'down', 'cardinal bounce'); assert.strictEqual(b.bounces, 1);
+  // 斜打下方邊界：只翻 y
+  r.bullets = [];
+  t.x = 5.5; t.y = 18.5; t.dir = 'downright'; t.cooldown = 0;
+  r.setInput('p0', { fire: true }); r.step(); r.setInput('p0', { fire: false });
+  b = r.bullets.find(b => b.owner === t.id);
+  for (let i = 0; i < 20 && b.dir === 'downright'; i++) r.step();
+  assert.strictEqual(b.dir, 'upright', 'diagonal bounce flips one axis');
+  // 道具：出現、撿到、生效
+  r.bullets = [];
+  r.items = [{ id: 99, x: 3.5, y: 3.5, type: C.ITEM_TYPES.findIndex(x => x.key === 'rapid'), until: r.playTick + 100 }];
+  t.x = 3.5; t.y = 4.5; r.setInput('p0', { move: 'up' });
+  for (let i = 0; i < 5; i++) r.step();
+  assert(t.rapidBuff > 0 && r.items.length === 0, 'picked up rapid');
+  r.setInput('p0', { move: null });
+  for (let i = 0; i < 6 * 30; i++) r.step();
+  assert(r.items.length >= 1, 'items respawn over time');
+  // 強制結束
+  r.forceEnd();
+  for (let i = 0; i < 3 && !r.over; i++) r.step();
+  assert(r.over && r.result.reason === 'forced' && r.result.winner === null, 'force end');
+  console.log('ricochet + items + forceEnd OK');
+  r.dispose();
+}
+
+// 22 種道具逐一測試，加上 30 局隨機對戰（道具全開）不當機
+{
+  const { Round } = require('../server/game');
+  const C = require('../server/constants');
+  const idx = k => C.ITEM_TYPES.findIndex(t => t.key === k);
+  const mk = (extra = {}) => {
+    const sides = [0, 1].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: 'function think(){return null}' }] }));
+    const r = new Round({ mode: 'ffa', baseMode: true, timeLimit: 0, sides, size: 21, items: true, ...extra });
+    for (const t of r.tanks) t.shield = 0;
+    return r;
+  };
+  const r = mk();
+  const me = r.tanks[0], myBot = r.tanks[1], foe = r.tanks[2];
+  const give = k => r._applyItem(me, idx(k));
+  give('shield'); assert(me.shield >= C.ITEM_SHIELD_TICKS);
+  give('speed'); assert(me.speedBuff > 0);
+  give('rapid'); assert(me.rapidBuff > 0 && r._maxBullets(me) === me.stats.maxBullets + 1);
+  me.lives = 1; give('life'); assert.strictEqual(me.lives, 2);
+  give('blast'); assert.strictEqual(me.blastShots, C.BLAST_SHOTS);
+  give('pierce'); assert.strictEqual(me.pierceShots, C.PIERCE_SHOTS);
+  give('armor'); assert.strictEqual(me.hp, me.stats.hp + 1);
+  give('cloak'); assert(me.cloak > 0);
+  assert(!JSON.parse(r._viewFor(foe)).enemies.some(e => e.id === me.id), 'cloaked hidden from enemy bot');
+  assert(!r.snapshotFor('p1').T.some(a => a[0] === me.id), 'cloaked hidden from enemy player');
+  assert(r.snapshotFor('p0').T.some(a => a[0] === me.id), 'cloaked visible to self');
+  give('radar'); assert(me.radar > 0);
+  give('phase'); assert(me.phase > 0);
+  // 散彈：一次 3 發
+  r.bullets = []; me.cooldown = 0; give('spread'); me.blastShots = 0; me.pierceShots = 0; r._fire(me);
+  assert.strictEqual(r.bullets.filter(b => b.owner === me.id).length, 3, 'spread fires 3');
+  // 冰凍彈：命中不扣命，凍住
+  r.bullets = []; give('freeze'); me.cooldown = 0; me.spreadBuff = 0; r._fire(me);
+  const fb = r.bullets.find(b => b.owner === me.id); assert(fb.freeze);
+  foe.x = fb.x; foe.y = fb.y; foe.shield = 0; const lives0 = foe.lives;
+  r._bulletHitTank(fb); assert(foe.frozen > 0 && foe.lives === lives0, 'freeze hit');
+  // 混亂彈
+  me.freezeShots = 0; give('confuse'); r.bullets = []; me.cooldown = 0; r._fire(me);
+  const cb = r.bullets.find(b => b.owner === me.id); foe.x = cb.x; foe.y = cb.y; r._bulletHitTank(cb); assert(foe.confused > 0);
+  // 被凍住不能動
+  const fx = foe.x; r.setInput('p1', { move: 'left' }); foe.frozen = 10; r.startTicks = 0; r.step(); assert.strictEqual(foe.x, fx, 'frozen cannot move');
+  foe.frozen = 0; foe.confused = 0;
+  // 電磁脈衝、時間暫停
+  foe.x = me.x + 2; foe.y = me.y; foe.shield = 0; give('emp'); assert(foe.frozen > 0); foe.frozen = 0;
+  foe.x = me.x + 15; give('timestop'); assert(foe.frozen > 0); foe.frozen = 0;
+  // 復活電腦
+  myBot.alive = false; myBot.lives = 0; give('revive'); assert.strictEqual(myBot.lives, 1); r.step(); assert(myBot.alive, 'bot revived');
+  // 基地加固
+  const side = r.sides[0]; const ring = (side.base.y - 1) * r.size + side.base.x;
+  r.tiles[ring] = '.'; me.x = 1.5; me.y = 1.5; give('fortify'); assert.strictEqual(r.tiles[ring], '#', 'base wall rebuilt');
+  // 拆牆
+  const cx = 10, cy = 10; r.tiles[(cy + 1) * r.size + cx] = '#'; me.x = cx + 0.5; me.y = cy + 0.5; give('quake'); assert.strictEqual(r.tiles[(cy + 1) * r.size + cx], '.');
+  // 回城
+  me.x = 10.5; me.y = 10.5; give('home'); assert(Math.abs(me.x - 10.5) + Math.abs(me.y - 10.5) > 2, 'went home');
+  // 換位
+  r.tanks[3].alive = false; me.x = 4.5; me.y = 15.5; foe.x = 16.5; foe.y = 15.5; foe.alive = true; give('swap'); assert(me.x === 16.5 && foe.x === 4.5, 'swapped');
+  // 彈跳、疾風
+  r.bullets = []; me.cooldown = 0; me.spreadBuff = 0; me.confuseShots = 0; give('bounce'); give('swift'); r._fire(me);
+  const bb = r.bullets.find(b => b.owner === me.id); assert(bb.bounces === C.BOUNCE_BUFF && bb.speed > me.stats.bulletSpeed);
+  r.dispose();
+  // 穿牆後卡在牆裡也能出來
+  const r2 = mk(); const t2 = r2.tanks[0]; r2.startTicks = 0;
+  r2.tiles.fill('.'); for (let y = 0; y < r2.size; y++) r2.tiles[y * r2.size + 8] = '#';
+  r2.tanks.filter(o => o !== t2).forEach((o, i) => { o.x = 18.5; o.y = 1.5 + i * 2; });
+  t2.x = 6.5; t2.y = 10.5; t2.phase = 10; r2.setInput('p0', { move: 'right' });
+  for (let i = 0; i < 12; i++) r2.step();
+  assert(t2.phase === 0 && t2.x > 8, 'passed through brick');
+  for (let i = 0; i < 20; i++) r2.step();
+  assert(t2.x > 9.4, 'not stuck inside wall');
+  r2.dispose();
+  // 隨機 30 局：道具全開＋反彈
+  const D = require('../server/defaultBot');
+  for (let k = 0; k < 30; k++) {
+    const sides = [0, 1, 2].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: D, aiPilot: true, cls: Object.keys(C.CLASSES)[(i + k) % 5] }] }));
+    const rr = new Round({ mode: 'ffa', baseMode: k % 2 === 0, fog: k % 3 === 0, timeLimit: 90, sides, items: true, ricochet: k % 2 === 1, breakableWalls: k % 4 !== 0 });
+    let picked = 0;
+    while (!rr.over) { rr.step(); picked += rr.pickups.length; rr.snapshotFor('p0'); }
+    const reps = Object.values(rr.botReports()).flatMap(x => [x.bot, x.pilot]).filter(Boolean);
+    assert(reps.every(x => x.errorCount === 0), JSON.stringify(reps.map(x => x.errors)));
+    rr.dispose();
+  }
+  console.log('22 items + 30 random item rounds OK');
+}
