@@ -43,7 +43,10 @@
       <span class="label">房號</span>
       <span id="roomCode" class="code">----</span>
     </div>
-    <button id="shareBtn" class="btn ghost small">分享</button>
+    <div class="head-btns">
+      <button class="btn ghost small open-prefs" aria-label="設定">⚙️</button>
+      <button id="shareBtn" class="btn ghost small">分享</button>
+    </div>
   </header>
   <div class="lobby-body">
     <div class="panel">
@@ -79,6 +82,7 @@
     <div id="hudSides" class="hud-sides"></div>
     <div class="hud-right">
       <span id="hudLives"></span>
+      <button class="hud-btn open-prefs" aria-label="設定">⚙️</button>
       <button id="forceEndBtn" class="hud-btn host-only" aria-label="強制結束這一局">⏹</button>
       <button id="fsBtn" class="hud-btn" aria-label="全螢幕">⛶</button>
     </div>
@@ -181,10 +185,33 @@
   </div>
 </div>
 
+<!-- 個人設定（只存在這支手機） -->
+<div id="prefs" class="modal">
+  <div class="modal-card prefs-card">
+    <header class="modal-head">
+      <b class="modal-title">設定</b>
+      <button id="prefsClose" class="btn ghost small">完成</button>
+    </header>
+    <div class="editor-body">
+      <div class="set-row"><span>搖桿大小</span><div class="seg" data-pref="stickSize"><button data-v="0.85">小</button><button data-v="1">中</button><button data-v="1.2">大</button></div></div>
+      <div class="set-row"><span>開火鍵大小</span><div class="seg" data-pref="fireSize"><button data-v="0.85">小</button><button data-v="1">中</button><button data-v="1.2">大</button></div></div>
+      <div class="set-row"><span>按鈕透明度</span><input type="range" id="prefOpacity" min="0.25" max="1" step="0.05"></div>
+      <div class="set-row"><span>左手模式（搖桿在右）</span><button class="switch" data-pref-toggle="lefty" aria-label="左手模式"></button></div>
+      <div class="set-row"><span>瞄準輔助線</span><button class="switch" data-pref-toggle="aimLine" aria-label="瞄準輔助線"></button></div>
+      <div class="set-row"><span>音效</span><button class="switch" data-pref-toggle="sound" aria-label="音效"></button></div>
+      <div class="set-row"><span>音量</span><input type="range" id="prefVolume" min="0" max="1" step="0.05"></div>
+      <div class="set-row"><span>震動</span><button class="switch" data-pref-toggle="vibrate" aria-label="震動"></button></div>
+      <div class="set-row"><span>顯示我的電腦在想什麼</span><button class="switch" data-pref-toggle="botDebug" aria-label="電腦除錯畫面"></button></div>
+      <div class="set-desc">電腦代碼用 debug.line / debug.circle / debug.text 畫的東西會顯示在畫面上（只有你看得到）。</div>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast"></div>
 <div id="connBanner" class="conn-banner">連線中斷，正在重新連線…</div>
 
 <script src="/physics.js"></script>
+<script src="/sfx.js"></script>
 <script src="/render.js"></script>
 <script src="/client.js"></script>
 </body>

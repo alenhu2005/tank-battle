@@ -359,6 +359,24 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   min-height: 120px; resize: vertical; background: #0b0e12; border: 1px solid var(--line); border-radius: 10px;
   padding: 10px; font-size: 16px; outline: none; -webkit-text-security: none;
 }
+.head-btns { display: flex; gap: 6px; }
+.prefs-card input[type=range] { width: 150px; accent-color: var(--accent); }
+@media (min-width: 720px) { .prefs-card { height: auto !important; max-height: 92dvh; max-width: 480px; } }
+.seg[data-pref] button.sel { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+/* 個人操作設定 */
+.stick-base { width: calc(130px * var(--stick-scale, 1)); height: calc(130px * var(--stick-scale, 1)); opacity: var(--ctrl-opacity, 1); }
+.stick-knob { width: calc(58px * var(--stick-scale, 1)); height: calc(58px * var(--stick-scale, 1)); margin: calc(-29px * var(--stick-scale, 1)) 0 0 calc(-29px * var(--stick-scale, 1)); }
+.fire-btn { width: calc(104px * var(--fire-scale, 1)); height: calc(104px * var(--fire-scale, 1)); opacity: var(--ctrl-opacity, 1); }
+@media (orientation: landscape) {
+  body.lefty .stick-zone { left: auto; right: 0; }
+  body.lefty .fire-zone { right: auto; left: 0; }
+  body.lefty .stick-base { left: calc(100% - var(--sar) - 100px); }
+  body.lefty .fire-btn { left: calc(var(--sal) + 90px); }
+}
+@media (orientation: portrait) {
+  body.lefty .stick-zone { left: auto; right: 0; }
+  body.lefty .fire-zone { right: auto; left: 0; }
+}
 .hud-right .buffs { font-size: 14px; letter-spacing: 1px; }
 .pickup-banner {
   position: absolute; left: 50%; top: calc(var(--sat) + 48px); transform: translate(-50%, -8px);

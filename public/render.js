@@ -147,6 +147,8 @@
     playTick() { return Math.max(0, this.renderTick - (this.meta ? this.meta.startTicks || 0 : 0)); }
 
     addEffect(type, x, y, now) {
+      if (this.onEvent) this.onEvent(type, x, y);
+      if (type === 'shot') return;   // 只有音效，沒有畫面特效
       const dur = { boom: 650, blast: 500, baseBoom: 1200, brick: 380, spark: 180, armor: 300, spawn: 500, emp: 600, timestop: 900, freezeHit: 400, confuseHit: 400, itemSpawn: 600 }[type] || 300;
       const p = { type, x, y, t0: now, dur, bits: [] };
       if (type === 'brick' || type === 'boom' || type === 'baseBoom' || type === 'blast') {

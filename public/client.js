@@ -10,6 +10,26 @@
     del(k) { try { localStorage.removeItem(k); } catch { /* ignore */ } },
   };
 
+  // ---------- 個人設定（存在這支手機） ----------
+  const PREF_DEFAULTS = { stickSize: 1, fireSize: 1, opacity: 1, lefty: false, aimLine: true, sound: true, volume: 0.7, vibrate: true, botDebug: true };
+  const prefs = Object.assign({}, PREF_DEFAULTS, store.get('prefs', {}));
+  function buzz(p) { if (prefs.vibrate && navigator.vibrate) navigator.vibrate(p); }
+  function applyPrefs() {
+    const root = document.documentElement.style;
+    root.setProperty('--stick-scale', prefs.stickSize);
+    root.setProperty('--fire-scale', prefs.fireSize);
+    root.setProperty('--ctrl-opacity', prefs.opacity);
+    document.body.classList.toggle('lefty', !!prefs.lefty);
+    if (window.Sfx) { window.Sfx.setEnabled(prefs.sound); window.Sfx.setVolume(prefs.volume); }
+    if (window.__tankRenderer) { window.__tankRenderer.showAim = prefs.aimLine; window.__tankRenderer.showBotDebug = prefs.botDebug; }
+    document.querySelectorAll('[data-pref]').forEach(seg => seg.querySelectorAll('button').forEach(b => b.classList.toggle('sel', Number(b.dataset.v) === prefs[seg.dataset.pref])));
+    document.querySelectorAll('[data-pref-toggle]').forEach(b => b.classList.toggle('on', !!prefs[b.dataset.prefToggle]));
+    const op = document.getElementById('prefOpacity'), vol = document.getElementById('prefVolume');
+    if (op) op.value = prefs.opacity;
+    if (vol) vol.value = prefs.volume;
+  }
+  function savePrefs() { store.set('prefs', prefs); applyPrefs(); }
+
   // ---------- 手機：鎖定縮放、禁止選取與長按選單 ----------
   ['gesturestart', 'gesturechange', 'gestureend'].forEach(e => document.addEventListener(e, ev => ev.preventDefault(), { passive: false }));
   document.addEventListener('dblclick', e => e.preventDefault(), { passive: false });
@@ -38,6 +58,20 @@
   let intentionalClose = false;
   const renderer = new window.Renderer($('#canvas'));
   window.__tankRenderer = renderer;   // 除錯／自動測試用
+  applyPrefs();
+  document.querySelectorAll('.open-prefs').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); $('#prefs').classList.add('show'); }));
+  $('#prefsClose').onclick = () => $('#prefs').classList.remove('show');
+  document.querySelectorAll('[data-pref] button').forEach(b => b.onclick = () => { prefs[b.parentElement.dataset.pref] = Number(b.dataset.v); savePrefs(); });
+  document.querySelectorAll('[data-pref-toggle]').forEach(b => b.onclick = () => { const k = b.dataset.prefToggle; prefs[k] = !prefs[k]; savePrefs(); if (k === 'sound' && prefs.sound) window.Sfx.play('beep'); });
+  $('#prefOpacity').oninput = (e) => { prefs.opacity = Number(e.target.value); savePrefs(); };
+  $('#prefVolume').oninput = (e) => { prefs.volume = Number(e.target.value); savePrefs(); };
+  $('#prefVolume').onchange = () => window.Sfx.play('pickup');
+
+  // 遊戲音效：依和自己坦克的距離決定音量
+  renderer.onEvent = (type, x, y) => {
+    const me = renderer.pred ? [renderer.pred.x, renderer.pred.y] : null;
+    window.Sfx.playAt(type, x, y, me);
+  };
   let specText = '';
   let defaultBot = '';
 
@@ -449,9 +483,10 @@ ${defaultBot}\`\`\`
     while (feed.children.length > 4) feed.lastChild.remove();
     setTimeout(() => el.classList.add('fade'), 3500);
     setTimeout(() => el.remove(), 4000);
+    if (renderer.myTank && killer === renderer.myTank.id && victim !== killer) window.Sfx.play('kill');
     if (renderer.myTank && victim === renderer.myTank.id) {
       lastDeath = { killer, cause, at: performance.now() };
-      if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
+      buzz([60, 40, 60]); window.Sfx.play('die');
       $('#replayCause').textContent = cause === 'blast' ? `被 ${tankName(killer)} 炸到` : `被 ${tankName(killer)} 擊中`;
     }
     hudDirty = true;
@@ -467,7 +502,7 @@ ${defaultBot}\`\`\`
     while (feed.children.length > 4) feed.lastChild.remove();
     setTimeout(() => el.classList.add('fade'), 4500);
     setTimeout(() => el.remove(), 5000);
-    if (mine) { lastDeath = { killer: shooter, cause: 'base', at: performance.now() }; if (navigator.vibrate) navigator.vibrate([100, 50, 100]); }
+    if (mine) { lastDeath = { killer: shooter, cause: 'base', at: performance.now() }; buzz([100, 50, 100]); }
     hudDirty = true;
   };
   // 房主強制結束
@@ -489,7 +524,7 @@ ${defaultBot}\`\`\`
     const myBot = renderer.tankMeta.get(tankId);
     const isMyBot = myBot && myBot.isBot && myBot.owner === renderer.myTank.owner;
     if (!mine && !isMyBot) return;
-    if (mine && navigator.vibrate) navigator.vibrate(25);
+    if (mine) { buzz(25); window.Sfx.play('pickup'); }
     const el = $('#pickupBanner');
     el.innerHTML = `<div class="ic">${it.icon}</div><div><b>${mine ? '' : '你的電腦撿到 '}${esc(it.name)}</b><span>${esc(it.desc)}</span></div>`;
     el.classList.add('show');
@@ -516,6 +551,8 @@ ${defaultBot}\`\`\`
   }
 
   function onRoundEnd(m) {
+    const mySide = renderer.myTank ? renderer.myTank.side : null;
+    if (mySide) window.Sfx.play(m.winner === mySide ? 'win' : 'lose');
     lastResult = m;
     roundMeta = null;
     resetInput();
@@ -550,10 +587,12 @@ ${defaultBot}\`\`\`
           shownCount = n;
           cd.textContent = n; cd.className = 'countdown';
           void cd.offsetWidth; cd.classList.add('show');
-          if (navigator.vibrate && n <= 3) navigator.vibrate(15);
+          if (n <= 3) buzz(15);
+          window.Sfx.play('beep');
         }
       } else if (shownCount !== null) {
         shownCount = null; goUntil = now + 700;
+        window.Sfx.play('go');
         cd.textContent = '開始！'; cd.className = 'countdown go';
         void cd.offsetWidth; cd.classList.add('show');
       } else if (goUntil && now > goUntil) { goUntil = 0; cd.classList.remove('show'); }
@@ -699,7 +738,7 @@ ${defaultBot}\`\`\`
       const sector = ((Math.round(ang / (Math.PI / 4)) % 8) + 8) % 8;
       mv = SECTOR_TO_DIR[sector];
     }
-    if (mv !== input.move && mv >= 0 && navigator.vibrate) navigator.vibrate(6);
+    if (mv !== input.move && mv >= 0) buzz(6);
     input.move = mv; pushInput();
   }
 

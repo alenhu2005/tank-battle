@@ -269,6 +269,7 @@ class Round {
     const speed = t.stats.bulletSpeed * (t.swiftBuff > 0 ? C.SWIFT_BULLET : 1);
     const bounces = Math.max(this.ricochet ? C.BULLET_BOUNCES : 0, t.bounceBuff > 0 ? C.BOUNCE_BUFF : 0);
     const dirs = t.spreadBuff > 0 ? [t.dir, ...NEIGHBORS[t.dir]] : [t.dir];
+    this.events.push(['shot', t.x, t.y]);   // 給手機播音效
     dirs.forEach((d, i) => {
       const [vx, vy] = C.DIR_VEC[d]; // 從砲口（斜向時為車身角落）射出
       this.bullets.push({
