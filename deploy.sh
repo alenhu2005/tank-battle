@@ -57,18 +57,36 @@ for SA in "${PNUM}-compute@developer.gserviceaccount.com" "${PNUM}@cloudbuild.gs
     --role="roles/run.builder" --condition=None --quiet >/dev/null 2>&1 || true
 done
 
+# 存放建置結果的 Artifact Registry。新專案剛啟用服務時，權限要等一兩分鐘才會生效，所以失敗會自動重試
+AR_REPO="cloud-run-source-deploy"
+for i in 1 2 3 4 5 6 7 8; do
+  if gcloud artifacts repositories describe "$AR_REPO" --location="$REGION" >/dev/null 2>&1; then break; fi
+  if gcloud artifacts repositories create "$AR_REPO" --repository-format=docker --location="$REGION" \
+       --description="Cloud Run source deployments" --quiet >/dev/null 2>&1; then break; fi
+  echo "Google 的權限還在生效中，20 秒後重試（$i/8）…"
+  sleep 20
+done
+
 # 5. 部署
 say "5/5 建置並部署（大約 3～5 分鐘）"
-gcloud run deploy "$SERVICE" \
-  --source . \
-  --region "$REGION" \
-  --allow-unauthenticated \
-  --max-instances 1 \
-  --min-instances 0 \
-  --memory 512Mi --cpu 1 \
-  --timeout 3600 \
-  --session-affinity \
-  --quiet
+deploy() {
+  gcloud run deploy "$SERVICE" \
+    --source . \
+    --region "$REGION" \
+    --allow-unauthenticated \
+    --max-instances 1 \
+    --min-instances 0 \
+    --memory 512Mi --cpu 1 \
+    --timeout 3600 \
+    --session-affinity \
+    --quiet
+}
+for i in 1 2 3; do
+  if deploy; then break; fi
+  [ "$i" -eq 3 ] && fail "部署失敗。請把上面的錯誤訊息貼給 Claude，或過幾分鐘再執行一次 bash deploy.sh"
+  echo "部署失敗，可能是新專案的權限還沒生效，60 秒後自動重試（$i/3）…"
+  sleep 60
+done
 
 URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')"
 printf '\n\033[1;32m✔ 完成！遊戲網址：%s\033[0m\n' "$URL"
