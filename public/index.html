@@ -27,6 +27,10 @@
       <input id="nameInput" maxlength="12" autocomplete="off" placeholder="輸入暱稱">
     </label>
     <button id="createBtn" class="btn primary big">建立房間</button>
+    <div class="home-alt">
+      <button id="tutorialBtn" class="btn">🎓 新手教學</button>
+      <button id="practiceBtn" class="btn">🧪 代碼練習場</button>
+    </div>
     <div class="or"><span>或輸入房號加入</span></div>
     <div class="join-row">
       <input id="codeInput" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" placeholder="4 位數房號">
@@ -68,6 +72,7 @@
     <button id="readyBtn" class="btn">準備</button>
     <button id="startBtn" class="btn primary host-only">開始</button>
   </footer>
+  <p id="practiceHint" class="start-error practice-only">代碼練習場：先按「我的電腦代碼」交出代碼，再按「開始」，看你的電腦和內建 AI 對戰。遊戲中右上角可以快轉。</p>
   <p id="startError" class="start-error"></p>
 </section>
 
@@ -83,12 +88,18 @@
     <div class="hud-right">
       <span id="hudLives"></span>
       <button class="hud-btn open-prefs" aria-label="設定">⚙️</button>
+      <button id="speedBtn" class="hud-btn practice-only" aria-label="快轉">1×</button>
       <button id="forceEndBtn" class="hud-btn host-only" aria-label="強制結束這一局">⏹</button>
       <button id="fsBtn" class="hud-btn" aria-label="全螢幕">⛶</button>
     </div>
   </div>
   <div id="spectate" class="spectate"></div>
   <div id="killFeed" class="kill-feed"></div>
+  <div id="tutorial" class="tutorial hidden" role="status" aria-live="polite">
+    <div class="tut-step" id="tutStep"></div>
+    <div class="tut-text" id="tutText"></div>
+    <div class="tut-actions"><button id="tutSkip" class="link-btn">跳過教學</button><button id="tutDone" class="btn small primary hidden">回到首頁</button></div>
+  </div>
   <div id="pickupBanner" class="pickup-banner" role="status" aria-live="polite"></div>
   <div id="countdown" class="countdown"></div>
   <div id="replayBox" class="replay-box" role="button" aria-label="關閉重播">

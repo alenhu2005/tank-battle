@@ -71,6 +71,7 @@
   renderer.onEvent = (type, x, y) => {
     const me = renderer.pred ? [renderer.pred.x, renderer.pred.y] : null;
     window.Sfx.playAt(type, x, y, me);
+    if (type === 'brick') tutAdvance(3);
   };
   let specText = '';
   let defaultBot = '';
@@ -187,6 +188,9 @@
     return n;
   }
   $('#createBtn').onclick = () => { const name = getName(); if (name) connect({ t: 'create', name }); };
+  const quickName = () => { const n = $('#nameInput').value.trim() || '新手'; store.set('name', n); return n; };
+  $('#tutorialBtn').onclick = () => connect({ t: 'create', name: quickName(), kind: 'tutorial' });
+  $('#practiceBtn').onclick = () => connect({ t: 'create', name: quickName(), kind: 'practice' });
   $('#joinBtn').onclick = () => {
     const name = getName(); if (!name) return;
     const code = $('#codeInput').value.trim();
@@ -215,6 +219,8 @@
   function onRoom(m) {
     room = m;
     document.body.classList.toggle('is-host', isHost());
+    document.body.classList.toggle('room-practice', m.kind === 'practice');
+    $('#speedBtn').textContent = (m.speed || 1) + '×';
     $('#roomCode').textContent = m.code;
     renderLobby();
     renderResultButtons();
@@ -483,7 +489,7 @@ ${defaultBot}\`\`\`
     while (feed.children.length > 4) feed.lastChild.remove();
     setTimeout(() => el.classList.add('fade'), 3500);
     setTimeout(() => el.remove(), 4000);
-    if (renderer.myTank && killer === renderer.myTank.id && victim !== killer) window.Sfx.play('kill');
+    if (renderer.myTank && killer === renderer.myTank.id && victim !== killer) { window.Sfx.play('kill'); tutAdvance(5); }
     if (renderer.myTank && victim === renderer.myTank.id) {
       lastDeath = { killer, cause, at: performance.now() };
       buzz([60, 40, 60]); window.Sfx.play('die');
@@ -505,6 +511,54 @@ ${defaultBot}\`\`\`
     if (mine) { lastDeath = { killer: shooter, cause: 'base', at: performance.now() }; buzz([100, 50, 100]); }
     hudDirty = true;
   };
+  // 練習場快轉
+  $('#speedBtn').addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    const next = { 1: 2, 2: 4, 4: 1 }[(room && room.speed) || 1];
+    send({ t: 'speed', v: next });
+  });
+
+  // ---------- 新手教學 ----------
+  const TUT_STEPS = [
+    '推動左下的搖桿移動坦克（往任何方向都可以）',
+    '試試把搖桿斜著推，坦克可以斜走',
+    '按住右下的「開火」射擊。虛線是子彈會飛的路線',
+    '打掉一塊磚牆（橘色的牆打得破，灰色鋼牆打不破）',
+    '地圖上發亮的小方塊是道具，開過去撿一個',
+    '擊中那台不會還手的「練習靶」',
+  ];
+  const tut = { on: false, step: 0, start: null, diagTicks: 0 };
+  function tutShow() {
+    const el = $('#tutorial');
+    el.classList.toggle('hidden', !tut.on);
+    if (!tut.on) return;
+    const done = tut.step >= TUT_STEPS.length;
+    $('#tutStep').textContent = done ? '教學完成' : `第 ${tut.step + 1} / ${TUT_STEPS.length} 步`;
+    $('#tutText').textContent = done
+      ? '🎉 完成！有條紋的坦克是你的電腦隊友，它的行動由代碼決定。在大廳按「我的電腦代碼」，就能和你的 AI 一起設計它。'
+      : TUT_STEPS[tut.step];
+    $('#tutDone').classList.toggle('hidden', !done);
+    $('#tutSkip').classList.toggle('hidden', done);
+  }
+  function tutAdvance(step) {
+    if (!tut.on || tut.step !== step) return;
+    tut.step++;
+    window.Sfx.play('pickup');
+    buzz(30);
+    const el = $('#tutorial'); el.classList.remove('tut-ok'); void el.offsetWidth; el.classList.add('tut-ok');
+    tutShow();
+  }
+  function tutTick() {
+    if (!tut.on || !renderer.pred) return;
+    if (!tut.start) tut.start = { x: renderer.pred.x, y: renderer.pred.y };
+    if (tut.step === 0 && Math.hypot(renderer.pred.x - tut.start.x, renderer.pred.y - tut.start.y) > 1.5) tutAdvance(0);
+    if (tut.step === 1) { tut.diagTicks = input.move >= 4 ? tut.diagTicks + 1 : 0; if (tut.diagTicks > 3) tutAdvance(1); }
+    if (tut.step === 2 && input.fire) tutAdvance(2);
+  }
+  setInterval(tutTick, 100);
+  $('#tutSkip').onclick = () => leaveRoom();
+  $('#tutDone').onclick = () => leaveRoom();
+
   // 房主強制結束
   let forceArmed = 0;
   $('#forceEndBtn').addEventListener('pointerdown', (e) => {
@@ -524,7 +578,7 @@ ${defaultBot}\`\`\`
     const myBot = renderer.tankMeta.get(tankId);
     const isMyBot = myBot && myBot.isBot && myBot.owner === renderer.myTank.owner;
     if (!mine && !isMyBot) return;
-    if (mine) { buzz(25); window.Sfx.play('pickup'); }
+    if (mine) { buzz(25); window.Sfx.play('pickup'); tutAdvance(4); }
     const el = $('#pickupBanner');
     el.innerHTML = `<div class="ic">${it.icon}</div><div><b>${mine ? '' : '你的電腦撿到 '}${esc(it.name)}</b><span>${esc(it.desc)}</span></div>`;
     el.classList.add('show');
@@ -541,6 +595,8 @@ ${defaultBot}\`\`\`
     $('#killFeed').innerHTML = '';
     renderer.setRound(m.meta, m.myTank);
     pending = [];
+    Object.assign(tut, { on: room && room.kind === 'tutorial', step: 0, start: null, diagTicks: 0 });
+    tutShow();
     document.body.classList.toggle('spectator', !m.myTank);
     $('#game .controls').classList.toggle('hidden', !m.myTank);
     show('game');
@@ -551,6 +607,7 @@ ${defaultBot}\`\`\`
   }
 
   function onRoundEnd(m) {
+    if (tut.on) { tut.step = TUT_STEPS.length; tutShow(); return; }
     const mySide = renderer.myTank ? renderer.myTank.side : null;
     if (mySide) window.Sfx.play(m.winner === mySide ? 'win' : 'lose');
     lastResult = m;

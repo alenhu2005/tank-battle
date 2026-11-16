@@ -360,6 +360,20 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   padding: 10px; font-size: 16px; outline: none; -webkit-text-security: none;
 }
 .head-btns { display: flex; gap: 6px; }
+.home-alt { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+body:not(.room-practice) .practice-only { display: none !important; }
+body.room-practice #shareBtn { display: none; }
+.tutorial {
+  position: absolute; left: 50%; top: calc(var(--sat) + 46px); transform: translateX(-50%);
+  width: min(92vw, 420px); background: rgba(16, 19, 24, .94); border: 2px solid var(--accent);
+  border-radius: 14px; padding: 10px 14px; z-index: 7; display: flex; flex-direction: column; gap: 4px;
+}
+.tutorial.hidden { display: none; }
+.tut-step { font-size: 12px; color: var(--accent); font-weight: 800; letter-spacing: .05em; }
+.tut-text { font-size: 15px; font-weight: 700; line-height: 1.45; }
+.tut-actions { display: flex; justify-content: space-between; align-items: center; }
+.tut-ok { animation: tut-flash .5s; }
+@keyframes tut-flash { from { background: rgba(61, 220, 132, .35); } }
 .prefs-card input[type=range] { width: 150px; accent-color: var(--accent); }
 @media (min-width: 720px) { .prefs-card { height: auto !important; max-height: 92dvh; max-width: 480px; } }
 .seg[data-pref] button.sel { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
@@ -393,3 +407,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .item-guide li { display: flex; gap: 8px; align-items: flex-start; background: var(--panel-2); border-radius: 8px; padding: 6px 8px; font-size: 12px; }
 .item-guide li .ic { font-size: 20px; line-height: 1.1; }
 .item-guide li b { display: block; font-size: 13px; }
+@media (orientation: landscape) {
+  .tutorial { top: auto; bottom: calc(var(--sab) + 10px); width: min(46vw, 400px); padding: 8px 12px; }
+  .tut-text { font-size: 14px; }
+}

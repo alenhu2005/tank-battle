@@ -20,8 +20,11 @@ function cleanName(name) {
 }
 
 class Room {
-  constructor(code, onClose) {
+  // kind: 'normal' | 'practice'（代碼練習場）| 'tutorial'（新手教學）
+  constructor(code, onClose, kind = 'normal') {
     this.code = code;
+    this.kind = kind;
+    this.speed = 1;   // 練習場可以快轉
     this.onClose = onClose;
     this.players = [];
     this.hostId = null;
@@ -42,6 +45,7 @@ class Room {
   get(id) { return this.players.find(p => p.id === id); }
 
   canJoin() {
+    if (this.kind !== 'normal') return '這是單人練習房，不能加入';
     if (this.state === 'playing') return '遊戲進行中，請等這一局結束再加入';
     if (this.players.length >= C.MAX_PLAYERS) return `房間已滿（最多 ${C.MAX_PLAYERS} 人）`;
     return null;
@@ -70,12 +74,12 @@ class Room {
     return p;
   }
 
-  addAI() {
+  addAI(code = DEFAULT_BOT, name) {
     this.aiCounter++;
     const p = {
       id: 'ai' + this.aiCounter + crypto.randomBytes(2).toString('hex'),
-      name: this._uniqueName('電腦' + this.aiCounter),
-      isAI: true, connected: true, code: DEFAULT_BOT, codeInfo: { ok: true },
+      name: this._uniqueName(name || '電腦' + this.aiCounter),
+      isAI: true, connected: true, code, codeInfo: { ok: true },
       faction: this._suggestFaction(), team: this._suggestTeam(), ready: true, wins: 0, kills: 0,
       cls: Object.keys(C.CLASSES)[Math.floor(Math.random() * Object.keys(C.CLASSES).length)],
     };
@@ -117,6 +121,7 @@ class Room {
   remove(p) {
     this.players = this.players.filter(x => x !== p);
     if (p.ws) send(p.ws, { t: 'kicked' });
+    if (!this.humans().length) return this.close();   // 沒有人了就關房，不浪費伺服器
     if (this.hostId === p.id) this._reassignHost();
     this.sendRoom();
   }
@@ -136,10 +141,12 @@ class Room {
     const anyone = this.humans().some(p => p.connected);
     if (anyone) this.emptySince = null;
     else if (!this.emptySince) this.emptySince = now;
-    else if (now - this.emptySince > EMPTY_ROOM_MS) this.close();
+    else if (now - this.emptySince > (this.kind === 'normal' ? EMPTY_ROOM_MS : 3 * 60 * 1000)) this.close();
   }
 
   close() {
+    if (this.closed) return;
+    this.closed = true;
     clearInterval(this.housekeeping);
     clearTimeout(this.timer);
     if (this.round) this.round.dispose();
@@ -219,6 +226,10 @@ class Room {
         if (!isHost) return;
         if (this.state === 'lobby' || this.state === 'intermission') return this.startRound();
         return;
+      case 'speed':      // 練習場快轉
+        if (!isHost || this.kind !== 'practice') return;
+        if ([1, 2, 4].includes(msg.v)) this.speed = msg.v;
+        return this.sendRoom();
       case 'forceEnd':   // 房主強制結束這一局（算平手）
         if (!isHost || this.state !== 'playing' || !this.round) return;
         this.round.forceEnd();
@@ -263,7 +274,9 @@ class Room {
   }
 
   _member(p) {
-    return { playerId: p.id, name: p.name, code: p.code || DEFAULT_BOT, cls: p.cls, aiPilot: p.isAI };
+    // 新手教學時，玩家的電腦先待著不動，免得搶走練習目標
+    const code = this.kind === 'tutorial' && !p.isAI ? 'function think() { return null; }' : (p.code || DEFAULT_BOT);
+    return { playerId: p.id, name: p.name, code, cls: p.cls, aiPilot: p.isAI };
   }
 
   startError() {
@@ -284,7 +297,8 @@ class Room {
     this.roundNo++;
     this.round = new Round({
       mode: s.mode, baseMode: s.baseMode, fog: s.fog, breakableWalls: !s.hardWalls, codeOnly: s.codeOnly, items: s.items, ricochet: s.ricochet,
-      timeLimit: s.timeLimit, sides: this._buildSides(), countdown: C.COUNTDOWN_SECONDS,
+      timeLimit: s.timeLimit, sides: this._buildSides(), countdown: this.kind === 'tutorial' ? 3 : C.COUNTDOWN_SECONDS,
+      itemFirstDelay: this.kind === 'tutorial' ? 2 : undefined, itemInterval: this.kind === 'tutorial' ? 4 : undefined,
     });
     this.state = 'playing';
     for (const p of this.players) p.ready = p.isAI;
@@ -306,7 +320,10 @@ class Room {
       const now = Date.now();
       // 落後太多時不追趕，避免一次跑很多 tick
       let steps = 0;
-      while (next <= now && steps < 3) { this._tick(); next += interval; steps++; if (!this.round) return; }
+      while (next <= now && steps < 3) {
+        for (let k = 0; k < this.speed; k++) { this._tick(); if (!this.round) return; }
+        next += interval; steps++;
+      }
       if (next < now - 200) next = now;
       this.timer = setTimeout(loop, Math.max(0, next - Date.now()));
     };
@@ -363,7 +380,7 @@ class Room {
       if (!p.ws) continue;
       send(p.ws, {
         t: 'room',
-        code: this.code, you: p.id, hostId: this.hostId, state: this.state,
+        code: this.code, you: p.id, hostId: this.hostId, state: this.state, kind: this.kind, speed: this.speed,
         settings: this.settings, roundNo: this.roundNo, maxPlayers: C.MAX_PLAYERS, teamCount: C.TEAM_COUNT,
         startError: this.state === 'lobby' || this.state === 'intermission' ? this.startError() : null,
         players: this.players.map(x => ({

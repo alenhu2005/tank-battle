@@ -8,6 +8,8 @@ const C = require('./constants');
 const { Room, send } = require('./room');
 const SPEC = require('./spec');
 const DEFAULT_BOT = require('./defaultBot');
+// 新手教學的練習靶：慢慢左右移動，不會開火
+const TARGET_BOT = 'function think(v, m) { m.t = (m.t || 0) + 1; var d = Math.floor(m.t / 50) % 2 ? "left" : "right"; return { move: m.t % 70 < 35 ? d : null, fire: false }; }';
 
 const PORT = process.env.PORT || 8080;
 const PUBLIC = path.join(__dirname, '..', 'public');
@@ -81,9 +83,19 @@ wss.on('connection', (ws) => {
     if (!player) {
       if (msg.t === 'create') {
         const code = newRoomCode();
-        room = new Room(code, (r) => rooms.delete(r.code));
+        const kind = msg.kind === 'practice' || msg.kind === 'tutorial' ? msg.kind : 'normal';
+        room = new Room(code, (r) => rooms.delete(r.code), kind);
         rooms.set(code, room);
         player = room.addHuman(msg.name, ws);
+        if (kind === 'practice') {
+          // 代碼練習場：純代碼對戰，兩隊內建 AI 當對手，可以快轉
+          Object.assign(room.settings, { mode: 'ffa', codeOnly: true, items: true, rounds: 15, timeLimit: 180 });
+          room.addAI(); room.addAI();
+        } else if (kind === 'tutorial') {
+          // 新手教學：一隊不會開火的練習靶
+          Object.assign(room.settings, { mode: 'ffa', baseMode: false, codeOnly: false, items: true, ricochet: false, fog: false, rounds: 1, timeLimit: 0 });
+          room.addAI(TARGET_BOT, '練習靶');
+        }
       } else if (msg.t === 'join') {
         const r = rooms.get(String(msg.code || '').trim());
         if (!r) return send(ws, { t: 'error', msg: '找不到這個房號' });
@@ -102,6 +114,7 @@ wss.on('connection', (ws) => {
       } else return;
       send(ws, { t: 'joined', code: room.code, id: player.id, token: player.token, name: player.name, ...CLIENT_INFO });
       room.sendRoom();
+      if (room.kind === 'tutorial') room.startRound();   // 教學直接開始
       return;
     }
     if (!room.players.includes(player)) return;

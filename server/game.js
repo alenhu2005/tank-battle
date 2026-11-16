@@ -57,7 +57,8 @@ class Round {
     this.itemsOn = !!opts.items;
     this.items = [];
     this.nextItemId = 1;
-    this.itemTimer = C.ITEM_FIRST_DELAY;
+    this.itemInterval = opts.itemInterval ? opts.itemInterval * C.TICK_RATE : C.ITEM_INTERVAL;
+    this.itemTimer = opts.itemFirstDelay ? opts.itemFirstDelay * C.TICK_RATE : C.ITEM_FIRST_DELAY;
     this.itemsChanged = false;
     this.pickups = [];
     this.timeLimitTicks = opts.timeLimit ? opts.timeLimit * C.TICK_RATE : 0;
@@ -307,7 +308,7 @@ class Round {
     }
     // 刷新
     if (--this.itemTimer <= 0) {
-      this.itemTimer = C.ITEM_INTERVAL;
+      this.itemTimer = this.itemInterval;
       if (this.items.length < C.ITEM_MAX) this._spawnItem();
     }
   }
