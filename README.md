@@ -57,31 +57,21 @@ npm start
 
 Google AI Pro 訂閱附有每月 10 美元的 Google Cloud 額度，Cloud Run 本身也有每月免費額度。以「沒什麼人玩」的用量來說，通常不會花到錢。
 
-1. **領取額度**：依照 Google Developer Program 福利說明（developers.google.com/profile/help/benefits）領取 AI Pro 附帶的 Cloud 額度，並把它加到一個帳單帳戶。
-2. **建立專案**：到 console.cloud.google.com 建立一個新專案，確認它連結到上一步的帳單帳戶。
-3. **建議先設預算警示**：「帳單 → 預算與快訊」，設 5 美元提醒，比較安心。
-4. **開啟 Cloud Shell**（主控台右上角的 `>_` 圖示），上傳這個專案的 zip 檔並解壓縮，然後執行：
+[![在 Cloud Shell 開啟](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https%3A%2F%2Fgithub.com%2Falenhu2005%2Ftank-battle&cloudshell_tutorial=TUTORIAL.md&show=terminal)
 
-```bash
-cd tank-battle
-gcloud run deploy tank-battle \
-  --source . \
-  --region asia-east1 \
-  --allow-unauthenticated \
-  --max-instances 1 \
-  --min-instances 0 \
-  --memory 512Mi --cpu 1 \
-  --timeout 3600 \
-  --session-affinity
-```
+1. 點上面的按鈕，用你的 Google 帳號登入。Cloud Shell 會自動下載程式，旁邊也會出現教學。
+2. 在終端機執行 `bash deploy.sh`。腳本會自動建立專案、連結帳單、啟用 Cloud Run、建置並部署。
+3. 最後印出的 `https://tank-battle-….run.app` 就是遊戲網址。
 
-第一次執行會詢問要不要啟用 API，全部回答 `y`。完成後會顯示一個 `https://tank-battle-xxxx.a.run.app` 網址，傳給朋友就能玩。
+如果還沒有帳單帳戶，腳本會提示你先到 console.cloud.google.com/billing 建立。AI Pro 的 Cloud 額度要依照 Google Developer Program 福利說明（developers.google.com/profile/help/benefits）領取，並加到帳單帳戶。建議在「帳單 → 預算與快訊」設一個 5 美元的提醒。
+
+部署設定說明：
 
 - `asia-east1` 是台灣彰化機房，延遲最低。
-- `--max-instances 1` **一定要加**：房間資料存在記憶體裡，所有人必須連到同一台伺服器。
+- 最多只開一台伺服器（`--max-instances 1`），因為房間資料存在記憶體裡，所有人必須連到同一台。
 - 沒人玩時會自動關機、不計費。第一個人連進來時要等幾秒開機。
 - Cloud Run 單一連線最長 60 分鐘。遊戲會自動重新連線，玩家不會被踢出房間。
-- 更新版本時，重新執行同一行 `gcloud run deploy` 即可。
+- 更新版本時，在 Cloud Shell 執行 `git pull && bash deploy.sh`。
 
 ## 手機小技巧
 
