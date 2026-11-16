@@ -131,7 +131,7 @@ class Round {
             spawn: this.sides[si].spawns[slot++ % this.sides[si].spawns.length],
             respawnTimer: 0, shield: 0, cooldown: 0,
             input: { move: null, fire: false },
-            kills: 0, deaths: 0, baseKills: 0,
+            kills: 0, deaths: 0, baseKills: 0, shots: 0, hits: 0, dodges: 0, itemsPicked: 0, captures: 0,
             sandbox: null,
           };
           if (isBot || m.aiPilot) tank.sandbox = new BotSandbox(isBot ? m.code : (m.pilotCode || m.code), `${m.name}${isBot ? ' 電腦' : ''}`);
@@ -154,6 +154,11 @@ class Round {
     if (!t || t.sandbox) return;
     t.input = { move: C.DIRS.includes(input.move) ? input.move : null, fire: !!input.fire };
     if (Number.isInteger(input.seq)) t.inputSeq = input.seq;   // 手機預測用：回報處理到第幾個輸入
+  }
+
+  // MVP 分數：擊殺最重要，拆基地、搶旗也很重要；命中、閃避、撿道具加一點；陣亡扣分
+  static mvpScore(t) {
+    return t.kills * 100 + t.baseKills * 150 + t.captures * 150 + t.hits * 10 + t.dodges * 5 + t.itemsPicked * 10 - t.deaths * 40;
   }
 
   get playTick() { return Math.max(0, this.tick - this.startTicks); }
@@ -296,6 +301,7 @@ class Round {
     const bounces = Math.max(this.ricochet ? C.BULLET_BOUNCES : 0, t.bounceBuff > 0 ? C.BOUNCE_BUFF : 0);
     const dirs = t.spreadBuff > 0 ? [t.dir, ...NEIGHBORS[t.dir]] : [t.dir];
     this.events.push(['shot', t.x, t.y]);   // 給手機播音效
+    t.shots++;
     dirs.forEach((d, i) => {
       const [vx, vy] = C.DIR_VEC[d]; // 從砲口（斜向時為車身角落）射出
       this.bullets.push({
@@ -323,6 +329,7 @@ class Round {
         const it = this.items[i];
         if (Math.abs(t.x - it.x) < C.ITEM_PICKUP_RANGE && Math.abs(t.y - it.y) < C.ITEM_PICKUP_RANGE) {
           this._applyItem(t, it.type);
+          t.itemsPicked++;
           this.items.splice(i, 1);
           this.itemsChanged = true;
           this.events.push(['pickup', it.x, it.y]);
@@ -457,6 +464,11 @@ class Round {
         b.x += vx * step; b.y += vy * step;
         this._bulletHitWorld(b);
         if (!b.dead) this._bulletHitTank(b);
+        if (!b.dead) {
+          for (const t of this.tanks) {   // 閃避統計：敵方子彈擦身而過（1 格內）卻沒打中
+            if (t.alive && t.side !== b.side && Math.abs(t.x - b.x) < 1 && Math.abs(t.y - b.y) < 1) (b.near || (b.near = new Set())).add(t.id);
+          }
+        }
       }
       // 敵我子彈相撞：互相抵消；狙擊子彈會擊穿一般子彈
       for (let i = 0; i < this.bullets.length; i++) {
@@ -474,6 +486,10 @@ class Round {
             if (a.dead) break;
           }
         }
+      }
+      for (const b of this.bullets) {
+        if (!b.dead || !b.near) continue;
+        for (const id of b.near) if (id !== b.hitId) { const t = this.tankById.get(id); if (t) t.dodges++; }
       }
       this.bullets = this.bullets.filter(b => !b.dead);
     }
@@ -562,6 +578,9 @@ class Round {
       if (!t.alive || t.side === b.side) continue; // 沒有友軍傷害：子彈穿過隊友
       if (Math.abs(t.x - b.x) < HALF + C.HIT_MARGIN && Math.abs(t.y - b.y) < HALF + C.HIT_MARGIN) {
         b.dead = true;
+        b.hitId = t.id;
+        const shooter = this.tankById.get(b.owner);
+        if (shooter) shooter.hits++;
         if (b.freeze || b.confuse) {   // 冰凍彈、混亂彈：不扣命，只上狀態
           if (t.shield > 0) { this.events.push(['spark', b.x, b.y]); return; }
           if (b.freeze) t.frozen = Math.max(t.frozen || 0, C.FREEZE_HIT_TICKS);
@@ -660,6 +679,7 @@ class Round {
     if (this.result) return;
     this._finish(null, 'forced');
     this.endTimer = 1;
+    if (this.tick <= this.startTicks) this.over = true;   // 倒數中也能結束
   }
 
   _finish(winner, reason) {
@@ -673,8 +693,13 @@ class Round {
       tanks: this.tanks.filter(t => !t.monster).map(t => ({
         id: t.id, side: t.side, owner: t.owner, name: t.ownerName, isBot: t.isBot, cls: t.cls,
         kills: t.kills, deaths: t.deaths, lives: t.lives, baseKills: t.baseKills,
+        shots: t.shots, hits: t.hits, dodges: t.dodges, items: t.itemsPicked, captures: t.captures,
+        score: Round.mvpScore(t),
       })),
     };
+    // MVP：分數最高的坦克（同分取擊殺多的）
+    const best = this.result.tanks.slice().sort((a, b) => b.score - a.score || b.kills - a.kills)[0];
+    if (best && best.score > 0) best.mvp = true;
     this.endTimer = C.END_DELAY;
   }
 

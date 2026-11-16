@@ -225,6 +225,7 @@
     renderLobby();
     renderResultButtons();
     if ($('#editor').classList.contains('show')) renderCodeNow();
+    if ($('#replayScreen').classList.contains('active')) return;   // 正在看重播：不要跳走
     if (m.state === 'lobby') {
       if (!$('#lobby').classList.contains('active')) show('lobby');
     } else if (m.state === 'intermission' || m.state === 'finished') {
@@ -995,6 +996,111 @@ ${defaultBot}\`\`\`
     }
   });
 
+  // ---------- 整局重播 ----------
+  const rp = { renderer: new window.Renderer($('#replayMain')), data: null, frames: [], next: 0, tick: 0, playing: true, speed: 1, lastNow: 0, id: null };
+  function openReplay(data, id) {
+    if (!data || !data.meta || !Array.isArray(data.frames) || !data.frames.length) return toast('重播檔格式不正確');
+    rp.data = data; rp.frames = data.frames; rp.id = id || (data.room ? `${data.room}-${data.round}` : null);
+    rp.playing = true; rp.speed = 1;
+    $$('#rpSpeed button').forEach(b => b.classList.toggle('sel', b.dataset.v === '1'));
+    $('#rpTitle').textContent = data.round ? `第 ${data.round} 局重播` : '整局重播';
+    $('#rpShare').classList.toggle('hidden', !rp.id);
+    show('replayScreen');
+    rp.renderer.layout = { top: 54, ctrlBottom: 68 };
+    rpSeek(rp.frames[0].k);
+    rp.lastNow = 0;
+  }
+  // 跳到某個 tick：從頭快速套用到那一刻（不產生特效）
+  function rpSeek(target) {
+    const r = rp.renderer;
+    r.setRound(rp.data.meta, null);
+    r.silent = true;
+    rp.next = 0;
+    while (rp.next < rp.frames.length && rp.frames[rp.next].k <= target + 1) r.applySnapshot(rp.frames[rp.next++], performance.now());
+    r.fixedTick = target;
+    r._applyUpTo(target, performance.now());
+    r.silent = false;
+    rp.tick = target;
+  }
+  function rpFrame(now) {
+    if (!$('#replayScreen').classList.contains('active') || !rp.data || !rp.renderer.meta) return;
+    const r = rp.renderer, last = rp.frames[rp.frames.length - 1].k, first = rp.frames[0].k;
+    const dt = rp.lastNow ? Math.min(100, now - rp.lastNow) : 0;
+    rp.lastNow = now;
+    if (rp.playing) {
+      rp.tick = Math.min(last, rp.tick + dt / 1000 * 30 * rp.speed);
+      if (rp.tick >= last) { rp.playing = false; $('#rpPlay').textContent = '▶️'; }
+    }
+    while (rp.next < rp.frames.length && rp.frames[rp.next].k <= rp.tick + 1) r.applySnapshot(rp.frames[rp.next++], now);
+    r.fixedTick = rp.tick;
+    r.draw(now);
+    const fmt = t => { const s = Math.max(0, Math.floor(t / 30)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+    $('#rpTime').textContent = `${fmt(rp.tick - first)} / ${fmt(last - first)}`;
+    if (!rp.dragging) $('#rpSeek').value = Math.round((rp.tick - first) / Math.max(1, last - first) * 1000);
+  }
+  (function rpLoop(now) { rpFrame(now); requestAnimationFrame(rpLoop); })(0);
+  window.addEventListener('resize', () => { if ($('#replayScreen').classList.contains('active')) rp.renderer.resize(); });
+  $('#rpPlay').onclick = () => {
+    const last = rp.frames[rp.frames.length - 1].k;
+    if (!rp.playing && rp.tick >= last) rpSeek(rp.frames[0].k);
+    rp.playing = !rp.playing;
+    $('#rpPlay').textContent = rp.playing ? '⏸' : '▶️';
+  };
+  $('#rpSpeed').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    rp.speed = Number(b.dataset.v);
+    $$('#rpSpeed button').forEach(x => x.classList.toggle('sel', x === b));
+  });
+  $('#rpSeek').addEventListener('input', e => {
+    rp.dragging = true;
+    const first = rp.frames[0].k, last = rp.frames[rp.frames.length - 1].k;
+    rpSeek(first + (last - first) * Number(e.target.value) / 1000);
+  });
+  $('#rpSeek').addEventListener('change', () => { rp.dragging = false; });
+  $('#rpClose').onclick = () => {
+    rp.data = null;
+    if (new URLSearchParams(location.search).get('replay')) history.replaceState(null, '', '/');
+    show(room ? (lastResult ? 'result' : 'lobby') : 'home');
+  };
+  const replayUrl = id => `${location.origin}/?replay=${id}`;
+  async function shareReplay(id) {
+    const url = replayUrl(id);
+    if (navigator.share) { try { await navigator.share({ title: '坦克對戰重播', url }); return; } catch { /* 取消 */ } }
+    toast((await copyText(url)) ? '已複製重播連結（房間關閉後會失效）' : url);
+  }
+  function downloadReplay(id) {
+    const [code, round] = id.split('-');
+    const a = document.createElement('a');
+    a.href = `/replay/${code}/${round}?download=1`;
+    a.download = `tank-replay-${code}-${round}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+  async function loadReplay(id) {
+    const [code, round] = String(id).split('-');
+    try {
+      const res = await fetch(`/replay/${code}/${round}`);
+      if (!res.ok) return toast('重播已經不存在了（房間關閉後重播會消失）');
+      openReplay(await res.json(), id);
+    } catch { toast('讀取重播失敗'); }
+  }
+  $('#rpShare').onclick = () => rp.id && shareReplay(rp.id);
+  $('#rpDownload').onclick = () => {
+    if (rp.id) return downloadReplay(rp.id);
+    toast('這份重播是從檔案開啟的，已經在你的手機裡了');
+  };
+  $('#watchReplayBtn').onclick = () => lastResult && lastResult.replay && loadReplay(lastResult.replay);
+  $('#shareReplayBtn').onclick = () => lastResult && lastResult.replay && shareReplay(lastResult.replay);
+  $('#downloadReplayBtn').onclick = () => lastResult && lastResult.replay && downloadReplay(lastResult.replay);
+  $('#replayFile').onchange = (e) => {
+    const f = e.target.files && e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => { try { openReplay(JSON.parse(String(reader.result))); } catch { toast('這不是重播檔'); } };
+    reader.readAsText(f);
+  };
+  const urlReplay = new URLSearchParams(location.search).get('replay');
+  if (urlReplay && /^\d{4}-\d+$/.test(urlReplay)) loadReplay(urlReplay);
+
   // ---------- 局後結果 ----------
   const REASONS = { last: '最後存活', draw: '同歸於盡', time: '時間到，剩餘命數較多', timeDraw: '時間到，平手', forced: '房主強制結束', koth: '佔點時間先達標', ctf: '搶旗次數先達標', pveWin: '撐過所有怪物', pveLose: '被怪物打倒了' };
 
@@ -1006,13 +1112,17 @@ ${defaultBot}\`\`\`
     $('#resultTitle').innerHTML = finished ? '比賽結束' : (winSide ? `<span style="color:${winSide.color}">${esc(winSide.name)}</span> 獲勝` : '平手');
     $('#resultSub').textContent = `第 ${r.roundNo} 局・${REASONS[r.reason] || ''}・${r.seconds} 秒` + (finished && winSide ? `｜本局 ${winSide.name} 獲勝` : '');
     const clsName = c => c === 'bot' ? '電腦' : (info.classes[c] ? info.classes[c].name : c);
-    $('#roundTable').innerHTML = `<table><tr><th>隊伍</th><th>坦克</th><th class="num">擊殺</th><th class="num">陣亡</th><th class="num">剩命</th></tr>${
-      r.tanks.map(t => {
+    const acc = t => t.shots ? Math.round(t.hits / t.shots * 100) + '%' : '-';
+    const mvp = r.tanks.find(t => t.mvp);
+    const mvpSide = mvp && r.sides.find(s => s.key === mvp.side);
+    $('#roundTable').innerHTML = (mvp ? `<div class="mvp"><span class="medal">🏅</span><div><b>MVP：<span style="color:${mvpSide.color}">${esc(mvp.name)}${mvp.isBot ? '的電腦' : ''}</span></b>
+        <span class="muted">擊殺 ${mvp.kills}・命中率 ${acc(mvp)}・閃避 ${mvp.dodges}${mvp.captures ? `・搶旗 ${mvp.captures}` : ''}${mvp.baseKills ? `・拆基地 ${mvp.baseKills}` : ''}</span></div></div>` : '') +
+      `<div class="table-scroll"><table><tr><th>坦克</th><th class="num">擊殺</th><th class="num">陣亡</th><th class="num">命中率</th><th class="num">閃避</th><th class="num">道具</th>${r.objective === 'ctf' ? '<th class="num">搶旗</th>' : ''}<th class="num">分數</th></tr>${
+      r.tanks.slice().sort((a, b) => b.score - a.score).map(t => {
         const side = r.sides.find(s => s.key === t.side);
-        return `<tr><td><span class="dot" style="display:inline-block;background:${side.color}"></span> ${esc(side.name)}</td>
-          <td>${esc(t.name)}${t.isBot ? '的電腦' : ''}<span class="muted">・${clsName(t.cls)}</span></td>
-          <td class="num">${t.kills}${t.baseKills ? ` <span class="muted">+${t.baseKills}基地</span>` : ''}</td><td class="num">${t.deaths}</td><td class="num">${t.lives}</td></tr>`;
-      }).join('')}</table>`;
+        return `<tr class="${t.mvp ? 'is-mvp' : ''}"><td><span class="dot" style="display:inline-block;background:${side.color}"></span> ${t.mvp ? '🏅' : ''}${esc(t.name)}${t.isBot ? '的電腦' : ''}<span class="muted">・${clsName(t.cls)}</span></td>
+          <td class="num">${t.kills}${t.baseKills ? `<span class="muted">+${t.baseKills}🏳️</span>` : ''}</td><td class="num">${t.deaths}</td><td class="num">${acc(t)}</td><td class="num">${t.dodges}</td><td class="num">${t.items}</td>${r.objective === 'ctf' ? `<td class="num">${t.captures}</td>` : ''}<td class="num">${t.score}</td></tr>`;
+      }).join('')}</table></div>`;
     const standings = room.players.slice().sort((a, b) => b.wins - a.wins || b.kills - a.kills);
     $('#matchProgress').textContent = `${room.roundNo} / ${room.settings.rounds} 局`;
     $('#standings').innerHTML = `<table><tr><th>#</th><th>玩家</th><th class="num">勝場</th><th class="num">總擊殺</th></tr>${
@@ -1039,6 +1149,7 @@ ${defaultBot}\`\`\`
         toast((await copyText(text)) ? '已複製' : '複製失敗');
       };
     }
+    $('#replayPanel').classList.toggle('hidden', !r.replay);
     renderResultButtons();
   }
 

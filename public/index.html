@@ -31,6 +31,7 @@
       <button id="tutorialBtn" class="btn">🎓 新手教學</button>
       <button id="practiceBtn" class="btn">🧪 代碼練習場</button>
     </div>
+    <label class="link-btn file-link">📂 開啟重播檔<input id="replayFile" type="file" accept=".json,application/json"></label>
     <div class="or"><span>或輸入房號加入</span></div>
     <div class="join-row">
       <input id="codeInput" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" placeholder="4 位數房號">
@@ -130,6 +131,15 @@
       <div class="panel-title"><span>本局戰績</span></div>
       <div id="roundTable"></div>
     </div>
+    <div id="replayPanel" class="panel hidden">
+      <div class="panel-title"><span>整局重播</span></div>
+      <div class="editor-actions">
+        <button id="watchReplayBtn" class="btn small primary">▶️ 觀看重播</button>
+        <button id="shareReplayBtn" class="btn small">🔗 分享連結</button>
+        <button id="downloadReplayBtn" class="btn small">⬇️ 下載重播檔</button>
+      </div>
+      <p class="muted small-text">分享連結在房間關閉後就會失效；想保存的話請下載重播檔，之後在首頁「開啟重播檔」觀看。</p>
+    </div>
     <div class="panel">
       <div class="panel-title"><span>總積分</span><span id="matchProgress" class="muted"></span></div>
       <div id="standings"></div>
@@ -151,6 +161,25 @@
     <button id="endMatchBtn" class="btn ghost host-only">結束比賽</button>
     <button id="toLobbyBtn" class="btn primary host-only">回到大廳</button>
   </footer>
+</section>
+
+<!-- 整局重播 -->
+<section id="replayScreen" class="screen">
+  <canvas id="replayMain"></canvas>
+  <div class="rp-top">
+    <button id="rpClose" class="btn small">✕ 關閉</button>
+    <b id="rpTitle">整局重播</b>
+    <div class="rp-top-btns">
+      <button id="rpShare" class="btn small">🔗 分享</button>
+      <button id="rpDownload" class="btn small">⬇️ 下載</button>
+    </div>
+  </div>
+  <div class="rp-bottom">
+    <button id="rpPlay" class="btn small" aria-label="播放或暫停">⏸</button>
+    <div class="seg" id="rpSpeed"><button data-v="0.5">0.5×</button><button data-v="1" class="sel">1×</button><button data-v="2">2×</button><button data-v="4">4×</button></div>
+    <input type="range" id="rpSeek" min="0" max="1000" value="0" aria-label="播放進度">
+    <span id="rpTime" class="rp-time">0:00</span>
+  </div>
 </section>
 
 <!-- 電腦隊友代碼 -->

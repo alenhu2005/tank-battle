@@ -40,6 +40,17 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
     return res.end(SPEC);
   }
+  // 整局重播：/replay/房號/第幾局（gzip 壓縮的 JSON）
+  const rm = url.pathname.match(/^\/replay\/(\d{4})\/(\d+)$/);
+  if (rm) {
+    const r = rooms.get(rm[1]);
+    const gz = r && r.replays.get(Number(rm[2]));
+    if (!gz) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('重播已經不存在（房間關閉後重播會消失）'); }
+    const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Content-Encoding': 'gzip', 'Cache-Control': 'no-cache' };
+    if (url.searchParams.get('download')) headers['Content-Disposition'] = `attachment; filename="tank-replay-${rm[1]}-${rm[2]}.json"`;
+    res.writeHead(200, headers);
+    return res.end(gz);
+  }
   if (url.pathname === '/default-bot.js') {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
     return res.end(DEFAULT_BOT);

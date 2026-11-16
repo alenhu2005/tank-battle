@@ -1,6 +1,8 @@
 'use strict';
 
 const crypto = require('crypto');
+const zlib = require('zlib');
+const REPLAYS_KEPT = 5;   // 每個房間保留最近幾局的重播
 const C = require('./constants');
 const { Round } = require('./game');
 const { validateAsync } = require('./validateWorker');
@@ -38,6 +40,8 @@ class Room {
     this.aiCounter = 0;
     this.emptySince = null;
     this.housekeeping = setInterval(() => this._housekeep(), 5000);
+    this.replays = new Map();   // roundNo -> gzip 壓縮過的整局重播
+    this.recording = null;
   }
 
   // ---------- 玩家 ----------
@@ -319,6 +323,8 @@ class Room {
       itemFirstDelay: this.kind === 'tutorial' ? 2 : undefined, itemInterval: this.kind === 'tutorial' ? 4 : undefined,
     });
     this.state = 'playing';
+    // 錄下整局（全視角）供賽後重播
+    this.recording = this.kind === 'tutorial' ? null : { meta: JSON.stringify(this.round.meta()), frames: [] };
     for (const p of this.players) p.ready = p.isAI;
     this.sendRoom();
     for (const p of this.humans()) send(p.ws, this._roundStartMsg(p));
@@ -351,11 +357,12 @@ class Room {
   _tick() {
     const r = this.round;
     r.step();
-    let shared = null;
+    const full = JSON.stringify(r.snapshotFor(null));
+    if (this.recording && this.recording.frames.length < 30 * 60 * 10) this.recording.frames.push(full);
+    const perPlayer = r.needsPerPlayerSnapshots();
     for (const p of this.humans()) {
       if (!p.ws) continue;
-      if (r.needsPerPlayerSnapshots()) send(p.ws, r.snapshotFor(p.id));
-      else send(p.ws, shared || (shared = JSON.stringify(r.snapshotFor(null))));
+      send(p.ws, perPlayer ? r.snapshotFor(p.id) : full);
     }
     if (r.over) this._endRound();
   }
@@ -364,6 +371,7 @@ class Room {
     const r = this.round;
     this.round = null;
     clearTimeout(this.timer);
+    this._saveReplay();
     const res = r.result;
     const sideWinner = res.winner;
     const winners = [];
@@ -386,10 +394,20 @@ class Room {
     for (const p of this.humans()) send(p.ws, this._roundEndMsg(p));
   }
 
+  _saveReplay() {
+    const rec = this.recording;
+    this.recording = null;
+    if (!rec || !rec.frames.length) return;
+    const json = `{"v":1,"room":"${this.code}","round":${this.roundNo},"meta":${rec.meta},"frames":[${rec.frames.join(',')}]}`;
+    const gz = zlib.gzipSync(json, { level: 6 });
+    this.replays.set(this.roundNo, gz);
+    while (this.replays.size > REPLAYS_KEPT) this.replays.delete(this.replays.keys().next().value);
+  }
+
   _roundEndMsg(p) {
     const { reports, ...rest } = this.lastResult;
     // 每個人只看得到自己電腦的錯誤與 log
-    return { t: 'roundEnd', ...rest, myReport: reports[p.id] || null };
+    return { t: 'roundEnd', ...rest, myReport: reports[p.id] || null, replay: this.replays.has(this.lastResult.roundNo) ? `${this.code}-${this.lastResult.roundNo}` : null };
   }
 
   // ---------- 房間狀態 ----------

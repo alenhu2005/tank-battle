@@ -95,6 +95,9 @@
     // 畫面播放到的伺服器 tick（比最新快照晚約 2 tick，用來吸收網路抖動）
     _renderTick(now) {
       if (!this.buf.length) return 0;
+      if (this.fixedTick != null) {   // 重播：由播放器決定播到哪
+        return Math.max(this.buf[0].k, Math.min(this.buf[this.buf.length - 1].k, this.fixedTick));
+      }
       const tickMs = 1000 / this.meta.tickRate;
       let rt = (now - this.offset) / tickMs - INTERP_DELAY;
       const first = this.buf[0].k, last = this.buf[this.buf.length - 1].k;
@@ -150,6 +153,7 @@
     playTick() { return Math.max(0, this.renderTick - (this.meta ? this.meta.startTicks || 0 : 0)); }
 
     addEffect(type, x, y, now) {
+      if (this.silent) return;        // 重播快轉時不產生特效
       if (this.onEvent) this.onEvent(type, x, y);
       if (type === 'shot') return;   // 只有音效，沒有畫面特效
       const dur = { capture: 900, waveStart: 1200, boom: 650, blast: 500, baseBoom: 1200, brick: 380, spark: 180, armor: 300, spawn: 500, emp: 600, timestop: 900, freezeHit: 400, confuseHit: 400, itemSpawn: 600 }[type] || 300;

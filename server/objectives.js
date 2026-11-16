@@ -46,7 +46,7 @@ module.exports = function install(Round) {
         cls: 'monster', stats: C.MONSTER_CLASS, lives: 0, hp: 1,
         alive: false, x: 0, y: 0, dir: 'down', spawn: side.spawns[i % side.spawns.length],
         respawnTimer: 0, shield: 0, cooldown: 0, input: { move: null, fire: false },
-        kills: 0, deaths: 0, baseKills: 0, sandbox: null, monster: true,
+        kills: 0, deaths: 0, baseKills: 0, shots: 0, hits: 0, dodges: 0, itemsPicked: 0, captures: 0, sandbox: null, monster: true,
       });
     }
   };
@@ -80,6 +80,7 @@ module.exports = function install(Round) {
             else if (t.carrying) {                               // 帶著敵旗回到自己旗子旁：得分
               const enemy = this.flags.find(x => x.side === t.carrying);
               this.objScore[t.side]++;
+              t.captures++;
               t.carrying = null;
               this._flagHome(enemy);
               this.events.push(['capture', t.x, t.y]);
