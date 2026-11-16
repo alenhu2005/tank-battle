@@ -153,7 +153,7 @@ class Room {
     const isHost = p.id === this.hostId;
     switch (msg.t) {
       case 'i': // 操作輸入
-        if (this.round) this.round.setInput(p.id, { move: C.DIRS[msg.m] || null, fire: !!msg.f });
+        if (this.round) this.round.setInput(p.id, { move: C.DIRS[msg.m] || null, fire: !!msg.f, seq: Number.isInteger(msg.s) ? msg.s : undefined });
         return;
       case 'settings': {
         if (!isHost || this.state !== 'lobby') return;

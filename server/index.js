@@ -53,7 +53,16 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 256 * 1024 });
 
+// 測試用：模擬網路延遲（只有設定環境變數 LAG_MS 時才會啟用）
+const LAG_MS = Number(process.env.LAG_MS) || 0;
+
 wss.on('connection', (ws) => {
+  if (LAG_MS) {
+    const rawSend = ws.send.bind(ws);
+    ws.send = (data) => setTimeout(() => { if (ws.readyState === 1) rawSend(data); }, LAG_MS);
+    const rawOn = ws.on.bind(ws);
+    ws.on = (ev, fn) => rawOn(ev, ev === 'message' ? (d) => setTimeout(() => fn(d), LAG_MS) : fn);
+  }
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
   let room = null, player = null;

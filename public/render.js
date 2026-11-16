@@ -37,6 +37,7 @@
       this.layout = { ctrlBottom: 0 };
       this.dirtyTerrain = true;
       this.onKill = null;          // (victimId, killerId, cause) => void
+      this.showAim = true;         // 瞄準輔助線（設定裡可關）
     }
 
     setRound(meta, myTankId) {
@@ -44,6 +45,10 @@
       this.myTankId = myTankId;
       this.size = meta.size;
       this.tiles = meta.tiles.split('');
+      this.liveTiles = meta.tiles.split('');
+      this.latest = null;
+      this.pred = null;                 // 自己坦克的預測位置 { x, y, dir }
+      this.predOff = { x: 0, y: 0 };    // 預測修正時的視覺平滑
       this.tankMeta = new Map(meta.tanks.map(t => [t.id, t]));
       this.sideMeta = new Map(meta.sides.map(s => [s.key, s]));
       this.myTank = this.tankMeta.get(myTankId) || null;
@@ -68,11 +73,14 @@
     applySnapshot(s, now) {
       const tickMs = 1000 / this.meta.tickRate;
       const tanks = new Map();
-      for (const a of s.T) tanks.set(a[0], { x: a[1] / 100, y: a[2] / 100, dir: a[3], shield: a[4], hp: a[5], buffs: a[6] || 0 });
+      for (const a of s.T) tanks.set(a[0], { x: a[1] / 100, y: a[2] / 100, dir: a[3], shield: a[4], hp: a[5], buffs: a[6] || 0, ack: a[7] || 0 });
       const bullets = new Map();
       for (const a of s.B) bullets.set(a[0], { x: a[1] / 100, y: a[2] / 100, dir: a[3], kind: a[4] });
       const last = this.buf[this.buf.length - 1];
       if (last && s.k <= last.k) return;
+      // 最新狀態（不延遲）：給自己坦克的預測用
+      if (s.M) for (const [idx, ch] of s.M) this.liveTiles[idx] = ch;
+      this.latest = { k: s.k, tanks, c: s.c };
       const snap = { k: s.k, tanks, bullets, M: s.M, L: s.L, S: s.S, E: s.E, K: s.K, X: s.X, I: s.I, P: s.P };
       this.buf.push(snap);
       // 死亡重播用：保留最近約 6 秒
@@ -274,7 +282,10 @@
       };
 
       const S = this.size;
-      const myPos = this.myTank && A.tanks.has(this.myTank.id) ? pos(this.myTank.id, A.tanks, B.tanks) : null;
+      // 自己的坦克：用預測位置（馬上反應），其他坦克用伺服器時間軸插值
+      this.predOff.x *= 0.82; this.predOff.y *= 0.82;
+      const predPos = this.pred ? [this.pred.x + this.predOff.x, this.pred.y + this.predOff.y] : null;
+      const myPos = predPos || (this.myTank && A.tanks.has(this.myTank.id) ? pos(this.myTank.id, A.tanks, B.tanks) : null);
       const sm = this.myTank ? this.sideMeta.get(this.mySide) : null;
       const homeX = myPos ? myPos[0] : sm ? sm.anchor.x + 0.5 : S / 2;
       const homeY = myPos ? myPos[1] : sm ? sm.anchor.y + 0.5 : S / 2;
@@ -360,10 +371,20 @@
 
       // 坦克
       const drawn = [];
-      for (const [id, t] of A.tanks) {
+      if (predPos && this.myTank && !A.tanks.has(this.myTank.id) && this.latest && this.latest.tanks.has(this.myTank.id)) {
+        // 剛重生：伺服器時間軸還沒播到，但預測已經有位置
+        const m = this.myTank, t = this.latest.tanks.get(m.id);
+        this._drawTank(ctx, predPos[0] * tp, predPos[1] * tp, DIRS.indexOf(this.pred.dir), this.sideMeta.get(m.side).color, m, tp * this.meta.tankSize, t, now);
+      }
+      for (let [id, t] of A.tanks) {
         const m = this.tankMeta.get(id);
         if (!m) continue;
-        const [x, y] = pos(id, A.tanks, B.tanks);
+        let [x, y] = pos(id, A.tanks, B.tanks);
+        if (predPos && this.myTank && id === this.myTank.id) {
+          [x, y] = predPos;
+          const latestMe = this.latest && this.latest.tanks.get(id);
+          t = Object.assign({}, latestMe || t, { dir: DIRS.indexOf(this.pred.dir) });
+        }
         drawn.push([id, x, y]);
         const ghost = t.buffs & (8 | 128);       // 隱形或穿牆：半透明
         if (ghost) ctx.globalAlpha = t.buffs & 8 ? 0.35 : 0.6;
@@ -419,6 +440,34 @@
       // 特效
       this.particles = this.particles.filter(p => now - p.t0 < p.dur);
       for (const p of this.particles) this._drawEffect(ctx, p, (now - p.t0) / p.dur, tp);
+
+      // 瞄準輔助線：子彈會飛到哪裡（包含反彈）
+      if (this.showAim && this.pred && predPos && this.latest) {
+        const me = this.latest.tanks.get(this.myTank.id);
+        if (me) {
+          const world = { size: S, tiles: this.liveTiles, tankSize: this.meta.tankSize };
+          let bounces = this.meta.ricochet ? this.meta.bulletBounces : 0;
+          if (me.buffs & 512) bounces = Math.max(bounces, this.meta.bounceBuff);
+          const dirs = [this.pred.dir];
+          if (me.buffs & 256) { const ring = ['up', 'upright', 'right', 'downright', 'down', 'downleft', 'left', 'upleft']; const i = ring.indexOf(this.pred.dir); dirs.push(ring[(i + 7) % 8], ring[(i + 1) % 8]); }
+          ctx.save();
+          ctx.setLineDash([tp * 0.18, tp * 0.16]);
+          ctx.lineWidth = Math.max(1.2, tp * 0.06);
+          ctx.strokeStyle = 'rgba(255, 255, 255, .6)';
+          for (const d of dirs) {
+            const v = window.TankPhysics.DIR_VEC[d], half = this.meta.tankSize / 2;
+            const pts = window.TankPhysics.traceShot(world, predPos[0] + v[0] * half, predPos[1] + v[1] * half, d, bounces, 14, this.meta.breakableWalls !== false);
+            ctx.beginPath();
+            pts.forEach((p, i) => i ? ctx.lineTo(p[0] * tp, p[1] * tp) : ctx.moveTo(p[0] * tp, p[1] * tp));
+            ctx.stroke();
+            const end = pts[pts.length - 1];
+            ctx.setLineDash([]);
+            ctx.beginPath(); ctx.arc(end[0] * tp, end[1] * tp, Math.max(2, tp * 0.1), 0, 7); ctx.stroke();
+            ctx.setLineDash([tp * 0.18, tp * 0.16]);
+          }
+          ctx.restore();
+        }
+      }
 
       // 迷霧
       if (this.meta.fog && this.myTank && !radarOn) {

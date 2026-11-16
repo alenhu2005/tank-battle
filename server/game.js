@@ -9,6 +9,7 @@
 const C = require('./constants');
 const { generateMap } = require('./mapgen');
 const { BotSandbox } = require('./botRunner');
+const Physics = require('../public/physics');
 
 const DIR_IDX = Object.fromEntries(C.DIRS.map((d, i) => [d, i]));
 // 單位向量（斜向為 1/√2）
@@ -50,6 +51,8 @@ class Round {
     this.fog = !!opts.fog;
     this.breakableWalls = opts.breakableWalls !== false;
     this.codeOnly = !!opts.codeOnly;
+    this.tankSize = C.TANK_SIZE;          // 給共用物理用
+    this.alignRate = C.ALIGN_RATE;
     this.ricochet = !!opts.ricochet;
     this.itemsOn = !!opts.items;
     this.items = [];
@@ -128,6 +131,7 @@ class Round {
     const t = this.playerTank(playerId);
     if (!t || t.sandbox) return;
     t.input = { move: C.DIRS.includes(input.move) ? input.move : null, fire: !!input.fire };
+    if (Number.isInteger(input.seq)) t.inputSeq = input.seq;   // 手機預測用：回報處理到第幾個輸入
   }
 
   get playTick() { return Math.max(0, this.tick - this.startTicks); }
@@ -141,6 +145,7 @@ class Round {
       mode: this.mode, baseMode: this.baseMode, fog: this.fog && !this.codeOnly, breakableWalls: this.breakableWalls,
       codeOnly: this.codeOnly, timeLimitTicks: this.timeLimitTicks, startTicks: this.startTicks, blastRadius: C.BLAST_RADIUS,
       ricochet: this.ricochet, items: this.itemsOn, itemTypes: C.ITEM_TYPES,
+      alignRate: C.ALIGN_RATE, speedBuff: C.SPEED_BUFF, bulletBounces: C.BULLET_BOUNCES, bounceBuff: C.BOUNCE_BUFF,
       tickRate: C.TICK_RATE, tankSize: C.TANK_SIZE,
       sides: this.sides.map(s => ({ key: s.key, name: s.name, color: s.color, base: s.base ? { x: s.base.x, y: s.base.y } : null, anchor: s.anchor })),
       tanks: this.tanks.map(t => ({
@@ -187,6 +192,7 @@ class Round {
       if (mv) this._move(t, mv);
       if (t.input.fire) this._fire(t);
     }
+    for (const t of this.tanks) if (!t.isBot) t.ackSeq = t.inputSeq || 0;
 
     // 3. 子彈
     this._updateBullets();
@@ -226,16 +232,8 @@ class Round {
     return false; // 出生點被擋住，下個 tick 再試
   }
 
-  _tileBlocked(x, y, phase) {
-    const solid = phase ? PHASE_SOLID : TANK_SOLID;
-    const x0 = Math.floor(x - HALF + 1e-6), x1 = Math.floor(x + HALF - 1e-6);
-    const y0 = Math.floor(y - HALF + 1e-6), y1 = Math.floor(y + HALF - 1e-6);
-    if (x0 < 0 || y0 < 0 || x1 >= this.size || y1 >= this.size) return true;
-    for (let ty = y0; ty <= y1; ty++)
-      for (let tx = x0; tx <= x1; tx++)
-        if (solid.has(this.tiles[ty * this.size + tx])) return true;
-    return false;
-  }
+  // 移動物理與手機共用（public/physics.js），兩邊預測才會一致
+  _tileBlocked(x, y, phase) { return Physics.tileBlocked(this, x, y, phase); }
 
   _tankAt(x, y, self) {
     for (const o of this.tanks) {
@@ -245,57 +243,13 @@ class Round {
     return null;
   }
 
-  _blocked(t, x, y) {
-    const phase = t.phase > 0;
-    // 穿牆結束時如果還卡在牆裡，允許移動直到出來
-    if (this._tileBlocked(x, y, phase) && !this._tileBlocked(t.x, t.y, phase)) return true;
-    // 已經重疊的坦克（例如剛重生）允許彼此分開，不允許新的重疊
-    for (const o of this.tanks) {
-      if (o === t || !o.alive) continue;
-      const overlapNew = Math.abs(o.x - x) < C.TANK_SIZE - 1e-6 && Math.abs(o.y - y) < C.TANK_SIZE - 1e-6;
-      if (!overlapNew) continue;
-      const overlapOld = Math.abs(o.x - t.x) < C.TANK_SIZE - 1e-6 && Math.abs(o.y - t.y) < C.TANK_SIZE - 1e-6;
-      if (!overlapOld) return true;
-      const dOld = Math.abs(o.x - t.x) + Math.abs(o.y - t.y);
-      const dNew = Math.abs(o.x - x) + Math.abs(o.y - y);
-      if (dNew < dOld) return true;
-    }
-    return false;
-  }
+  _others(t) { return this.tanks.filter(o => o !== t && o.alive); }
+
+  _blocked(t, x, y) { return Physics.blocked(this, t, x, y, this._others(t)); }
 
   _move(t, dir) {
-    const [ux, uy] = UNIT[dir];
-    t.dir = dir;
     const step = t.stats.speed * (t.speedBuff > 0 ? C.SPEED_BUFF : 1) / C.TICK_RATE;
-    // 兩軸分開移動：斜走撞牆時會沿著牆滑動
-    this._moveAxis(t, ux * step, 0);
-    this._moveAxis(t, 0, uy * step);
-    // 直向/橫向移動時，另一軸自動靠向格子中心，才鑽得進 1 格寬的通道
-    if (ux === 0) this._align(t, 'x', step * C.ALIGN_RATE);
-    if (uy === 0) this._align(t, 'y', step * C.ALIGN_RATE);
-    t.x = Math.round(t.x * 1e4) / 1e4;
-    t.y = Math.round(t.y * 1e4) / 1e4;
-  }
-
-  _moveAxis(t, mx, my) {
-    if (!mx && !my) return;
-    const parts = 8;
-    for (let i = 0; i < parts; i++) {
-      const nx = t.x + mx / parts, ny = t.y + my / parts;
-      if (this._blocked(t, nx, ny)) break;
-      t.x = nx; t.y = ny;
-    }
-  }
-
-  _align(t, axis, maxStep) {
-    const c = t[axis];
-    const d = Math.floor(c) + 0.5 - c;
-    if (Math.abs(d) < 1e-4) return;
-    const mv = Math.sign(d) * Math.min(Math.abs(d), maxStep);
-    for (const f of [1, 0.5, 0.25]) {
-      const nx = axis === 'x' ? t.x + mv * f : t.x, ny = axis === 'y' ? t.y + mv * f : t.y;
-      if (!this._blocked(t, nx, ny)) { t.x = nx; t.y = ny; return; }
-    }
+    Physics.move(this, t, dir, step, this._others(t));
   }
 
   _ownBullets(t) {
@@ -768,7 +722,7 @@ class Round {
         | (t.blastShots > 0 || t.pierceShots > 0 || t.freezeShots > 0 || t.confuseShots > 0 ? 4 : 0)
         | (t.cloak > 0 ? 8 : 0) | (t.radar > 0 ? 16 : 0) | (t.frozen > 0 ? 32 : 0) | (t.confused > 0 ? 64 : 0)
         | (t.phase > 0 ? 128 : 0) | (t.spreadBuff > 0 ? 256 : 0) | (t.bounceBuff > 0 ? 512 : 0) | (t.swiftBuff > 0 ? 1024 : 0);
-      T.push([t.id, Math.round(t.x * 100), Math.round(t.y * 100), DIR_IDX[t.dir], t.shield > 0 ? 1 : 0, t.hp, buffs]);
+      T.push([t.id, Math.round(t.x * 100), Math.round(t.y * 100), DIR_IDX[t.dir], t.shield > 0 ? 1 : 0, t.hp, buffs, t.ackSeq || 0]);
     }
     const B = [];
     for (const b of this.bullets) {

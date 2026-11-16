@@ -37,6 +37,7 @@
   let reconnectTimer = null, reconnectDelay = 500;
   let intentionalClose = false;
   const renderer = new window.Renderer($('#canvas'));
+  window.__tankRenderer = renderer;   // 除錯／自動測試用
   let specText = '';
   let defaultBot = '';
 
@@ -128,6 +129,7 @@
       case 'roundStart': onRoundStart(m); break;
       case 's':
         renderer.applySnapshot(m, performance.now());
+        reconcile();
         hudDirty = true;
         break;
       case 'roundEnd': onRoundEnd(m); break;
@@ -503,6 +505,7 @@ ${defaultBot}\`\`\`
     $('#editor').classList.remove('show');
     $('#killFeed').innerHTML = '';
     renderer.setRound(m.meta, m.myTank);
+    pending = [];
     document.body.classList.toggle('spectator', !m.myTank);
     $('#game .controls').classList.toggle('hidden', !m.myTank);
     show('game');
@@ -601,14 +604,60 @@ ${defaultBot}\`\`\`
   // ---------- 操作：虛擬搖桿（八方向）、開火鍵、鍵盤 ----------
   // 方向編號與伺服器一致：0 上 1 下 2 左 3 右 4 左上 5 右上 6 左下 7 右下
   const input = { move: -1, fire: false };
-  let sentInput = '';
-  function pushInput(force) {
-    const key = input.move + ',' + (input.fire ? 1 : 0);
-    if (!force && key === sentInput) return;
-    sentInput = key;
-    send({ t: 'i', m: input.move, f: input.fire ? 1 : 0 });
+  let sentInput = '', lastSendAt = 0, inputSeq = 0;
+  let pending = [];   // 已送出、伺服器還沒確認的移動輸入（預測用）
+  // 輸入改變時不立刻送，交給下面每秒 30 次的迴圈（同時做本機預測）
+  function pushInput(force) { if (force) sentInput = ''; }
+
+  const PHYS = window.TankPhysics;
+  function predWorld() {
+    return { size: renderer.size, tiles: renderer.liveTiles, tankSize: renderer.meta.tankSize, alignRate: renderer.meta.alignRate || 1 };
   }
-  setInterval(() => { if (roundMeta && (input.move >= 0 || input.fire)) pushInput(true); }, 250);
+  function predOthers(myId) {
+    const out = [];
+    for (const [id, t] of renderer.latest.tanks) if (id !== myId) out.push({ x: t.x, y: t.y });
+    return out;
+  }
+  function myStep(me) {
+    const cls = info.classes[renderer.myTank.cls];
+    return (cls ? cls.speed : 4) * (me.buffs & 1 ? renderer.meta.speedBuff : 1) / renderer.meta.tickRate;
+  }
+
+  // 收到伺服器快照：以伺服器位置為準，重播還沒被確認的輸入
+  function reconcile() {
+    const r = renderer;
+    if (!r.myTank || !r.latest) return;
+    const me = r.latest.tanks.get(r.myTank.id);
+    if (!me) { r.pred = null; pending = []; return; }
+    pending = pending.filter(p => p.seq > me.ack);
+    const p = { x: me.x, y: me.y, dir: PHYS.DIRS[me.dir], phase: me.buffs & 128 ? 1 : 0 };
+    const world = predWorld(), others = predOthers(r.myTank.id);
+    for (const inp of pending) PHYS.move(world, p, inp.dir, inp.step, others);
+    if (!r.pred || Math.abs(r.pred.x - p.x) + Math.abs(r.pred.y - p.y) > 1.5) { r.predOff.x = 0; r.predOff.y = 0; }
+    else { r.predOff.x += r.pred.x - p.x; r.predOff.y += r.pred.y - p.y; }
+    r.pred = p;
+  }
+
+  setInterval(() => {
+    if (!roundMeta || !renderer.latest) return;
+    const r = renderer, now = performance.now();
+    const key = input.move + ',' + (input.fire ? 1 : 0);
+    const active = input.move >= 0 || input.fire;
+    if (!active && key === sentInput && now - lastSendAt < 500) return;
+    const seq = ++inputSeq;
+    send({ t: 'i', m: input.move, f: input.fire ? 1 : 0, s: seq });
+    sentInput = key; lastSendAt = now;
+    // 本機預測：倒數中、凍住或沒活著時不動
+    const me = r.myTank && r.latest.tanks.get(r.myTank.id);
+    if (!me || !r.pred || r.latest.c > 0 || input.move < 0 || (me.buffs & 32)) return;
+    let dir = PHYS.DIRS[input.move];
+    if (me.buffs & 64) dir = PHYS.OPPOSITE[dir];
+    const step = myStep(me);
+    r.pred.phase = me.buffs & 128 ? 1 : 0;
+    PHYS.move(predWorld(), r.pred, dir, step, predOthers(r.myTank.id));
+    pending.push({ seq, dir, step });
+    if (pending.length > 90) pending.shift();
+  }, 1000 / 30);
   function resetInput() {
     input.move = -1; input.fire = false; stick.id = null; fireId = null;
     $('#fireBtn').classList.remove('down');
