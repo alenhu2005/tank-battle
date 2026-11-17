@@ -360,6 +360,11 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   padding: 10px; font-size: 16px; outline: none; -webkit-text-security: none;
 }
 .head-btns { display: flex; gap: 6px; }
+.diag { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.diag li { font-size: 13px; padding: 6px 8px; border-radius: 8px; background: var(--panel-2); border-left: 3px solid var(--muted); }
+.diag li.bad { border-left-color: var(--danger); }
+.diag li.warn { border-left-color: var(--accent); }
+.diag li.good { border-left-color: var(--ok); }
 .net { font-size: 11px; padding: 1px 6px; border-radius: 6px; background: rgba(0,0,0,.45); }
 .net:empty { display: none; }
 .net.good { color: var(--ok); } .net.ok { color: var(--accent); } .net.bad { color: var(--danger); }

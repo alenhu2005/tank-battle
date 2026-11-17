@@ -1266,6 +1266,7 @@ ${sample ? sample.code : defaultBot}\`\`\`
       standings.map((p, i) => `<tr><td>${i + 1}</td><td>${esc(p.name)}${p.id === me.id ? '（你）' : ''}</td><td class="num">${p.wins}</td><td class="num">${p.kills}</td></tr>`).join('')}</table>`;
 
     const rep = r.myReport && r.myReport.bot;
+    const diag = rep && rep.analysis ? diagnose(rep.analysis) : [];
     if (!rep) $('#botReport').innerHTML = '<p class="muted">沒有資料</p>';
     else {
       $('#botReport').innerHTML = `
@@ -1274,20 +1275,49 @@ ${sample ? sample.code : defaultBot}\`\`\`
           <span>呼叫 <b>${rep.calls}</b> 次</span><span>平均 <b>${rep.avgMs}</b>ms</span><span>最慢 <b>${rep.maxMs}</b>ms</span>
           <span>錯誤 <b>${rep.errorCount}</b></span><span>逾時 <b>${rep.timeoutCount}</b></span><span>log <b>${rep.logCount}</b> 行</span>
         </div>
+        ${diag.length ? `<div class="muted small-text">表現分析</div><ul class="diag">${diag.map(d => `<li class="${d.level}">${esc(d.text)}</li>`).join('')}</ul>` : ''}
         ${rep.errors.length ? `<div class="muted small-text">最近的錯誤</div><div class="logbox err selectable">${esc(rep.errors.join('\n'))}</div>` : ''}
         ${rep.logs.length ? `<div class="muted small-text">console.log（最後 ${rep.logs.length} 行）</div><div class="logbox selectable">${esc(rep.logs.join('\n'))}</div>` : ''}
-        ${rep.errors.length || rep.logs.length ? '<button class="btn small" id="copyReportBtn">複製這份報告（貼給 AI 討論）</button>' : ''}`;
+        <button class="btn small primary" id="copyReportBtn">📋 複製分析給 AI，討論怎麼改進</button>`;
       const btn = $('#copyReportBtn');
       if (btn) btn.onclick = async () => {
         const mine = r.tanks.find(t => t.owner === me.id && t.isBot);
-        const text = `坦克對戰第 ${r.roundNo} 局，我的電腦坦克：擊殺 ${mine ? mine.kills : 0}、存活 ${mine && mine.lives ? '是' : '否'}。\n` +
-          `呼叫 ${rep.calls} 次，平均 ${rep.avgMs}ms，錯誤 ${rep.errorCount} 次，逾時 ${rep.timeoutCount} 次。\n` +
-          (rep.errors.length ? `錯誤：\n${rep.errors.join('\n')}\n` : '') + (rep.logs.length ? `log：\n${rep.logs.join('\n')}\n` : '');
+        const a = rep.analysis || {};
+        const text = `我在玩坦克對戰，這是我的電腦隊友（就是你幫我寫的代碼）第 ${r.roundNo} 局的表現分析，請根據這些問題修改代碼，給我完整的新版本：\n\n` +
+          `擊殺 ${mine ? mine.kills : 0}、陣亡 ${mine ? mine.deaths : 0}、存活 ${a.aliveSec ?? '?'} 秒、開火 ${a.shots ?? 0} 次、命中 ${a.hits ?? 0} 次、閃過 ${a.dodges ?? 0} 發子彈、撿到 ${a.items ?? 0} 個道具。\n` +
+          (diag.length ? `\n發現的問題：\n${diag.map(d => '- ' + d.text).join('\n')}\n` : '') +
+          ((a.deaths || []).length ? `\n每次陣亡：\n${a.deaths.map(d => `- 第 ${d.at} 秒，${d.cause === 'blast' ? '被爆炸波及' : d.cause === 'base' ? '基地被毀' : '被擊中'}${d.by ? '（' + d.by + '）' : ''}${d.flightSec !== null ? `，子彈飛了 ${d.flightSec} 秒、距離 ${d.range} 格` : ''}`).join('\n')}\n` : '') +
+          `\n執行：呼叫 ${rep.calls} 次，平均 ${rep.avgMs}ms，錯誤 ${rep.errorCount} 次，逾時 ${rep.timeoutCount} 次。\n` +
+          (rep.errors.length ? `錯誤：\n${rep.errors.join('\n')}\n` : '') + (rep.logs.length ? `console.log（最後幾行）：\n${rep.logs.slice(-20).join('\n')}\n` : '');
         toast((await copyText(text)) ? '已複製' : '複製失敗');
       };
     }
     $('#replayPanel').classList.toggle('hidden', !r.replay);
     renderResultButtons();
+  }
+
+  // 把分析數據翻成白話的問題清單
+  function diagnose(a) {
+    const out = [];
+    const pct = (x, y) => y ? Math.round(x / y * 100) : 0;
+    if (a.aliveSec > 5 && a.idleSec / a.aliveSec > 0.25) {
+      const worst = a.idleRuns[0];
+      out.push({ level: 'warn', text: `有 ${pct(a.idleSec, a.aliveSec)}% 的時間在發呆（沒移動也沒開火）${worst ? `，最長一段是第 ${worst[0]}～${worst[1]} 秒` : ''}。可能是找不到目標，或判斷條件太嚴格。` });
+    }
+    if (a.stuckCount > 0) {
+      const w = a.stuckRuns[0];
+      out.push({ level: 'warn', text: `卡住了 ${a.stuckCount} 次（想走卻走不動）${w ? `，例如第 ${w[0]}～${w[1]} 秒` : ''}。可能被牆或其他坦克擋住，建議加上「卡住就換方向」的判斷。` });
+    }
+    const dodgeable = (a.deaths || []).filter(d => d.dodgeable);
+    if (dodgeable.length) out.push({ level: 'bad', text: `陣亡 ${a.deaths.length} 次，其中 ${dodgeable.length} 次子彈飛了超過 0.5 秒才打到，其實來得及閃。建議預測子彈路線、往垂直方向閃開。` });
+    const pointBlank = (a.deaths || []).filter(d => d.flightSec !== null && d.flightSec < 0.3);
+    if (pointBlank.length) out.push({ level: 'warn', text: `${pointBlank.length} 次是被近距離射殺（子彈不到 0.3 秒就打到）。建議和敵人保持距離，或先下手為強。` });
+    if (a.shots === 0 && a.aliveSec > 10) out.push({ level: 'bad', text: '整局都沒有開火。檢查開火條件是不是永遠不成立。' });
+    else if (a.shots >= 10 && pct(a.hits, a.shots) < 15) out.push({ level: 'warn', text: `命中率只有 ${pct(a.hits, a.shots)}%（${a.hits}/${a.shots}）。建議瞄準時預判敵人的移動方向，或等對準再開火。` });
+    if (a.dodges >= 3) out.push({ level: 'good', text: `閃過了 ${a.dodges} 發擦身而過的子彈，閃避不錯。` });
+    if (a.kills >= 2) out.push({ level: 'good', text: `擊殺 ${a.kills} 台，攻擊力不錯。` });
+    if (!out.length) out.push({ level: 'good', text: '這局沒有發現明顯的問題。' });
+    return out;
   }
 
   function renderResultButtons() {

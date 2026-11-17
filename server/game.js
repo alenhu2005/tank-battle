@@ -246,6 +246,7 @@ class Round {
     }
     for (const t of this.tanks) if (!t.isBot) t.ackSeq = t.inputSeq || 0;
     this._recordHistory();
+    this._analyze();
 
     // 3. 子彈
     this._updateBullets();
@@ -338,7 +339,7 @@ class Round {
       this.bullets.push({
         id: this.nextBulletId++, owner: t.id, side: t.side, angle: a, dir: Physics.dirOf(a), vx, vy,
         x: mx, y: my,
-        speed, pierce, blast, freeze, confuse, bounces, extra: i > 0, lag,
+        speed, pierce, blast, freeze, confuse, bounces, extra: i > 0, lag, born: this.tick, ox: t.x, oy: t.y,
       });
     });
     t.cooldown = t.rapidBuff > 0 ? Math.ceil(t.stats.cooldown / 2) : t.stats.cooldown;
@@ -659,7 +660,9 @@ class Round {
           this.events.push([b.freeze ? 'freezeHit' : 'confuseHit', t.x, t.y]);
           return;
         }
+        this._lastHit = b;
         this._damage(t, this.tankById.get(b.owner), b.x, b.y, 'shot');
+        this._lastHit = null;
         if (b.blast) this._blast(b, b.x, b.y, t);
         return;
       }
@@ -671,6 +674,7 @@ class Round {
     if (t.shield > 0) { this.events.push(['spark', x, y]); return; }
     if (t.hp > 1) { t.hp--; this.events.push(['armor', t.x, t.y]); return; }
     if (shooter) shooter.kills++;
+    if (t.ana) this._recordDeath(t, shooter, cause);
     t.alive = false;
     t.deaths++;
     if (this.objective === 'koth' || this.objective === 'ctf' || this.objective === 'escort' || t.unlimited) {
@@ -922,11 +926,65 @@ class Round {
   botReports() {
     const out = {};
     for (const t of this.tanks) {
-      if (!t.sandbox) continue;
+      if (!t.sandbox || t.monster) continue;
       out[t.owner] = out[t.owner] || {};
-      out[t.owner][t.isBot ? 'bot' : 'pilot'] = t.sandbox.report();
+      const rep = t.sandbox.report();
+      rep.analysis = this._analysisReport(t);
+      out[t.owner][t.isBot ? 'bot' : 'pilot'] = rep;
     }
     return out;
+  }
+
+  // ---------- 電腦表現分析 ----------
+
+  // 每個 tick 記錄代碼控制的坦克：有沒有在發呆、有沒有卡住
+  _analyze() {
+    if (this.tick <= this.startTicks) return;
+    const enemiesAlive = side => this.tanks.some(o => o.alive && o.side !== side);
+    for (const t of this.tanks) {
+      if (!t.sandbox || t.monster) continue;
+      const a = t.ana || (t.ana = { alive: 0, idle: 0, idleRuns: [], stuckRuns: [], curIdle: null, curStuck: null, deaths: [], last: null });
+      if (!t.alive) { this._closeRun(a, 'curIdle', 'idleRuns'); this._closeRun(a, 'curStuck', 'stuckRuns'); a.last = null; continue; }
+      a.alive++;
+      const moved = a.last && Math.abs(t.x - a.last[0]) + Math.abs(t.y - a.last[1]) > 0.002;
+      const wantsMove = t.input.move !== null && t.input.move !== undefined;
+      const idle = !wantsMove && !t.input.fire && enemiesAlive(t.side) && !(t.frozen > 0);
+      const stuck = wantsMove && a.last && !moved && !(t.frozen > 0);
+      if (idle) { a.idle++; if (!a.curIdle) a.curIdle = [this.playTick, this.playTick]; else a.curIdle[1] = this.playTick; }
+      else this._closeRun(a, 'curIdle', 'idleRuns');
+      if (stuck) { if (!a.curStuck) a.curStuck = [this.playTick, this.playTick]; else a.curStuck[1] = this.playTick; }
+      else this._closeRun(a, 'curStuck', 'stuckRuns');
+      a.last = [t.x, t.y];
+    }
+  }
+
+  _closeRun(a, cur, list) {
+    if (a[cur] && a[cur][1] - a[cur][0] >= C.TICK_RATE) a[list].push(a[cur].slice());   // 只記 1 秒以上的
+    a[cur] = null;
+  }
+
+  _recordDeath(t, shooter, cause) {
+    const b = this._lastHit;
+    t.ana.deaths.push({
+      at: this.playTick, cause,
+      by: shooter ? (shooter.monster ? '怪物' : shooter.ownerName + (shooter.isBot ? '的電腦' : '')) : null,
+      flight: b ? this.tick - b.born : null,                                  // 子彈飛了幾個 tick 才打到
+      range: b ? Math.round(Math.hypot(b.ox - t.x, b.oy - t.y) * 10) / 10 : null,
+    });
+  }
+
+  _analysisReport(t) {
+    const a = t.ana;
+    if (!a) return null;
+    this._closeRun(a, 'curIdle', 'idleRuns'); this._closeRun(a, 'curStuck', 'stuckRuns');
+    const sec = v => Math.round(v / C.TICK_RATE * 10) / 10;
+    const runs = list => list.slice().sort((x, y) => (y[1] - y[0]) - (x[1] - x[0])).slice(0, 5).map(r => [sec(r[0]), sec(r[1])]);
+    return {
+      aliveSec: sec(a.alive), idleSec: sec(a.idle),
+      idleRuns: runs(a.idleRuns), stuckRuns: runs(a.stuckRuns), stuckCount: a.stuckRuns.length,
+      shots: t.shots, hits: t.hits, dodges: t.dodges, kills: t.kills, items: t.itemsPicked,
+      deaths: a.deaths.map(d => ({ at: sec(d.at), cause: d.cause, by: d.by, flightSec: d.flight === null ? null : sec(d.flight), range: d.range, dodgeable: d.flight !== null && d.flight >= 15 })),
+    };
   }
 
   dispose() {
