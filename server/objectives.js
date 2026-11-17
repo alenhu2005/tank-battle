@@ -43,7 +43,7 @@ module.exports = function install(Round) {
     for (let i = 0; i < C.PVE_MAX_MONSTERS; i++) {
       this.tanks.push({
         id: this.nextTankId++, side: side.key, owner: 'monster', ownerName: '怪物', isBot: true,
-        cls: 'monster', stats: C.MONSTER_CLASS, lives: 0, hp: 1,
+        cls: 'monster', stats: this.statsFor('monster'), lives: 0, hp: 1, maxLives: 1,
         alive: false, x: 0, y: 0, dir: 'down', angle: 180, spawn: side.spawns[i % side.spawns.length],
         respawnTimer: 0, shield: 0, cooldown: 0, input: { move: null, fire: false },
         kills: 0, deaths: 0, baseKills: 0, shots: 0, hits: 0, dodges: 0, itemsPicked: 0, captures: 0, sandbox: null, monster: true,
@@ -104,7 +104,7 @@ module.exports = function install(Round) {
         const n = Math.min(C.PVE_MAX_MONSTERS, 1 + this.pveWave * 2);
         if (this.pveWave > 1) {
           // 撐過一波：玩家坦克回 1 條命（最多 3 條）
-          for (const t of this.tanks) if (t.side === 'players' && !t.isBot && t.lives > 0 && t.lives < C.PLAYER_LIVES) t.lives++;
+          for (const t of this.tanks) if (t.side === 'players' && !t.isBot && !t.unlimited && t.lives > 0 && t.lives < (t.maxLives || 1)) t.lives++;
         }
         monsters.slice(0, n).forEach((t, i) => {
           if (t.sandbox) t.sandbox.dispose();

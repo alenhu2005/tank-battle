@@ -67,7 +67,7 @@
       this.appliedK = 0;
       this.renderTick = 0;
       this.particles = [];
-      this.lives = new Map(meta.tanks.map(t => [t.id, { lives: t.maxLives, alive: true }]));
+      this.lives = new Map(meta.tanks.map(t => [t.id, { lives: Math.max(1, t.maxLives), alive: true }]));
       this.sideState = new Map(meta.sides.map(s => [s.key, { out: false, base: s.base ? 1 : -1 }]));
       this.tick = 0;
       this.camX = this.camY = null;

@@ -249,7 +249,19 @@
     }
   }
 
-  let itemGuideOpen = false;
+  let itemGuideOpen = false, advOpen = false;
+  const ADV_DEF = { playerLives: 3, botLives: 1, speed: 1, bullet: 1, fire: 1, respawn: 5, itemSec: 10 };
+  const ADV_RANGE = { playerLives: [0, 9], botLives: [0, 9], speed: [0.5, 1.5], bullet: [0.5, 1.5], fire: [0.5, 2], respawn: [1, 15], itemSec: [4, 30] };
+  const advChanged = a => Object.keys(ADV_DEF).some(k => Math.abs((a[k] ?? ADV_DEF[k]) - ADV_DEF[k]) > 1e-6);
+  function advRow(key, label, val, step, fmt) {
+    const can = isHost() && room.state === 'lobby';
+    const [lo, hi] = ADV_RANGE[key];
+    const dn = Math.round(Math.max(lo, val - step) * 100) / 100, up = Math.round(Math.min(hi, val + step) * 100) / 100;
+    return `<div class="set-row"><span>${label}</span><div class="stepper">
+      <button data-adv="${key}" data-v="${dn}" ${can && val > lo ? '' : 'disabled'}>−</button><b class="adv-val">${fmt(val)}</b>
+      <button data-adv="${key}" data-v="${up}" ${can && val < hi ? '' : 'disabled'}>＋</button></div></div>`;
+  }
+  document.addEventListener('toggle', e => { if (e.target.classList && e.target.classList.contains('adv')) advOpen = e.target.open; }, true);
   document.addEventListener('toggle', e => { if (e.target.classList && e.target.classList.contains('item-guide')) itemGuideOpen = e.target.open; }, true);
 
   function renderLobby() {
@@ -274,8 +286,10 @@
         p.ready && !p.isAI ? '<span class="tag ok">已準備</span>' : '',
       ].join('');
       const kick = host && !mine ? `<button class="icon-btn" data-act="kick" data-id="${p.id}" aria-label="移除">✕</button>` : '';
+      const hc = p.handicap || 0;
+      const hcTag = !p.isAI && (host || hc) ? `<button class="icon-btn hc ${hc > 0 ? 'plus' : hc < 0 ? 'minus' : ''}" data-act="handicap" data-id="${p.id}" ${host ? '' : 'disabled'} aria-label="讓分">命${hc > 0 ? '+' + hc : hc < 0 ? hc : '±'}</button>` : '';
       return `<li><span class="dot" style="background:${playerColor(p, i)}"></span>
-        <span class="pname">${esc(p.name)}${mine ? '（你）' : ''}</span>${cls}${tags}${groupChip}${kick}</li>`;
+        <span class="pname">${esc(p.name)}${mine ? '（你）' : ''}</span>${cls}${tags}${hcTag}${groupChip}${kick}</li>`;
     }).join('');
 
     // 設定
@@ -304,7 +318,18 @@
         <select id="mapStyleSel" ${dis}>${[['random', '隨機'], ['maze', '迷宮'], ['open', '開闊'], ['river', '河流'], ['forest', '森林'], ['fortress', '堡壘'], ['custom', '自訂']].map(([v, l]) => `<option value="${v}" ${s.mapStyle === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
       <div class="set-row"><span>局數</span><div class="stepper">
         <button data-set="rounds" data-val="${s.rounds - 1}" ${dis}>−</button><b>${s.rounds}</b><button data-set="rounds" data-val="${s.rounds + 1}" ${dis}>＋</button></div></div>
-      <div class="set-row"><span>每局時間</span>${seg('timeLimit', TIME_OPTS, s.timeLimit)}</div>`;
+      <div class="set-row"><span>每局時間</span>${seg('timeLimit', TIME_OPTS, s.timeLimit)}</div>
+      <details class="adv" ${advOpen ? 'open' : ''}><summary>⚙️ 進階規則${advChanged(s.adv) ? '（已調整）' : ''}</summary>
+        ${advRow('playerLives', '玩家命數', s.adv.playerLives, 1, v => v === 0 ? '無限' : v + ' 條')}
+        ${advRow('botLives', '電腦命數', s.adv.botLives, 1, v => v === 0 ? '無限' : v + ' 條')}
+        ${advRow('speed', '移動速度', s.adv.speed, 0.1, v => '×' + v.toFixed(1))}
+        ${advRow('bullet', '子彈速度', s.adv.bullet, 0.1, v => '×' + v.toFixed(1))}
+        ${advRow('fire', '開火冷卻', s.adv.fire, 0.1, v => '×' + v.toFixed(1) + (v > 1 ? '（較慢）' : v < 1 ? '（較快）' : ''))}
+        ${advRow('respawn', '重生時間', s.adv.respawn, 1, v => v + ' 秒')}
+        ${advRow('itemSec', '道具刷新', s.adv.itemSec, 1, v => '每 ' + v + ' 秒')}
+        ${host && room.state === 'lobby' ? '<button class="btn small ghost" data-adv-reset="1">恢復預設</button>' : ''}
+        <div class="set-desc">命數設成「無限」時，打到時間結束比剩餘戰力；在玩家列表點「命±」可以幫個別玩家讓分。</div>
+      </details>`;
 
     // 我的代碼
     const mc = room.myCode;
@@ -351,6 +376,7 @@
     if (!p) return;
     const target = id === me.id ? undefined : id;
     if (b.dataset.act === 'kick') send({ t: 'kick', id });
+    if (b.dataset.act === 'handicap') { const order = [0, 1, 2, -1, -2]; send({ t: 'handicap', id, v: order[(order.indexOf(p.handicap || 0) + 1) % order.length] }); }
     if (b.dataset.act === 'faction') send({ t: 'faction', id: target, faction: p.faction === 'red' ? 'blue' : 'red' });
     if (b.dataset.act === 'team') send({ t: 'team', id: target, team: (p.team % info.teamCount) + 1 });
     if (b.dataset.act === 'aicls') {
@@ -366,6 +392,9 @@
   });
   $('#settings').addEventListener('click', e => {
     if (e.target.closest('#editMapBtn')) return openMapEditor();
+    const ab = e.target.closest('[data-adv]');
+    if (ab && isHost()) return send({ t: 'settings', adv: { [ab.dataset.adv]: Number(ab.dataset.v) } });
+    if (e.target.closest('[data-adv-reset]') && isHost()) return send({ t: 'settings', advReset: true });
     const li = e.target.closest('.item-guide li[data-item]');
     if (li && isHost() && room.state === 'lobby') {
       const off = new Set(room.settings.disabledItems || []);
@@ -840,7 +869,10 @@ ${sample ? sample.code : defaultBot}\`\`\`
       const buffs = r.myBuffs();
       const BUFF_ICONS = [[1, '👟'], [2, '🔥'], [4, '💣'], [8, '👻'], [16, '👁️'], [32, '❄️'], [64, '😵'], [128, '🌀'], [256, '🔱'], [512, '🏀'], [1024, '💨']];
       const buffIcons = BUFF_ICONS.filter(([bit]) => buffs & bit).map(([, ic]) => ic).join('');
-      $('#hudLives').innerHTML = `${buffIcons ? `<span class="buffs">${buffIcons}</span>` : ''}${'♥'.repeat(mine.lives)}<span style="opacity:.3">${'♥'.repeat(Math.max(0, 3 - mine.lives))}</span> 電腦${bot && bot.alive ? '✓' : '✕'}`;
+      const maxL = r.myTank.maxLives;
+      const hearts = maxL < 0 || ['koth', 'ctf', 'escort'].includes(r.meta.objective) ? '♥∞'
+        : maxL > 5 ? `♥×${mine.lives}` : `${'♥'.repeat(mine.lives)}<span style="opacity:.3">${'♥'.repeat(Math.max(0, maxL - mine.lives))}</span>`;
+      $('#hudLives').innerHTML = `${buffIcons ? `<span class="buffs">${buffIcons}</span>` : ''}${hearts} 電腦${bot && bot.alive ? '✓' : '✕'}`;
       const sideOut = (r.sideState.get(r.myTank.side) || {}).out;
       const why = !lastDeath ? '' : lastDeath.cause === 'base' ? '基地被摧毀' : lastDeath.cause === 'blast' ? `被 ${tankName(lastDeath.killer)} 的爆炸波及` : `被 ${tankName(lastDeath.killer)} 擊中`;
       if (sideOut) { spect.innerHTML = `${lastDeath && lastDeath.cause === 'base' ? '基地被摧毀，' : ''}你的隊伍已出局<br><small>觀戰中</small>`; spect.classList.add('show'); }

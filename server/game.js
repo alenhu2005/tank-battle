@@ -68,7 +68,12 @@ class Round {
     this.allowedItems = C.ITEM_TYPES.map((t, i) => i).filter(i => !off.has(C.ITEM_TYPES[i].key));   // 房主可以關掉部分道具
     this.items = [];
     this.nextItemId = 1;
-    this.itemInterval = opts.itemInterval ? opts.itemInterval * C.TICK_RATE : C.ITEM_INTERVAL;
+    // 進階規則：命數（0 = 無限）、速度／彈速／冷卻倍率、重生時間
+    const R = Object.assign({}, C.ADV_DEFAULTS, opts.rules || {});
+    this.rules = R;
+    this.respawnTicks = Math.round(R.respawn * C.TICK_RATE);
+    this.botRespawnTicks = this.respawnTicks + C.TICK_RATE;
+    this.itemInterval = opts.itemInterval ? opts.itemInterval * C.TICK_RATE : Math.round((R.itemSec || 10) * C.TICK_RATE);
     this.itemTimer = opts.itemFirstDelay ? opts.itemFirstDelay * C.TICK_RATE : C.ITEM_FIRST_DELAY;
     this.itemsChanged = false;
     this.pickups = [];
@@ -132,10 +137,10 @@ class Round {
         // 純代碼對戰：每位玩家只派出一台電腦坦克
         for (const isBot of (this.codeOnly ? [true] : [false, true])) {
           const cls = isBot ? 'bot' : (C.CLASSES[m.cls] ? m.cls : 'assault');
-          const stats = classStats(cls);
+          const stats = this.statsFor(cls);
           const tank = {
             id: id++, side: s.key, owner: m.playerId, ownerName: m.name, isBot, cls, stats,
-            lives: isBot ? C.BOT_LIVES : C.PLAYER_LIVES, hp: stats.hp,
+            lives: 1, hp: stats.hp,
             alive: false, x: 0, y: 0, dir: 'up', angle: 0,
             spawn: this.sides[si].spawns[slot++ % this.sides[si].spawns.length],
             respawnTimer: 0, shield: 0, cooldown: 0,
@@ -143,6 +148,11 @@ class Round {
             kills: 0, deaths: 0, baseKills: 0, shots: 0, hits: 0, dodges: 0, itemsPicked: 0, captures: 0,
             sandbox: null,
           };
+          // 命數：電腦和玩家分開設定，0 = 無限重生；玩家可以有讓分（多／少幾條命）
+          const base = isBot ? R.botLives : R.playerLives;
+          tank.unlimited = base === 0;
+          tank.maxLives = tank.unlimited ? 1 : Math.max(1, base + (isBot ? 0 : (m.handicap || 0)));
+          tank.lives = tank.maxLives;
           if (isBot || m.aiPilot) tank.sandbox = new BotSandbox(isBot ? m.code : (m.pilotCode || m.code), `${m.name}${isBot ? ' 電腦' : ''}`);
           this.tanks.push(tank);
         }
@@ -189,7 +199,7 @@ class Round {
       sides: this.sides.map(s => ({ key: s.key, name: s.name, color: s.color, base: s.base ? { x: s.base.x, y: s.base.y } : null, anchor: s.anchor })),
       tanks: this.tanks.map(t => ({
         id: t.id, side: t.side, owner: t.owner, name: t.ownerName, isBot: t.isBot, cls: t.cls,
-        maxLives: t.isBot ? C.BOT_LIVES : C.PLAYER_LIVES, maxHp: t.stats.hp, vision: t.stats.vision,
+        maxLives: t.unlimited ? -1 : t.maxLives || 1, maxHp: t.stats.hp, vision: t.stats.vision,
         grassSight: !!t.stats.grassSight,
       })),
     };
@@ -293,7 +303,7 @@ class Round {
   _blocked(t, x, y) { return Physics.blocked(this, t, x, y, this._others(t)); }
 
   _move(t, dir) {
-    const step = t.stats.speed * (t.speedBuff > 0 ? C.SPEED_BUFF : 1) / C.TICK_RATE;
+    const step = t.stats.speed * (t.speedBuff > 0 ? C.SPEED_BUFF : 1) * (t.dashTicks > 0 ? C.DASH_SPEED : 1) / C.TICK_RATE;
     Physics.move(this, t, dir, step, this._others(t));
   }
 
@@ -389,7 +399,7 @@ class Round {
       case 'rapid': t.rapidBuff = C.BUFF_TICKS; break;
       case 'blast': t.blastShots = C.BLAST_SHOTS; break;
       case 'life':
-        if (!t.isBot && t.lives < C.PLAYER_LIVES) t.lives++;
+        if (!t.isBot && !t.unlimited && t.lives < (t.maxLives || 1)) t.lives++;
         else t.shield = Math.max(t.shield, C.ITEM_SHIELD_TICKS);
         break;
       case 'pierce': t.pierceShots = C.PIERCE_SHOTS; break;
@@ -643,12 +653,12 @@ class Round {
     if (shooter) shooter.kills++;
     t.alive = false;
     t.deaths++;
-    if (this.objective === 'koth' || this.objective === 'ctf') {
-      // 佔點、搶旗：無限重生（電腦等久一點）
-      t.respawnTimer = t.isBot ? C.BOT_RESPAWN_DELAY : C.RESPAWN_DELAY;
+    if (this.objective === 'koth' || this.objective === 'ctf' || this.objective === 'escort' || t.unlimited) {
+      // 佔點、搶旗、護送或設定成無限命：直接重生（電腦等久一點）
+      t.respawnTimer = t.isBot ? this.botRespawnTicks : this.respawnTicks;
     } else {
       t.lives = Math.max(0, t.lives - 1);
-      t.respawnTimer = C.RESPAWN_DELAY;
+      t.respawnTimer = this.respawnTicks;
     }
     t.input = { move: null, fire: false };
     this.events.push(['boom', t.x, t.y]);
@@ -684,8 +694,22 @@ class Round {
 
   _sideStrength(side) {
     let n = 0;
-    for (const t of this.tanks) if (t.side === side.key) n += t.lives;
+    for (const t of this.tanks) if (t.side === side.key) n += t.unlimited && t.lives > 0 ? 100 : t.lives;
     return n;
+  }
+
+  // 這一局的職業數值（套用房主的速度／彈速／冷卻倍率）
+  statsFor(cls) {
+    this._statsCache = this._statsCache || {};
+    if (!this._statsCache[cls]) {
+      const s = Object.assign({}, classStats(cls));
+      const R = this.rules || C.ADV_DEFAULTS;
+      s.speed = Math.round(s.speed * R.speed * 100) / 100;
+      s.bulletSpeed = Math.round(s.bulletSpeed * R.bullet * 100) / 100;
+      s.cooldown = Math.max(3, Math.round(s.cooldown * R.fire));
+      this._statsCache[cls] = s;
+    }
+    return this._statsCache[cls];
   }
 
   _checkEnd() {
@@ -776,13 +800,11 @@ class Round {
       (t.side === me.side ? allies : enemies).push(this._tankView(t));
     }
     if (!this.classTable) {
-      this.classTable = { bot: C.BOT_CLASS };
-      for (const k in C.CLASSES) {
-        const c = C.CLASSES[k];
-        this.classTable[k] = { speed: c.speed, cooldown: c.cooldown, bulletSpeed: c.bulletSpeed, maxBullets: c.maxBullets, hp: c.hp, pierce: !!c.pierce, blast: !!c.blast };
+      this.classTable = {};
+      for (const k of [...Object.keys(C.CLASSES), 'bot', 'monster']) {
+        const c = this.statsFor(k);
+        this.classTable[k] = { speed: c.speed, cooldown: c.cooldown, bulletSpeed: c.bulletSpeed, maxBullets: c.maxBullets, hp: c.hp, pierce: !!c.pierce, blast: !!c.blast, skill: c.skill || null };
       }
-      this.classTable.monster = { speed: C.MONSTER_CLASS.speed, cooldown: C.MONSTER_CLASS.cooldown, bulletSpeed: C.MONSTER_CLASS.bulletSpeed, maxBullets: 1, hp: 1, pierce: false, blast: false };
-      this.classTable.bot = { speed: C.BOT_CLASS.speed, cooldown: C.BOT_CLASS.cooldown, bulletSpeed: C.BOT_CLASS.bulletSpeed, maxBullets: C.BOT_CLASS.maxBullets, hp: C.BOT_CLASS.hp, pierce: false, blast: false };
     }
     const view = {
       tick: this.playTick,
@@ -806,6 +828,7 @@ class Round {
         tickRate: C.TICK_RATE, tankSize: C.TANK_SIZE, blastRadius: C.BLAST_RADIUS,
         mode: this.mode, baseMode: this.baseMode, fog: this.fog, breakableWalls: this.breakableWalls,
         codeOnly: this.codeOnly, classes: this.classTable,
+        playerLives: this.rules.playerLives, botLives: this.rules.botLives, respawnTicks: this.respawnTicks,
         ricochet: this.ricochet, bulletBounces: C.BULLET_BOUNCES, items: this.itemsOn,
         baseWallShieldLeft: Math.max(0, C.BASE_WALL_SHIELD_TICKS - this.playTick),
       },

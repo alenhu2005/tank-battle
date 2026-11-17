@@ -360,6 +360,13 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   padding: 10px; font-size: 16px; outline: none; -webkit-text-security: none;
 }
 .head-btns { display: flex; gap: 6px; }
+.adv summary { cursor: pointer; font-weight: 700; padding: 6px 0; }
+.adv { display: flex; flex-direction: column; gap: 6px; }
+.adv .adv-val { min-width: 92px; font-size: 13px; }
+.stepper button:disabled { opacity: .35; }
+.icon-btn.hc { font-size: 11px; min-width: 44px; }
+.icon-btn.hc.plus { background: rgba(61, 220, 132, .25); color: var(--ok); }
+.icon-btn.hc.minus { background: rgba(255, 107, 107, .25); color: var(--danger); }
 .home-alt .span2 { grid-column: span 2; }
 #leagueTable tr.me td { background: rgba(242, 201, 76, .1); font-weight: 700; }
 .league-res { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }

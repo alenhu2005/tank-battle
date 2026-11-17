@@ -18,7 +18,8 @@ const C = module.exports = {
   PLAYER_LIVES: 3,
   BOT_LIVES: 1,
   RESPAWN_DELAY: 5 * TICK_RATE,       // 玩家重生時間：剛好看完死亡重播
-  BOT_RESPAWN_DELAY: 6 * TICK_RATE,   // 佔點、搶旗模式電腦的重生時間
+  BOT_RESPAWN_DELAY: 6 * TICK_RATE,
+  DASH_SPEED: 2.5,           // 突擊技能「衝刺」的速度倍率   // 佔點、搶旗模式電腦的重生時間
   SHIELD_TICKS: 2 * TICK_RATE,
   FOG_RADIUS: 5.5,          // 迷霧模式下玩家的視野半徑（格）
   END_DELAY: Math.round(1.5 * TICK_RATE), // 分出勝負後再播一下爆炸
@@ -30,6 +31,13 @@ const C = module.exports = {
   BOT_LOG_LINES: 80,
 
   MAX_PLAYERS: 6,
+  // 進階規則（房主可調）的預設值與範圍
+  ADV_DEFAULTS: { playerLives: 3, botLives: 1, speed: 1, bullet: 1, fire: 1, respawn: 5, itemSec: 10 },
+  ADV_RANGES: {
+    playerLives: [0, 9], botLives: [0, 9],          // 0 = 無限重生
+    speed: [0.5, 1.5], bullet: [0.5, 1.5], fire: [0.5, 2],
+    respawn: [1, 15], itemSec: [4, 30],
+  },
   NAME_MAX: 12,
 
   // 八個方向（移動與射擊）。斜向的向量在使用時會正規化成長度 1

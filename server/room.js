@@ -32,7 +32,8 @@ class Room {
     this.players = [];
     this.hostId = null;
     this.settings = { mode: 'ffa', baseMode: true, fog: false, hardWalls: false, codeOnly: false, items: true, ricochet: false, rounds: 3, timeLimit: 180,
-      mapStyle: 'random', customMap: null, disabledItems: [], objective: 'survival' };
+      mapStyle: 'random', customMap: null, disabledItems: [], objective: 'survival',
+      adv: Object.assign({}, C.ADV_DEFAULTS) };
     this.state = 'lobby'; // lobby | playing | intermission | finished
     this.roundNo = 0;
     this.round = null;
@@ -184,6 +185,13 @@ class Room {
         if (typeof msg.ricochet === 'boolean') s.ricochet = msg.ricochet;
         if (['random', 'open', 'forest', 'fortress', 'river', 'maze', 'custom'].includes(msg.mapStyle)) s.mapStyle = msg.mapStyle;
         if (C.OBJECTIVES.includes(msg.objective)) s.objective = msg.objective;
+        if (msg.adv && typeof msg.adv === 'object') {
+          for (const [k, [lo, hi]] of Object.entries(C.ADV_RANGES)) {
+            const v = Number(msg.adv[k]);
+            if (Number.isFinite(v)) s.adv[k] = Math.min(hi, Math.max(lo, Math.round(v * 100) / 100));
+          }
+        }
+        if (msg.advReset) s.adv = Object.assign({}, C.ADV_DEFAULTS);
         if (msg.customMap !== undefined) {
           const cm = msg.customMap;
           const ok = cm && Number.isInteger(cm.size) && cm.size >= 15 && cm.size <= 35 && typeof cm.tiles === 'string'
@@ -224,6 +232,12 @@ class Room {
         const target = msg.id ? this.get(msg.id) : p;
         if (!target || (target !== p && !(isHost && target.isAI))) return;
         if (C.CLASSES[msg.cls]) target.cls = msg.cls;
+        return this.sendRoom();
+      }
+      case 'handicap': {   // 讓分：房主幫某位玩家加減命數
+        const target = this.get(msg.id);
+        if (!isHost || !target || target.isAI || this.state === 'playing') return;
+        if (Number.isInteger(msg.v)) target.handicap = Math.max(-2, Math.min(2, msg.v));
         return this.sendRoom();
       }
       case 'ready':
@@ -301,7 +315,7 @@ class Room {
   _member(p) {
     // 新手教學時，玩家的電腦先待著不動，免得搶走練習目標
     const code = this.kind === 'tutorial' && !p.isAI ? 'function think() { return null; }' : (p.code || DEFAULT_BOT);
-    return { playerId: p.id, name: p.name, code, cls: p.cls, aiPilot: p.isAI };
+    return { playerId: p.id, name: p.name, code, cls: p.cls, aiPilot: p.isAI, handicap: p.handicap || 0 };
   }
 
   startError() {
@@ -323,7 +337,7 @@ class Room {
     this.roundNo++;
     this.round = new Round({
       mode: s.mode, baseMode: s.baseMode, fog: s.fog, breakableWalls: !s.hardWalls, codeOnly: s.codeOnly, items: s.items, ricochet: s.ricochet,
-      objective: s.objective, mapStyle: s.mapStyle, customMap: s.mapStyle === 'custom' ? s.customMap : null, disabledItems: s.disabledItems,
+      rules: s.adv, objective: s.objective, mapStyle: s.mapStyle, customMap: s.mapStyle === 'custom' ? s.customMap : null, disabledItems: s.disabledItems,
       timeLimit: s.timeLimit, sides: this._buildSides(), countdown: this.kind === 'tutorial' ? 3 : C.COUNTDOWN_SECONDS,
       itemFirstDelay: this.kind === 'tutorial' ? 2 : undefined, itemInterval: this.kind === 'tutorial' ? 4 : undefined,
     });
@@ -430,7 +444,7 @@ class Room {
         settings: this.settings, roundNo: this.roundNo, maxPlayers: C.MAX_PLAYERS, teamCount: C.TEAM_COUNT,
         startError: this.state === 'lobby' || this.state === 'intermission' ? this.startError() : null,
         players: this.players.map(x => ({
-          id: x.id, name: x.name, isAI: x.isAI, connected: x.connected, faction: x.faction, team: x.team, cls: x.cls,
+          id: x.id, name: x.name, isAI: x.isAI, connected: x.connected, faction: x.faction, team: x.team, cls: x.cls, handicap: x.handicap || 0,
           ready: x.ready, wins: x.wins, kills: x.kills,
           customCode: !!x.code && !x.isAI,
         })),
