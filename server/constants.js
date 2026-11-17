@@ -48,6 +48,7 @@ const C = module.exports = {
   },
   ALIGN_RATE: 1.0,
   SPREAD_ANGLE: 25,
+  MAX_LAG_TICKS: 6,          // 延遲補償最多倒帶幾個 tick（0.2 秒）
   BASE_WALL_HP: 5,          // 基地周圍的磚牆要打幾下才會破
   BASE_WALL_SHIELD_TICKS: 30 * TICK_RATE,   // 開局後多久內基地圍牆打不壞         // 散彈：左右各偏幾度          // 直向/橫向移動時，另一軸靠向格子中心的速度（相對於移動速度）
 

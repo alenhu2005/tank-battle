@@ -170,11 +170,17 @@
         break;
       case 'roundStart': onRoundStart(m); break;
       case 's':
+        net.lastSnap = performance.now();
         renderer.applySnapshot(m, performance.now());
         reconcile();
         hudDirty = true;
         break;
       case 'roundEnd': onRoundEnd(m); break;
+      case 'pong': {
+        const rtt = performance.now() - m.c;
+        net.rtt = net.rtt == null ? rtt : net.rtt * 0.7 + rtt * 0.3;
+        break;
+      }
       case 'dbg': {
         const d = renderer.debugOps && performance.now() - renderer.debugOps.at < 400 ? renderer.debugOps : { byTank: {} };
         d.byTank[m.id] = m.ops; d.at = performance.now();
@@ -602,6 +608,20 @@ ${sample ? sample.code : defaultBot}\`\`\`
     renderCodeNow();
   }
 
+  // ---------- 連線狀態 ----------
+  const net = { rtt: null, lastSnap: 0 };
+  setInterval(() => { if (ws && ws.readyState === 1 && room) send({ t: 'ping', c: performance.now() }); }, 2000);
+  function netHud() {
+    const el = $('#hudNet');
+    if (!roundMeta) { el.textContent = ''; return; }
+    const stale = performance.now() - net.lastSnap;
+    if (net.lastSnap && stale > 700) { el.className = 'net bad'; el.textContent = '⚠️ 連線不穩'; return; }
+    if (net.rtt == null) { el.textContent = ''; return; }
+    const ms = Math.round(net.rtt);
+    el.className = 'net ' + (ms < 100 ? 'good' : ms < 200 ? 'ok' : 'bad');
+    el.textContent = `📶 ${ms}ms`;
+  }
+
   // ---------- 遊戲 ----------
   let hudDirty = true;
   let wakeLock = null;
@@ -837,6 +857,7 @@ ${sample ? sample.code : defaultBot}\`\`\`
     const r = renderer;
     if (!r.meta) return;
     $('#hudRound').textContent = roundMeta ? `第 ${roundMeta.roundNo}/${roundMeta.rounds} 局` : '';
+    netHud();
     const played = r.playTick();
     if (r.meta.timeLimitTicks) {
       const left = Math.max(0, Math.ceil((r.meta.timeLimitTicks - played) / r.meta.tickRate));
@@ -929,7 +950,7 @@ ${sample ? sample.code : defaultBot}\`\`\`
     const active = input.move >= 0 || input.fire;
     if (!active && key === sentInput && now - lastSendAt < 500) return;
     const seq = ++inputSeq;
-    send({ t: 'i', a: input.move >= 0 ? Math.round(input.move * 10) / 10 : -1, f: input.fire ? 1 : 0, s: seq });
+    send({ t: 'i', a: input.move >= 0 ? Math.round(input.move * 10) / 10 : -1, f: input.fire ? 1 : 0, s: seq, v: Math.round(r.renderTick * 10) / 10 });
     sentInput = key; lastSendAt = now;
     // 本機預測：倒數中、凍住或沒活著時不動
     const me = r.myTank && r.latest.tanks.get(r.myTank.id);

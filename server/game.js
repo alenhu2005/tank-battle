@@ -174,6 +174,7 @@ class Round {
     if (!t || t.sandbox) return;
     t.input = { move: toAngle(input.move), fire: !!input.fire };
     if (Number.isInteger(input.seq)) t.inputSeq = input.seq;   // 手機預測用：回報處理到第幾個輸入
+    if (Number.isFinite(input.view)) t.viewTick = input.view;   // 延遲補償：玩家畫面上正在顯示第幾個 tick
   }
 
   // MVP 分數：擊殺最重要，拆基地、搶旗也很重要；命中、閃避、撿道具加一點；陣亡扣分
@@ -244,6 +245,7 @@ class Round {
       if (t.input.fire) this._fire(t);
     }
     for (const t of this.tanks) if (!t.isBot) t.ackSeq = t.inputSeq || 0;
+    this._recordHistory();
 
     // 3. 子彈
     this._updateBullets();
@@ -324,6 +326,8 @@ class Round {
     const speed = t.stats.bulletSpeed * (t.swiftBuff > 0 ? C.SWIFT_BULLET : 1);
     const bounces = Math.max(this.ricochet ? C.BULLET_BOUNCES : 0, t.bounceBuff > 0 ? C.BOUNCE_BUFF : 0);
     const a0 = t.angle || 0;
+    // 延遲補償：玩家看到的敵人比伺服器晚一點，子彈用玩家畫面上的位置判定命中（最多 0.2 秒）
+    const lag = t.sandbox || !Number.isFinite(t.viewTick) ? 0 : Math.max(0, Math.min(C.MAX_LAG_TICKS, Math.round(this.tick - t.viewTick)));
     const angles = t.spreadBuff > 0 ? [a0, a0 - C.SPREAD_ANGLE, a0 + C.SPREAD_ANGLE] : [a0];
     this.events.push(['shot', t.x, t.y]);   // 給手機播音效
     t.shots++;
@@ -334,7 +338,7 @@ class Round {
       this.bullets.push({
         id: this.nextBulletId++, owner: t.id, side: t.side, angle: a, dir: Physics.dirOf(a), vx, vy,
         x: mx, y: my,
-        speed, pierce, blast, freeze, confuse, bounces, extra: i > 0,
+        speed, pierce, blast, freeze, confuse, bounces, extra: i > 0, lag,
       });
     });
     t.cooldown = t.rapidBuff > 0 ? Math.ceil(t.stats.cooldown / 2) : t.stats.cooldown;
@@ -624,10 +628,26 @@ class Round {
     }
   }
 
+  // 位置歷史：最近 16 個 tick 每台坦克的位置（延遲補償用）
+  _recordHistory() {
+    const snap = new Map();
+    for (const t of this.tanks) if (t.alive) snap.set(t.id, [t.x, t.y]);
+    this.posHist = this.posHist || [];
+    this.posHist[this.tick % 16] = { tick: this.tick, snap };
+  }
+
+  _posAt(t, tick) {
+    const h = this.posHist && this.posHist[((tick % 16) + 16) % 16];
+    if (!h || h.tick !== tick) return [t.x, t.y];
+    return h.snap.get(t.id) || null;     // 那時候還沒活著：不判定
+  }
+
   _bulletHitTank(b) {
     for (const t of this.tanks) {
       if (!t.alive || t.side === b.side) continue; // 沒有友軍傷害：子彈穿過隊友
-      if (Math.abs(t.x - b.x) < HALF + C.HIT_MARGIN && Math.abs(t.y - b.y) < HALF + C.HIT_MARGIN) {
+      const p = b.lag ? this._posAt(t, this.tick - b.lag) : [t.x, t.y];
+      if (!p) continue;
+      if (Math.abs(p[0] - b.x) < HALF + C.HIT_MARGIN && Math.abs(p[1] - b.y) < HALF + C.HIT_MARGIN) {
         b.dead = true;
         b.hitId = t.id;
         const shooter = this.tankById.get(b.owner);

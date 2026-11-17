@@ -343,3 +343,36 @@ console.log('ALL OK');
   assert(!bad.ok && /角度/.test(bad.errors[0]), 'helpful error mentions angles');
   console.log('analog control OK');
 }
+
+// 延遲補償：敵人在子彈飛到前最後 6 tick 才閃開；玩家畫面落後 6 tick，畫面上確實打中了
+{
+  const { Round } = require('../server/game');
+  const run = (lagged) => {
+    const sides = [0, 1].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: 'function think(){return null}' }] }));
+    const r = new Round({ mode: 'ffa', baseMode: false, timeLimit: 0, sides, size: 21 });
+    r.startTicks = 0; r.tiles.fill('.');
+    const me = r.tanks[0], foe = r.tanks[2];
+    r.tanks[1].x = 1.5; r.tanks[1].y = 19.5; r.tanks[3].x = 19.5; r.tanks[3].y = 19.5;
+    me.x = 10.5; me.y = 15.5; me.angle = 0; me.shield = 0;
+    foe.x = 10.5; foe.y = 9.5; foe.shield = 0;
+    for (let i = 0; i < 3; i++) r.step();
+    const view = () => r.tick - (lagged ? 6 : 0);
+    r.setInput('p0', { move: null, fire: true, view: view() });
+    r.step();
+    r.setInput('p0', { move: null, fire: false, view: view() });
+    const b = r.bullets.find(x => x.owner === me.id);
+    const perTick = b.speed / 30;
+    for (let i = 0; i < 60 && foe.alive; i++) {
+      // 子彈還差 6 tick 就到的時候，敵人開始往右閃
+      if (b && !b.dead && b.y - (foe.y + 0.45) <= perTick * 6) r.setInput('p1', { move: 'right' });
+      r.step();
+    }
+    const hit = !foe.alive;
+    r.dispose();
+    return hit;
+  };
+  const withComp = run(true), without = run(false);
+  console.log('lag compensation: hit with comp =', withComp, '| hit without =', without);
+  assert(withComp && !without, 'lag compensation should register the on-screen hit');
+  console.log('lag compensation OK');
+}
