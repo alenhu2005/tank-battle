@@ -62,6 +62,7 @@ class Round {
     this.breakableWalls = opts.breakableWalls !== false;
     this.codeOnly = !!opts.codeOnly;
     this.hpSystem = !!opts.hpSystem;     // 血量系統：每條命有血量，子彈依職業扣血
+    this.regenOn = !!opts.regen;         // 自動回血（血量系統的子選項，預設關閉；偵察不管有沒有開都會回血）
     this.tankSize = C.TANK_SIZE;          // 給共用物理用
     this.alignRate = C.ALIGN_RATE;
     this.ricochet = !!opts.ricochet;
@@ -783,7 +784,7 @@ class Round {
       const scout = t.cls === 'scout';
       const delay = (scout ? C.HP.scoutRegenDelay : C.HP.regenDelay) * C.TICK_RATE;
       let rate = 0;
-      if (this.tick - (t.hurtTick || 0) >= delay) rate += C.HP.regenPerSec * (scout ? C.HP.scoutRegenMult : 1);
+      if ((this.regenOn || scout) && this.tick - (t.hurtTick || 0) >= delay) rate += C.HP.regenPerSec * (scout && this.regenOn ? C.HP.scoutRegenMult : 1);
       if (nurses.some(n => n.side === t.side && Math.hypot(n.x - t.x, n.y - t.y) <= C.HP.nurseAura)) rate += C.HP.nurseAuraPerSec;   // 護士光環
       if (!rate) continue;
       t.regenAcc = (t.regenAcc || 0) + t.maxHp * rate / C.TICK_RATE;
@@ -934,7 +935,7 @@ class Round {
       rules: {
         tickRate: C.TICK_RATE, tankSize: C.TANK_SIZE, blastRadius: C.BLAST_RADIUS,
         mode: this.mode, baseMode: this.baseMode, fog: this.fog, breakableWalls: this.breakableWalls,
-        codeOnly: this.codeOnly, classes: this.classTable, hpSystem: this.hpSystem,
+        codeOnly: this.codeOnly, classes: this.classTable, hpSystem: this.hpSystem, regen: this.hpSystem && this.regenOn,
         playerHp: this.rules.playerHp, botHp: this.rules.botHp,
         botClasses: this.botClassesOn,
         playerLives: this.rules.playerLives, botLives: this.rules.botLives, respawnTicks: this.respawnTicks,

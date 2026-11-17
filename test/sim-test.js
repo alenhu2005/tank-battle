@@ -505,7 +505,7 @@ console.log('ALL OK');
     for (const t of r.tanks) t.shield = 0;
     return { r, a: r.tanks[0], b: r.tanks[2] };
   };
-  { const { r, a, b } = mk('assault', 'heavy');
+  { const { r, a, b } = mk('assault', 'heavy', { regen: true });
     assert.strictEqual(a.maxHp, 100); assert.strictEqual(b.maxHp, Math.round(100 * C.HP.hpFactor.heavy));
     assert.strictEqual(r.tanks[1].maxHp, 100, 'bot hp');
     r._damage(b, a, b.x, b.y, 'shot', 25);
@@ -534,6 +534,14 @@ console.log('ALL OK');
     bot.hurtTick = r.tick; const h = bot.hp;
     for (let i = 0; i < 30; i++) { r._regen(); r.tick++; bot.hurtTick = r.tick; }
     assert(bot.hp > h, 'nurse aura heals during combat');
+    r.dispose(); }
+  // 自動回血預設關閉：一般職業不回血，偵察照樣回
+  { const { r, a, b } = mk('heavy', 'scout');
+    a.hp = 50; b.hp = 40;
+    for (let i = 0; i < 10 * 30; i++) { r._regen(); r.tick++; }
+    assert.strictEqual(a.hp, 50, 'no regen when off');
+    assert(b.hp > 40, 'scout still regenerates');
+    assert.strictEqual(JSON.parse(r._viewFor(a)).rules.regen, false);
     r.dispose(); }
   // 狙擊：越遠傷害越高
   { const { r, a } = mk('sniper', 'assault');

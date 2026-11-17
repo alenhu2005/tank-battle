@@ -53,7 +53,7 @@ module.exports = `# 坦克對戰：電腦隊友代碼規格
   objective: { type, ... },             // 遊戲目標，見下方「遊戲目標」
   items:   [ { x, y, type, ticksLeft } ],  // 場上的道具（格子中心座標）；沒開道具時是空陣列
   map:     { width, height, tiles },     // tiles[r][c] 是第 r 列第 c 欄的地形字元
-  rules:   { tickRate, tankSize, blastRadius, mode, baseMode, fog, breakableWalls, codeOnly, hpSystem, classes, botClasses, playerHp, botHp, ricochet, bulletBounces, items }
+  rules:   { tickRate, tankSize, blastRadius, mode, baseMode, fog, breakableWalls, codeOnly, hpSystem, regen, classes, botClasses, playerHp, botHp, ricochet, bulletBounces, items }
 }
 坦克 = { id, x, y, dir, isBot, owner, cls, lives, hp, maxHp, shield, carrying, buffs }
 - angle：精確角度（度，0 = 上，順時針）；dir：最接近的八方向名稱（給簡單的代碼用）
@@ -90,7 +90,7 @@ ${classLines}
 ${Object.entries(C.HP.traits).map(([k, t]) => `  ${k.padEnd(8)} 血量 ×${C.HP.hpFactor[k]}  傷害 ${C.HP.damage[k]}  ${t}`).join('\n')}
   bot      血量 ×${C.HP.hpFactor.bot}  傷害 ${C.HP.damage.bot}（沒有職業的電腦）
 - 爆炸子彈波及（不是直接命中）的傷害是 ${C.HP.splash * 100}%；地雷 ${C.HP.mine}。
-- ${C.HP.regenDelay} 秒沒受傷後每秒回 ${C.HP.regenPerSec * 100}% 的最大血量。
+- 自動回血（rules.regen，預設關閉）：開啟時 ${C.HP.regenDelay} 秒沒受傷後每秒回 ${C.HP.regenPerSec * 100}% 的最大血量。關閉時只有偵察會自己回血，其他只能靠護士和醫療包。
 - rules.hpSystem 為 false 時：hp 是這條命還能挨幾發（大多是 1，重裝 2），每發扣 1。
 子彈命中判定：子彈中心進入坦克方框（邊長 ${C.TANK_SIZE}）外擴 ${C.HIT_MARGIN} 格的範圍內就算命中。
 

@@ -312,6 +312,8 @@
       <div class="set-desc">玩家不下場，每人只派一台電腦坦克，大家一起看</div>
       <div class="set-row"><span>血量系統</span>${sw('hpSystem', s.hpSystem)}</div>
       <div class="set-desc">${s.hpSystem ? '每條命有血條，子彈依職業扣血（血量可以在進階規則調整）' : '經典模式：被打中一發就少一條命（重裝兩發）'}</div>
+      ${s.hpSystem ? `<div class="set-row"><span>自動回血</span>${sw('regen', s.regen)}</div>
+      <div class="set-desc">${s.regen ? '5 秒沒受傷就慢慢回血（偵察 3 秒、速度 2 倍）' : '不會自己回血，只能靠護士和醫療包（偵察例外）'}</div>` : ''}
       <div class="set-row"><span>電腦也有職業</span>${sw('botClasses', s.botClasses)}</div>
       <div class="set-desc">${s.botClasses ? '每位玩家可以幫自己的電腦選職業，電腦也能用職業技能（代碼回傳 skill: true）' : '電腦都是標準規格、沒有技能'}</div>
       <div class="set-row"><span>基地模式</span>${sw('baseMode', s.baseMode)}</div>
