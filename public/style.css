@@ -399,6 +399,9 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .home-alt .span2 { grid-column: span 2; }
 #leagueTable tr.me td { background: rgba(242, 201, 76, .1); font-weight: 700; }
 .league-res { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.league-res div { flex-wrap: wrap; gap: 4px; align-items: center; }
+.league-res .rp-btns { display: flex; gap: 4px; width: 100%; justify-content: flex-end; }
+.league-res .rp-btns .btn { min-height: 30px; padding: 4px 10px; font-size: 12px; }
 .league-res div { display: flex; justify-content: space-between; background: var(--panel-2); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
 .up { color: var(--ok); } .down { color: var(--danger); }
 .samples summary { cursor: pointer; font-weight: 700; padding: 6px 0; }

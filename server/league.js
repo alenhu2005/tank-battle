@@ -25,12 +25,14 @@ function weekId(date = new Date()) {
 // ---------- 儲存 ----------
 
 function memoryStore() {
-  const docs = new Map();
+  const docs = new Map(), replays = new Map();
   return {
     kind: 'memory',
     async list(week) { return [...docs.values()].filter(e => e.week === week); },
     async get(week, key) { return docs.get(`${week}_${key}`) || null; },
     async put(e) { docs.set(`${e.week}_${e.key}`, { ...e }); },
+    async putReplay(id, buf) { replays.set(id, buf); if (replays.size > 500) replays.delete(replays.keys().next().value); },
+    async getReplay(id) { return replays.get(id) || null; },
   };
 }
 
@@ -43,6 +45,9 @@ function firestoreStore() {
     async list(week) { const snap = await col.where('week', '==', week).get(); return snap.docs.map(d => d.data()); },
     async get(week, key) { const d = await col.doc(`${week}_${key}`).get(); return d.exists ? d.data() : null; },
     async put(e) { await col.doc(`${e.week}_${e.key}`).set(e); },
+    // 重播存在另一個集合（單筆文件上限 1MB，壓縮後通常 100～200KB）
+    async putReplay(id, buf) { if (buf.length < 900 * 1024) await db.collection('league_replays').doc(id).set({ data: buf, at: Date.now() }); },
+    async getReplay(id) { const d = await db.collection('league_replays').doc(id).get(); return d.exists ? Buffer.from(d.data().data) : null; },
   };
 }
 
@@ -76,7 +81,9 @@ function expected(a, b) { return 1 / (1 + Math.pow(10, (b - a) / 400)); }
 function eloDelta(rA, rB, scoreA) { return Math.round(K * (scoreA - expected(rA, rB))); }
 
 function publicEntry(e, rank, myKey) {
-  return { rank, name: e.name, rating: e.rating, wins: e.wins, losses: e.losses, draws: e.draws, games: e.games, me: e.key === myKey };
+  const pub = { rank, name: e.name, rating: e.rating, wins: e.wins, losses: e.losses, draws: e.draws, games: e.games, me: e.key === myKey };
+  if (e.key === myKey && e.matches) pub.matches = e.matches;   // 只有自己看得到自己的對戰重播
+  return pub;
 }
 
 async function standings(myKey) {
@@ -123,8 +130,14 @@ async function doSubmit({ key, name, code }) {
     const opponents = others.length >= 3 ? others : others.concat(house.slice(0, 4 - others.length));
 
     const results = [];
+    let n = 0;
     for (const op of opponents) {
-      const r = await matchAsync(code, op.code);        // 兩場，交換位置
+      const r = await matchAsync(code, op.code, name, op.name);        // 兩場，交換位置
+      const replayIds = [];
+      for (const buf of r.replays || []) {
+        const id = `${week}_${key}_${n++}`;
+        try { await st.putReplay(id, Buffer.from(buf)); replayIds.push(id); } catch (e) { replayIds.push(null); console.error('重播存檔失敗', e.message); }
+      }
       const m = { games: r.games || 1, wins: r.wins || 0, losses: r.losses || 0, draws: r.games ? r.draws || 0 : 1 };
       const scoreA = (m.wins + m.draws * 0.5) / Math.max(1, m.games);
       const d = eloDelta(me.rating, op.rating, scoreA);
@@ -135,12 +148,18 @@ async function doSubmit({ key, name, code }) {
         op.games += m.games; op.wins += m.losses; op.losses += m.wins; op.draws += m.draws;
         await st.put(op);
       }
-      results.push({ opponent: op.name, wins: m.wins, losses: m.losses, draws: m.draws, delta: d });
+      results.push({ opponent: op.name, wins: m.wins, losses: m.losses, draws: m.draws, delta: d, replays: replayIds });
     }
+    me.matches = results.map(x => ({ opponent: x.opponent, wins: x.wins, losses: x.losses, draws: x.draws, replays: x.replays }));
     await st.put(me);
     const board = await standings(key);
     return { ok: true, results, rating: me.rating, standings: board };
   });
 }
 
-module.exports = { submit, standings, weekId };
+async function replay(id) {
+  if (!/^\d{4}-W\d{2}_[a-zA-Z0-9]{8,32}_\d{1,2}$/.test(String(id))) return null;
+  return withStore(st => st.getReplay(id));
+}
+
+module.exports = { submit, standings, weekId, replay };

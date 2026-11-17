@@ -71,6 +71,15 @@ const server = http.createServer((req, res) => {
     league.standings(url.searchParams.get('key') || '').then(data => json(res, 200, data)).catch(e => json(res, 500, { error: e.message }));
     return;
   }
+  const lr = url.pathname.match(/^\/api\/league\/replay\/([A-Za-z0-9_-]+)$/);
+  if (lr) {
+    league.replay(lr[1]).then(gz => {
+      if (!gz) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('找不到這場重播'); }
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Encoding': 'gzip', 'Cache-Control': 'private, max-age=3600' });
+      res.end(gz);
+    }).catch(e => json(res, 500, { error: e.message }));
+    return;
+  }
   if (url.pathname === '/api/league/submit' && req.method === 'POST') {
     readBody(req, 300 * 1024).then(body => league.submit(JSON.parse(body)))
       .then(data => json(res, 200, data))

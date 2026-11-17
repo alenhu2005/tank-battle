@@ -1116,12 +1116,31 @@ ${sample ? sample.code : defaultBot}\`\`\`
     if (!k) { k = Array.from(crypto.getRandomValues(new Uint8Array(10)), b => b.toString(16).padStart(2, '0')).join(''); store.set('leagueKey', k); }
     return k;
   }
+  function replayBtns(ids) {
+    return (ids || []).length ? `<span class="rp-btns">${ids.map((id, i) => id ? `<button class="btn small" data-league-replay="${id}">▶ 第${i + 1}場</button>` : '').join('')}</span>` : '';
+  }
+  document.addEventListener('click', async e => {
+    const b = e.target.closest('[data-league-replay]');
+    if (!b) return;
+    b.disabled = true;
+    try {
+      const res = await fetch('/api/league/replay/' + b.dataset.leagueReplay);
+      if (!res.ok) { toast('這場重播已經不存在了'); return; }
+      const data = await res.json();
+      rp.returnTo = 'league';
+      openReplay(data, null);
+      $('#rpTitle').textContent = `${data.title}（${{ win: '你贏了', loss: '你輸了', draw: '平手' }[data.result] || ''}）`;
+    } catch { toast('讀取重播失敗'); } finally { b.disabled = false; }
+  });
   function leagueTable(data) {
     $('#leagueWeek').textContent = data.week || '';
     $('#leagueCount').textContent = data.total ? `${data.total} 人參賽` : '';
     if (!data.entries || !data.entries.length) { $('#leagueTable').innerHTML = '<p class="muted small-text">本週還沒有人參賽，搶頭香！</p>'; return; }
     const rows = data.entries.map(e => `<tr class="${e.me ? 'me' : ''}"><td>${e.rank === 1 ? '🥇' : e.rank === 2 ? '🥈' : e.rank === 3 ? '🥉' : e.rank}</td><td>${esc(e.name)}${e.me ? '（你）' : ''}</td><td class="num">${e.rating}</td><td class="num">${e.wins}/${e.losses}/${e.draws}</td></tr>`).join('');
     const mine = data.mine && !data.entries.some(e => e.me) ? `<tr class="me"><td>${data.mine.rank}</td><td>${esc(data.mine.name)}（你）</td><td class="num">${data.mine.rating}</td><td class="num">${data.mine.wins}/${data.mine.losses}/${data.mine.draws}</td></tr>` : '';
+    const my = data.mine;
+    $('#leagueMine').innerHTML = my && my.matches && my.matches.length
+      ? `<div class="muted small-text">你最近一次參賽的對戰（點開看重播）</div><div class="league-res">${my.matches.map(r => `<div><span>vs ${esc(r.opponent)}</span><span>${r.wins} 勝 ${r.losses} 敗 ${r.draws} 和</span>${replayBtns(r.replays)}</div>`).join('')}</div>` : '';
     $('#leagueTable').innerHTML = `<table><tr><th>#</th><th>玩家</th><th class="num">分數</th><th class="num">勝/敗/和</th></tr>${rows}${mine}</table>`
       + (data.storage === 'memory' ? '<p class="muted small-text">（目前排行榜存在伺服器記憶體，伺服器重開時會清空）</p>' : '');
   }
@@ -1154,7 +1173,7 @@ ${sample ? sample.code : defaultBot}\`\`\`
       } else {
         const total = res.results.reduce((a, r) => a + r.delta, 0);
         $('#leagueResult').innerHTML = `<span class="ok">✅ 打完了！分數 ${res.rating}（${total >= 0 ? '+' : ''}${total}）</span>
-          <div class="league-res">${res.results.map(r => `<div><span>vs ${esc(r.opponent)}</span><span>${r.wins} 勝 ${r.losses} 敗 ${r.draws} 和 <b class="${r.delta >= 0 ? 'up' : 'down'}">${r.delta >= 0 ? '+' : ''}${r.delta}</b></span></div>`).join('')}</div>`;
+          <div class="league-res">${res.results.map(r => `<div><span>vs ${esc(r.opponent)}</span><span>${r.wins} 勝 ${r.losses} 敗 ${r.draws} 和 <b class="${r.delta >= 0 ? 'up' : 'down'}">${r.delta >= 0 ? '+' : ''}${r.delta}</b></span>${replayBtns(r.replays)}</div>`).join('')}</div>`;
         leagueTable(res.standings);
         window.Sfx.play(total >= 0 ? 'win' : 'lose');
       }
@@ -1226,7 +1245,8 @@ ${sample ? sample.code : defaultBot}\`\`\`
   $('#rpClose').onclick = () => {
     rp.data = null;
     if (new URLSearchParams(location.search).get('replay')) history.replaceState(null, '', '/');
-    show(room ? (lastResult ? 'result' : 'lobby') : 'home');
+    const back = rp.returnTo; rp.returnTo = null;
+    show(back || (room ? (lastResult ? 'result' : 'lobby') : 'home'));
   };
   const replayUrl = id => `${location.origin}/?replay=${id}`;
   async function shareReplay(id) {
