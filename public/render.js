@@ -391,6 +391,25 @@
         ctx.strokeRect((hx - hr) * tp, (hy - hr) * tp, hr * 2 * tp, hr * 2 * tp);
         ctx.setLineDash([]);
       }
+      if (this.obj && this.obj.type === 'escort' && this.meta.escortPath) {
+        // 護送路線與礦車
+        const path = this.meta.escortPath, o = this.obj, sm = this.sideMeta.get(o.att);
+        ctx.save();
+        ctx.strokeStyle = sm.color + '88'; ctx.lineWidth = Math.max(2, tp * 0.12); ctx.setLineDash([tp * 0.25, tp * 0.2]);
+        ctx.beginPath(); path.forEach((p, i) => i ? ctx.lineTo(p[0] * tp, p[1] * tp) : ctx.moveTo(p[0] * tp, p[1] * tp)); ctx.stroke();
+        ctx.setLineDash([]);
+        const endP = path[Math.min(path.length - 1, o.end)];
+        ctx.strokeStyle = sm.color; ctx.strokeRect((endP[0] - 0.5) * tp, (endP[1] - 0.5) * tp, tp, tp);
+        const k = Math.min(path.length - 1, Math.floor(o.i)), f = o.i - k, p = path[k], q = path[Math.min(path.length - 1, k + 1)];
+        const cx = (p[0] + (q[0] - p[0]) * f) * tp, cy = (p[1] + (q[1] - p[1]) * f) * tp;
+        ctx.fillStyle = o.st === 'contested' ? 'rgba(255,80,80,.12)' : sm.color + '22';
+        ctx.beginPath(); ctx.arc(cx, cy, (this.meta.cartRadius || 2) * tp, 0, 7); ctx.fill();
+        ctx.fillStyle = '#6b4a2b'; ctx.fillRect(cx - tp * 0.45, cy - tp * 0.3, tp * 0.9, tp * 0.5);
+        ctx.fillStyle = sm.color; ctx.fillRect(cx - tp * 0.45, cy - tp * 0.36, tp * 0.9, tp * 0.12);
+        ctx.fillStyle = '#222';
+        for (const wx of [-0.28, 0.28]) { ctx.beginPath(); ctx.arc(cx + wx * tp, cy + tp * 0.24, tp * 0.12, 0, 7); ctx.fill(); }
+        ctx.restore();
+      }
       if (this.obj && this.obj.type === 'ctf') {
         for (const [side, fx, fy, carrier, atHome] of this.obj.f) {
           const sm = this.sideMeta.get(side);

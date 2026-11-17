@@ -305,8 +305,8 @@
     $('#settings').innerHTML = `
       <div class="set-row"><span>模式</span>${seg('mode', [['ffa', '大亂鬥'], ['faction', '陣營戰'], ['team', '組隊']], s.mode)}</div>
       <div class="set-desc">${{ ffa: '每位玩家和自己的電腦一隊，打到剩最後一隊', faction: '紅藍兩軍，在玩家列表點顏色換邊', team: '在玩家列表點「N隊」換隊，同號就是隊友' }[s.mode]}</div>
-      <div class="set-row"><span>目標</span>${seg('objective', [['survival', '生存'], ['koth', '佔點'], ['ctf', '搶旗'], ['pve', '打怪']], s.objective || 'survival')}</div>
-      <div class="set-desc">${{ survival: '打到剩最後一隊', koth: '佔住中央區域累積 45 秒的隊伍獲勝（可以無限重生）', ctf: '把敵方旗子帶回自家旗子旁 3 次獲勝（可以無限重生，沒有基地）', pve: '所有人同一隊，撐過 5 波怪物（不分隊伍）' }[s.objective || 'survival']}</div>
+      <div class="set-row"><span>目標</span>${seg('objective', [['survival', '生存'], ['koth', '佔點'], ['ctf', '搶旗'], ['escort', '護送'], ['pve', '打怪']], s.objective || 'survival')}</div>
+      <div class="set-desc">${{ survival: '打到剩最後一隊', koth: '佔住中央區域累積 45 秒的隊伍獲勝（可以無限重生）', ctf: '把敵方旗子帶回自家旗子旁 3 次獲勝（可以無限重生，沒有基地）', escort: '進攻方把礦車推到敵方家門口，防守方撐到時間結束；每局交換攻守（需要剛好兩隊）', pve: '所有人同一隊，撐過 5 波怪物（不分隊伍）' }[s.objective || 'survival']}</div>
       <div class="set-row"><span>純代碼對戰</span>${sw('codeOnly', s.codeOnly)}</div>
       <div class="set-desc">玩家不下場，每人只派一台電腦坦克，大家一起看</div>
       <div class="set-row"><span>基地模式</span>${sw('baseMode', s.baseMode)}</div>
@@ -875,6 +875,11 @@ ${sample ? sample.code : defaultBot}\`\`\`
       objHtml = o.s.map(([k, v]) => { const sm = r.sideMeta.get(k); return `<span><i class="bar"><i style="width:${Math.min(100, v / o.target * 100)}%;background:${sm.color}"></i></i> ${Math.floor(v / r.meta.tickRate)}s</span>`; }).join('');
     } else if (o && o.type === 'ctf') {
       objHtml = o.s.map(([k, v]) => { const sm = r.sideMeta.get(k); return `<span style="color:${sm.color}">🚩 ${v}/${o.target}</span>`; }).join('');
+    } else if (o && o.type === 'escort') {
+      const sm = r.sideMeta.get(o.att), pct = Math.round((o.i - o.start) / (o.end - o.start) * 100);
+      const mine = r.myTank ? (r.myTank.side === o.att ? '進攻' : '防守') : '';
+      const stTxt = { push: '前進中', back: '後退中', contested: '爭奪中', idle: '停住' }[o.st] || '';
+      objHtml = `<span>${mine ? `你在${mine}・` : ''}礦車 <i class="bar"><i style="width:${pct}%;background:${sm.color}"></i></i> ${pct}%・${stTxt}</span>`;
     } else if (o && o.type === 'pve') {
       objHtml = `<span>第 ${o.wave}/${o.waves} 波・剩 ${o.left} 隻</span>`;
     }
@@ -1263,7 +1268,7 @@ ${sample ? sample.code : defaultBot}\`\`\`
   if (urlReplay && /^\d{4}-\d+$/.test(urlReplay)) loadReplay(urlReplay);
 
   // ---------- 局後結果 ----------
-  const REASONS = { last: '最後存活', draw: '同歸於盡', time: '時間到，剩餘命數較多', timeDraw: '時間到，平手', forced: '房主強制結束', koth: '佔點時間先達標', ctf: '搶旗次數先達標', pveWin: '撐過所有怪物', pveLose: '被怪物打倒了' };
+  const REASONS = { last: '最後存活', draw: '同歸於盡', time: '時間到，剩餘命數較多', timeDraw: '時間到，平手', forced: '房主強制結束', escortWin: '礦車推到終點', escortDefend: '守住了礦車', koth: '佔點時間先達標', ctf: '搶旗次數先達標', pveWin: '撐過所有怪物', pveLose: '被怪物打倒了' };
 
   function renderResult() {
     if (!lastResult || !room) return;

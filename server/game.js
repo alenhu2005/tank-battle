@@ -92,7 +92,8 @@ class Round {
     this.nextBulletId = 1;
 
     this.objective = C.OBJECTIVES.includes(opts.objective) ? opts.objective : 'survival';
-    if (this.objective === 'ctf') this.baseMode = false;     // 搶旗模式的旗子放在基地的位置
+    if (this.objective === 'ctf' || this.objective === 'escort') this.baseMode = false;     // 搶旗的旗子、護送的終點都在基地的位置
+    this.attackerIndex = opts.attackerIndex || 0;              // 護送：哪一隊進攻
     this.objEvents = [];
     let sides = opts.sides;
     if (this.objective === 'pve') {
@@ -196,7 +197,7 @@ class Round {
       mode: this.mode, baseMode: this.baseMode, fog: this.fog && !this.codeOnly, breakableWalls: this.breakableWalls,
       codeOnly: this.codeOnly, timeLimitTicks: this.timeLimitTicks, startTicks: this.startTicks, blastRadius: C.BLAST_RADIUS,
       ricochet: this.ricochet, items: this.itemsOn, itemTypes: C.ITEM_TYPES, objective: this.objective,
-      angles: true, spreadAngle: C.SPREAD_ANGLE,
+      angles: true, spreadAngle: C.SPREAD_ANGLE, escortPath: this.cart ? this.cart.path : null,
       wallHp: [...this.wallHp], baseWallHp: C.BASE_WALL_HP, baseWallShieldTicks: C.BASE_WALL_SHIELD_TICKS, skills: C.SKILLS,   // 快照裡的方向是角度（度），不是八方向編號
       alignRate: C.ALIGN_RATE, speedBuff: C.SPEED_BUFF, bulletBounces: C.BULLET_BOUNCES, bounceBuff: C.BOUNCE_BUFF,
       tickRate: C.TICK_RATE, tankSize: C.TANK_SIZE,

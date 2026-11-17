@@ -323,6 +323,7 @@ class Room {
   startError() {
     const sides = this._buildSides();
     if (this.settings.objective === 'pve') return null;
+    if (this.settings.objective === 'escort' && sides.length !== 2) return '護送模式需要剛好兩隊（陣營戰最方便，或組隊分成兩隊）';
     if (this.settings.mode === 'faction') {
       if (sides.some(s => s.members.length === 0)) return '陣營戰需要紅藍兩邊都有人（可以加入電腦隊伍）';
     } else if (this.settings.mode === 'team') {
@@ -339,7 +340,8 @@ class Room {
     this.roundNo++;
     this.round = new Round({
       mode: s.mode, baseMode: s.baseMode, fog: s.fog, breakableWalls: !s.hardWalls, codeOnly: s.codeOnly, items: s.items, ricochet: s.ricochet,
-      rules: s.adv, objective: s.objective, mapStyle: s.mapStyle, customMap: s.mapStyle === 'custom' ? s.customMap : null, disabledItems: s.disabledItems,
+      rules: s.adv, objective: s.objective, attackerIndex: (this.roundNo - 1) % 2,   // 護送：每局交換攻守
+      mapStyle: s.mapStyle, customMap: s.mapStyle === 'custom' ? s.customMap : null, disabledItems: s.disabledItems,
       timeLimit: s.timeLimit, sides: this._buildSides(), countdown: this.kind === 'tutorial' ? 3 : C.COUNTDOWN_SECONDS,
       itemFirstDelay: this.kind === 'tutorial' ? 2 : undefined, itemInterval: this.kind === 'tutorial' ? 4 : undefined,
     });

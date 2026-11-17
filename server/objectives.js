@@ -32,6 +32,8 @@ module.exports = function install(Round) {
         x: s.anchor.x + 0.5, y: s.anchor.y + 0.5, carrier: null, atHome: true, dropTimer: 0,
       }));
       this.objScore = Object.fromEntries(this.sides.map(s => [s.key, 0]));
+    } else if (o === 'escort') {
+      this._initEscort();
     } else if (o === 'pve') {
       this.pveWave = 0;
       this.pveDelay = 2 * C.TICK_RATE;
@@ -94,6 +96,16 @@ module.exports = function install(Round) {
           }
         }
       }
+    } else if (o === 'escort') {
+      const c = this.cart, pos = this._cartPos();
+      let att = 0, def = 0;
+      for (const t of this.tanks) {
+        if (!t.alive || Math.hypot(t.x - pos[0], t.y - pos[1]) > C.CART_RADIUS) continue;
+        if (t.side === c.attacker) att++; else def++;
+      }
+      if (att && !def) { c.i = Math.min(c.end, c.i + C.CART_SPEED * (1 + 0.25 * (att - 1)) / C.TICK_RATE); c.state = 'push'; }
+      else if (def && !att) { c.i = Math.max(c.start, c.i - C.CART_BACK_SPEED / C.TICK_RATE); c.state = 'back'; }
+      else c.state = att && def ? 'contested' : 'idle';
     } else if (o === 'pve') {
       const monsters = this.tanks.filter(t => t.monster);
       const remaining = monsters.filter(t => t.alive || t.lives > 0).length;
@@ -116,6 +128,42 @@ module.exports = function install(Round) {
         this.objEvents.push(['wave', this.pveWave, n]);
       }
     }
+  };
+
+  // 護送：從進攻方出生區到防守方出生區挖一條路，礦車沿著走
+  P._initEscort = function () {
+    const atk = this.sides[this.attackerIndex % this.sides.length], def = this.sides[(this.attackerIndex + 1) % this.sides.length];
+    const S = this.size, a = atk.anchor, b = def.anchor;
+    const cost = c => c === '.' || c === '*' ? 1 : c === '#' ? 3 : 8;   // 盡量走空地，不得已才穿過牆和水
+    const dist = new Array(S * S).fill(Infinity), prev = new Array(S * S).fill(-1);
+    const start = a.y * S + a.x, goal = b.y * S + b.x, buckets = [[start]];
+    dist[start] = 0;
+    for (let d = 0; d < buckets.length; d++) {
+      for (const cur of buckets[d] || []) {
+        if (dist[cur] !== d) continue;
+        if (cur === goal) { buckets.length = 0; break; }
+        const cx = cur % S, cy = (cur - cx) / S;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = cx + dx, ny = cy + dy;
+          if (nx < 0 || ny < 0 || nx >= S || ny >= S) continue;
+          const id = ny * S + nx, nd = d + cost(this.tiles[id]);
+          if (nd >= dist[id]) continue;
+          dist[id] = nd; prev[id] = cur;
+          (buckets[nd] = buckets[nd] || []).push(id);
+        }
+      }
+    }
+    const cells = [];
+    for (let c = goal; c !== -1; c = prev[c]) cells.unshift(c);
+    for (const c of cells) if (this.tiles[c] !== '.' && this.tiles[c] !== '*') { this.tiles[c] = '.'; this.wallHp.delete(c); }   // 把路挖通
+    const path = cells.map(c => [c % S + 0.5, Math.floor(c / S) + 0.5]);
+    this.cart = { path, attacker: atk.key, defender: def.key, start: 3, end: Math.max(4, path.length - 4), i: 3, state: 'idle' };
+    if (!this.timeLimitTicks) this.timeLimitTicks = C.ESCORT_DEFAULT_TIME * C.TICK_RATE;
+  };
+
+  P._cartPos = function () {
+    const c = this.cart, k = Math.min(c.path.length - 1, Math.floor(c.i)), f = c.i - k, p = c.path[k], q = c.path[Math.min(c.path.length - 1, k + 1)];
+    return [p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f];
   };
 
   P._flagHome = function (f) {
@@ -143,6 +191,11 @@ module.exports = function install(Round) {
     } else if (o === 'ctf') {
       const w = this.sides.find(s => this.objScore[s.key] >= C.CTF_CAPTURES);
       if (w) return { winner: w, reason: 'ctf' };
+    } else if (o === 'escort') {
+      const c = this.cart;
+      if (c.i >= c.end) return { winner: this.sideByKey.get(c.attacker), reason: 'escortWin' };
+      if (this.timeLimitTicks && this.playTick >= this.timeLimitTicks) return { winner: this.sideByKey.get(c.defender), reason: 'escortDefend' };
+      return false;
     } else if (o === 'pve') {
       const players = this.sideByKey.get('players');
       if (players.eliminated || this._sideStrength(players) === 0) { players.eliminated = true; return { winner: null, reason: 'pveLose' }; }
@@ -163,6 +216,7 @@ module.exports = function install(Round) {
     if (o === 'koth') return { type: 'koth', hill: [this.hill.x, this.hill.y, this.hill.r], s: this.sides.map(s => [s.key, this.objScore[s.key]]), h: this.hillHolder, target: C.KOTH_TARGET_TICKS };
     if (o === 'ctf') return { type: 'ctf', f: this.flags.map(f => [f.side, Math.round(f.x * 100), Math.round(f.y * 100), f.carrier || 0, f.atHome ? 1 : 0]), s: this.sides.map(s => [s.key, this.objScore[s.key]]), target: C.CTF_CAPTURES };
     if (o === 'pve') return { type: 'pve', wave: this.pveWave, waves: C.PVE_WAVES, left: this.tanks.filter(t => t.monster && (t.alive || t.lives > 0)).length };
+    if (o === 'escort') return { type: 'escort', att: this.cart.attacker, i: Math.round(this.cart.i * 100) / 100, start: this.cart.start, end: this.cart.end, st: this.cart.state };
     return null;
   };
 
@@ -185,6 +239,14 @@ module.exports = function install(Round) {
       };
     }
     if (o === 'pve') return { type: 'pve', wave: this.pveWave, waves: C.PVE_WAVES, monstersLeft: this.tanks.filter(t => t.monster && (t.alive || t.lives > 0)).length };
+    if (o === 'escort') {
+      const c = this.cart, pos = this._cartPos();
+      return {
+        type: 'escort', attacking: me.side === c.attacker, cart: { x: pos[0], y: pos[1] }, radius: C.CART_RADIUS,
+        progress: Math.round((c.i - c.start) / (c.end - c.start) * 1000) / 1000, state: c.state,
+        path: c.path.map(p => ({ x: p[0], y: p[1] })),
+      };
+    }
     return { type: 'survival' };
   };
 };

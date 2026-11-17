@@ -51,6 +51,7 @@ function objectiveGoals(view) {
     var inHill = Math.abs(me.x - o.x) <= o.radius && Math.abs(me.y - o.y) <= o.radius;
     return inHill ? [] : [{ x: o.x, y: o.y }];
   }
+  if (o.type === 'escort') return [o.cart];   // 護送：進攻方推車、防守方擋車，都往礦車去
   if (o.type === 'ctf') {
     var mine = o.flags.filter(function (f) { return f.ally; })[0];
     if (me.carrying) return [{ x: mine.homeX, y: mine.homeY }];

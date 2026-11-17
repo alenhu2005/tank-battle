@@ -438,3 +438,24 @@ console.log('ALL OK');
     assert(validateCode('function think(v){ return { move: 45, fire: true, skill: v.me.skillReady }; }').ok); }
   console.log('class skills OK');
 }
+
+// 護送模式：內建 AI 對打，會用推到終點或守住分出勝負；路線要挖通
+{
+  const { Round } = require('../server/game');
+  const D = require('../server/defaultBot');
+  const out = [];
+  for (let k = 0; k < 4; k++) {
+    const sides = ['red', 'blue'].map((key, si) => ({ key, name: key, color: '#fff', members: [0, 1].map(i => ({ playerId: key + i, name: key + i, code: D, aiPilot: true, cls: 'assault' })) }));
+    const r = new Round({ mode: 'faction', timeLimit: 120, sides, objective: 'escort', attackerIndex: k % 2 });
+    const path = r.cart.path;
+    assert(path.every(p => '.*'.includes(r.tiles[Math.floor(p[1]) * r.size + Math.floor(p[0])])), 'escort path is open');
+    let maxI = r.cart.i;
+    while (!r.over) { r.step(); maxI = Math.max(maxI, r.cart.i); }
+    out.push(`${r.result.reason}(${Math.round((maxI - r.cart.start) / (r.cart.end - r.cart.start) * 100)}%)`);
+    r.dispose();
+  }
+  console.log('escort results:', out.join(' '));
+  assert(out.every(x => /^escort(Win|Defend)/.test(x)), 'escort ends by cart or time');
+  assert(out.some(x => !x.endsWith('(0%)')), 'cart moved in at least one game');
+  console.log('escort OK');
+}
