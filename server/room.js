@@ -31,7 +31,7 @@ class Room {
     this.onClose = onClose;
     this.players = [];
     this.hostId = null;
-    this.settings = { mode: 'ffa', baseMode: true, fog: false, hardWalls: false, codeOnly: false, items: true, ricochet: false, rounds: 3, timeLimit: 180,
+    this.settings = { mode: 'ffa', baseMode: true, fog: false, hardWalls: false, codeOnly: false, items: true, ricochet: false, rounds: 3, timeLimit: 180, botClasses: false,
       mapStyle: 'random', customMap: null, disabledItems: [], objective: 'survival',
       adv: Object.assign({}, C.ADV_DEFAULTS) };
     this.state = 'lobby'; // lobby | playing | intermission | finished
@@ -72,7 +72,7 @@ class Room {
       name: this._uniqueName(name),
       isAI: false, ws, connected: true, disconnectedAt: 0,
       code: null, codeInfo: null,
-      faction: this._suggestFaction(), team: this._suggestTeam(), cls: 'assault', ready: false,
+      faction: this._suggestFaction(), team: this._suggestTeam(), cls: 'assault', botCls: 'assault', ready: false,
       wins: 0, kills: 0,
     };
     this.players.push(p);
@@ -89,6 +89,7 @@ class Room {
       isAI: true, connected: true, code, codeInfo: { ok: true },
       faction: this._suggestFaction(), team: this._suggestTeam(), ready: true, wins: 0, kills: 0,
       cls: Object.keys(C.CLASSES)[Math.floor(Math.random() * Object.keys(C.CLASSES).length)],
+      botCls: Object.keys(C.CLASSES)[Math.floor(Math.random() * Object.keys(C.CLASSES).length)],
     };
     this.players.push(p);
     return p;
@@ -183,6 +184,7 @@ class Room {
         if (typeof msg.fog === 'boolean') s.fog = msg.fog;
         if (typeof msg.hardWalls === 'boolean') s.hardWalls = msg.hardWalls;
         if (typeof msg.codeOnly === 'boolean') s.codeOnly = msg.codeOnly;
+        if (typeof msg.botClasses === 'boolean') s.botClasses = msg.botClasses;
         if (typeof msg.items === 'boolean') s.items = msg.items;
         if (typeof msg.ricochet === 'boolean') s.ricochet = msg.ricochet;
         if (['random', 'open', 'forest', 'fortress', 'river', 'maze', 'custom'].includes(msg.mapStyle)) s.mapStyle = msg.mapStyle;
@@ -234,6 +236,13 @@ class Room {
         const target = msg.id ? this.get(msg.id) : p;
         if (!target || (target !== p && !(isHost && target.isAI))) return;
         if (C.CLASSES[msg.cls]) target.cls = msg.cls;
+        return this.sendRoom();
+      }
+      case 'botCls': {   // 電腦坦克的職業（房間設定「電腦也有職業」打開時才有作用）
+        if (this.state === 'playing') return;
+        const target = msg.id ? this.get(msg.id) : p;
+        if (!target || (target !== p && !(isHost && target.isAI))) return;
+        if (C.CLASSES[msg.cls]) target.botCls = msg.cls;
         return this.sendRoom();
       }
       case 'handicap': {   // 讓分：房主幫某位玩家加減命數
@@ -317,7 +326,8 @@ class Room {
   _member(p) {
     // 新手教學時，玩家的電腦先待著不動，免得搶走練習目標
     const code = this.kind === 'tutorial' && !p.isAI ? 'function think() { return null; }' : (p.code || DEFAULT_BOT);
-    return { playerId: p.id, name: p.name, code, cls: p.cls, aiPilot: p.isAI, handicap: p.handicap || 0 };
+    return { playerId: p.id, name: p.name, code, cls: p.cls, botCls: this.settings.botClasses ? (p.botCls || 'assault') : null,
+      aiPilot: p.isAI, handicap: p.handicap || 0 };
   }
 
   startError() {
@@ -448,7 +458,7 @@ class Room {
         settings: this.settings, roundNo: this.roundNo, maxPlayers: C.MAX_PLAYERS, teamCount: C.TEAM_COUNT,
         startError: this.state === 'lobby' || this.state === 'intermission' ? this.startError() : null,
         players: this.players.map(x => ({
-          id: x.id, name: x.name, isAI: x.isAI, connected: x.connected, faction: x.faction, team: x.team, cls: x.cls, handicap: x.handicap || 0,
+          id: x.id, name: x.name, isAI: x.isAI, connected: x.connected, faction: x.faction, team: x.team, cls: x.cls, botCls: x.botCls || 'assault', handicap: x.handicap || 0,
           ready: x.ready, wins: x.wins, kills: x.kills,
           customCode: !!x.code && !x.isAI,
         })),

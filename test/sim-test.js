@@ -283,7 +283,7 @@ console.log('ALL OK');
   }
   console.log('objective results:', JSON.stringify(reasons));
   assert(reasons.koth.some(x => x === 'koth'), 'koth wins by holding the hill');
-  assert(captures > 0 && reasons.ctf.every(x => x === 'ctf' || x === 'time'), 'ctf: flags get captured, games end by captures or time');
+  assert(captures > 0 && reasons.ctf.every(x => x === 'ctf' || x === 'time' || x === 'timeDraw'), 'ctf: flags get captured, games end by captures or time');
   assert(reasons.pve.every(x => /^pve(Win|Lose)@wave[1-5]$/.test(x)), 'pve ends by waves');
   console.log('objectives OK');
 }
@@ -459,4 +459,36 @@ console.log('ALL OK');
   assert(out.every(x => /^escort(Win|Defend)/.test(x)), 'escort ends by cart or time');
   assert(out.some(x => !x.endsWith('(0%)')), 'cart moved in at least one game');
   console.log('escort OK');
+}
+
+// 電腦職業：房間設定打開時電腦拿到選的職業和技能；關閉時是標準規格
+{
+  const { Round } = require('../server/game');
+  const { Room } = require('../server/room');
+  const code = 'function think(view){ return { move: null, fire: false, skill: view.me.skillReady }; }';
+  const mk = (botCls, codeOnly) => {
+    const sides = [0, 1].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code, cls: 'heavy', botCls: i === 0 ? botCls : null }] }));
+    return new Round({ mode: 'ffa', baseMode: false, timeLimit: 0, sides, size: 21, codeOnly });
+  };
+  { const r = mk('scout'); r.startTicks = 0;
+    const bot = r.tanks.find(t => t.owner === 'p0' && t.isBot), other = r.tanks.find(t => t.owner === 'p1' && t.isBot);
+    assert.strictEqual(bot.cls, 'scout'); assert.strictEqual(other.cls, 'bot');
+    assert.strictEqual(bot.stats.speed, r.statsFor('scout').speed);
+    assert.strictEqual(JSON.parse(r._viewFor(bot)).rules.botClasses, true);
+    for (let i = 0; i < 3; i++) r.step();
+    assert(bot.skillCd > 0 && r.smokes.length === 1, 'bot used smoke skill');
+    assert(!(other.skillCd > 0), 'classless bot has no skill');
+    r.dispose(); }
+  { const r = mk(null); assert(r.tanks.filter(t => t.isBot).every(t => t.cls === 'bot'));
+    assert.strictEqual(JSON.parse(r._viewFor(r.tanks[1])).rules.botClasses, false); r.dispose(); }
+  { const r = mk('sniper', true); assert.strictEqual(r.tanks.length, 2); assert.strictEqual(r.tanks[0].cls, 'sniper'); r.dispose(); }
+  // 房間：設定關閉時 botCls 不會傳進遊戲
+  const room = new Room('9999', () => {});
+  const ai = room.addAI();
+  assert(ai.botCls, 'AI gets a random bot class');
+  assert.strictEqual(room._member(ai).botCls, null);
+  room.settings.botClasses = true;
+  assert.strictEqual(room._member(ai).botCls, ai.botCls);
+  room.close();
+  console.log('bot classes OK');
 }

@@ -138,7 +138,8 @@ class Round {
       for (const m of s.members) {
         // 純代碼對戰：每位玩家只派出一台電腦坦克
         for (const isBot of (this.codeOnly ? [true] : [false, true])) {
-          const cls = isBot ? 'bot' : (C.CLASSES[m.cls] ? m.cls : 'assault');
+          // 電腦預設是標準規格（bot）；房間開了「電腦也有職業」時會帶 botCls
+          const cls = isBot ? (C.CLASSES[m.botCls] ? m.botCls : 'bot') : (C.CLASSES[m.cls] ? m.cls : 'assault');
           const stats = this.statsFor(cls);
           const tank = {
             id: id++, side: s.key, owner: m.playerId, ownerName: m.name, isBot, cls, stats,
@@ -161,6 +162,7 @@ class Round {
       }
     });
     this.nextTankId = id;
+    this.botClassesOn = this.tanks.some(t => t.isBot && t.cls !== 'bot');
     if (monsterSide) this._createMonsterPool(monsterSide);
     this.tankById = new Map(this.tanks.map(t => [t.id, t]));
     for (const t of this.tanks) if (t.lives > 0) this._spawn(t, true);
@@ -875,6 +877,7 @@ class Round {
         tickRate: C.TICK_RATE, tankSize: C.TANK_SIZE, blastRadius: C.BLAST_RADIUS,
         mode: this.mode, baseMode: this.baseMode, fog: this.fog, breakableWalls: this.breakableWalls,
         codeOnly: this.codeOnly, classes: this.classTable,
+        botClasses: this.botClassesOn,
         playerLives: this.rules.playerLives, botLives: this.rules.botLives, respawnTicks: this.respawnTicks,
         ricochet: this.ricochet, bulletBounces: C.BULLET_BOUNCES, items: this.itemsOn,
         baseWallShieldLeft: Math.max(0, C.BASE_WALL_SHIELD_TICKS - this.playTick),

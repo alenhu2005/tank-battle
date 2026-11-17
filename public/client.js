@@ -284,7 +284,8 @@
       let groupChip = '';
       if (s.mode === 'faction') groupChip = `<button class="icon-btn" data-act="faction" data-id="${p.id}" ${canEdit ? '' : 'disabled'} style="background:${info.factionColors[p.faction]};color:#000">${p.faction === 'red' ? '紅' : '藍'}</button>`;
       if (s.mode === 'team') groupChip = `<button class="icon-btn" data-act="team" data-id="${p.id}" ${canEdit ? '' : 'disabled'} style="background:${playerColor(p, i)};color:#000">${p.team}隊</button>`;
-      const cls = !s.codeOnly && info.classes[p.cls] ? `<span class="tag" ${p.isAI && host ? `data-act="aicls" data-id="${p.id}"` : ''}>${info.classes[p.cls].name}</span>` : '';
+      const cls = (!s.codeOnly && info.classes[p.cls] ? `<span class="tag" ${p.isAI && host ? `data-act="aicls" data-id="${p.id}"` : ''}>${info.classes[p.cls].name}</span>` : '')
+        + (s.botClasses && info.classes[p.botCls] ? `<span class="tag" ${p.isAI && host ? `data-act="aibotcls" data-id="${p.id}"` : ''}>🤖${info.classes[p.botCls].name}</span>` : '');
       const tags = [
         p.id === room.hostId ? '<span class="tag host">房主</span>' : '',
         p.isAI ? '<span class="tag">電腦隊伍</span>' : (p.customCode ? '<span class="tag ok">自訂代碼</span>' : '<span class="tag">範例代碼</span>'),
@@ -309,6 +310,8 @@
       <div class="set-desc">${{ survival: '打到剩最後一隊', koth: '佔住中央區域累積 45 秒的隊伍獲勝（可以無限重生）', ctf: '把敵方旗子帶回自家旗子旁 3 次獲勝（可以無限重生，沒有基地）', escort: '進攻方把礦車推到敵方家門口，防守方撐到時間結束；每局交換攻守（需要剛好兩隊）', pve: '所有人同一隊，撐過 5 波怪物（不分隊伍）' }[s.objective || 'survival']}</div>
       <div class="set-row"><span>純代碼對戰</span>${sw('codeOnly', s.codeOnly)}</div>
       <div class="set-desc">玩家不下場，每人只派一台電腦坦克，大家一起看</div>
+      <div class="set-row"><span>電腦也有職業</span>${sw('botClasses', s.botClasses)}</div>
+      <div class="set-desc">${s.botClasses ? '每位玩家可以幫自己的電腦選職業，電腦也能用職業技能（代碼回傳 skill: true）' : '電腦都是標準規格、沒有技能'}</div>
       <div class="set-row"><span>基地模式</span>${sw('baseMode', s.baseMode)}</div>
       <div class="set-desc">每隊有一座基地，被敵人打爆就整隊出局</div>
       <div class="set-row"><span>迷霧</span>${sw('fog', s.fog)}</div>
@@ -349,13 +352,18 @@
 
     renderClassPicker('#classPicker');
     renderClassPicker('#classPicker2');
+    renderClassPicker('#botClassPicker', 'botCls');
+    renderClassPicker('#botClassPicker2', 'botCls');
+    $('#botClassPanel').classList.toggle('hidden', !room.settings.botClasses);
   }
 
   // 職業選擇
-  function renderClassPicker(sel) {
+  // field = 'cls'（自己的坦克）或 'botCls'（自己的電腦，房間開了「電腦也有職業」才有）
+  function renderClassPicker(sel, field = 'cls') {
     const el = $(sel); if (!el || !info) return;
     const mp = myPlayer();
-    if (room.settings.codeOnly) { el.innerHTML = '<p class="muted small-text">純代碼對戰不需要選職業。</p>'; return; }
+    if (field === 'botCls' && !room.settings.botClasses) { el.innerHTML = ''; return; }
+    if (field === 'cls' && room.settings.codeOnly) { el.innerHTML = '<p class="muted small-text">純代碼對戰不需要選職業。</p>'; return; }
     const all = Object.values(info.classes);
     const max = k => Math.max(...all.map(c => k(c)));
     const bars = (c) => {
@@ -368,12 +376,12 @@
       return stats.map(([n, v]) => `<div class="bar"><span>${n}</span><i style="--v:${Math.round(v * 100)}%"></i></div>`).join('');
     };
     el.innerHTML = Object.entries(info.classes).map(([k, c]) =>
-      `<button class="cls-card ${mp && mp.cls === k ? 'sel' : ''}" data-cls="${k}">
+      `<button class="cls-card ${mp && mp[field] === k ? 'sel' : ''}" data-cls="${k}" data-field="${field}">
         <b>${c.name}</b>${bars(c)}<small>${c.desc}</small>${c.skill ? `<small class="skill">${c.skill.icon} 技能「${c.skill.name}」：${c.skill.desc}（冷卻 ${c.skill.cd} 秒）</small>` : ''}</button>`).join('');
   }
   document.addEventListener('click', e => {
     const card = e.target.closest('.cls-card');
-    if (card && room && room.state !== 'playing') send({ t: 'cls', cls: card.dataset.cls });
+    if (card && room && room.state !== 'playing') send({ t: card.dataset.field === 'botCls' ? 'botCls' : 'cls', cls: card.dataset.cls });
   });
 
   $('#playerList').addEventListener('click', e => {
@@ -388,6 +396,10 @@
     if (b.dataset.act === 'aicls') {
       const keys = Object.keys(info.classes);
       send({ t: 'cls', id, cls: keys[(keys.indexOf(p.cls) + 1) % keys.length] });
+    }
+    if (b.dataset.act === 'aibotcls') {
+      const keys = Object.keys(info.classes);
+      send({ t: 'botCls', id, cls: keys[(keys.indexOf(p.botCls) + 1) % keys.length] });
     }
   });
   $('#settings').addEventListener('change', e => {
@@ -1380,6 +1392,7 @@ ${sample.code}\`\`\`
     $('#endMatchBtn').classList.toggle('hidden', !inter || !host);
     $('#toLobbyBtn').classList.toggle('hidden', !finished || !host);
     $('#classPanel2').classList.toggle('hidden', !inter || room.settings.codeOnly);
+    $('#botClassPanel2').classList.toggle('hidden', !inter || !room.settings.botClasses);
     const mp = myPlayer();
     $('#readyBtn2').textContent = mp && mp.ready ? '已準備 ✓' : '準備';
     $('#readyBtn2').classList.toggle('on', !!(mp && mp.ready));

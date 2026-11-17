@@ -19,7 +19,8 @@ module.exports = `# 坦克對戰：電腦隊友代碼規格
 - move：往該角度移動，車身和砲管也會轉向該角度；null 表示停住（保持原本的角度）。被擋住時只會轉向。
 - 離正上下左右 ${require('../public/physics').SNAP} 度以內時，移動會當作直走並自動靠向格子中心（方便鑽 1 格寬的通道），但砲管仍朝實際角度。
 - fire：true 表示朝砲管角度開火。冷卻中或自己的子彈數已達上限時會被忽略。
-- skill：true 表示使用職業技能（只有玩家坦克有職業；電腦坦克 cls 是 "bot"，沒有技能）。冷卻中會被忽略。
+- skill：true 表示使用職業技能（me.skill 是你的技能，null 表示沒有）。冷卻中會被忽略。
+  電腦坦克預設 cls 是 "bot"、沒有技能；房主打開「電腦也有職業」時（rules.botClasses 為 true），電腦會有玩家選的職業和那個職業的技能。
 
 ## 執行環境
 - 標準 JavaScript，可以用 Math、JSON、Array、Map 等內建物件。沒有 DOM、網路、檔案、require/import、setTimeout。
@@ -52,19 +53,19 @@ module.exports = `# 坦克對戰：電腦隊友代碼規格
   objective: { type, ... },             // 遊戲目標，見下方「遊戲目標」
   items:   [ { x, y, type, ticksLeft } ],  // 場上的道具（格子中心座標）；沒開道具時是空陣列
   map:     { width, height, tiles },     // tiles[r][c] 是第 r 列第 c 欄的地形字元
-  rules:   { tickRate, tankSize, blastRadius, mode, baseMode, fog, breakableWalls, codeOnly, classes, ricochet, bulletBounces, items }
+  rules:   { tickRate, tankSize, blastRadius, mode, baseMode, fog, breakableWalls, codeOnly, classes, botClasses, ricochet, bulletBounces, items }
 }
 坦克 = { id, x, y, dir, isBot, owner, cls, lives, hp, shield, carrying, buffs }
 - angle：精確角度（度，0 = 上，順時針）；dir：最接近的八方向名稱（給簡單的代碼用）
 - owner：這台坦克所屬玩家的 id。你的玩家是 allies 裡 isBot === false 且 owner === me.owner 的那台（他死掉等重生時不會出現在 allies）。
-- cls：職業，"bot" 表示電腦坦克，其他見下方職業表。各職業的數值也在 rules.classes[cls] 裡。
+- cls：職業，"bot" 表示沒有職業的電腦坦克，其他見下方職業表（開了「電腦也有職業」時電腦也會是這些職業）。各職業的數值也在 rules.classes[cls] 裡。
 - hp：這條命還能挨幾發；shield：剩餘無敵的 tick 數。
 - buffs：道具效果 { speed, rapid, spread, bounce, swift, cloak, phase, radar, frozen, confused, blastShots, pierceShots, freezeShots, confuseShots }。
   前面幾個是剩餘 tick 數（0 = 沒有），…Shots 是還剩幾發。frozen > 0 時不能動也不能射；confused > 0 時移動方向會被顛倒。
 - 隱形（cloak）中的敵人不會出現在 enemies 裡。
 - 電腦沒有視野限制：草叢和迷霧只會擋住人類玩家的畫面。
 
-## 職業技能（玩家坦克才有）
+## 職業技能（玩家坦克；開了「電腦也有職業」時電腦也有）
 ${Object.entries(C.SKILLS).map(([cls, s]) => `- ${C.CLASSES[cls].name}（${cls}）：${s.key}「${s.name}」，冷卻 ${s.cd} 秒。${s.desc}`).join('\n')}
 
 ## 地形
@@ -79,7 +80,7 @@ B  基地：擋坦克和子彈，被敵方子彈打中就會毀掉
 地圖外圍不能通過。
 
 ## 職業（速度：格/秒，冷卻：tick）
-  bot     電腦  移速 ${B.speed}  冷卻 ${B.cooldown}  彈速 ${B.bulletSpeed}  同時子彈 ${B.maxBullets}  每命耐久 ${B.hp}
+  bot     電腦（沒有職業時）  移速 ${B.speed}  冷卻 ${B.cooldown}  彈速 ${B.bulletSpeed}  同時子彈 ${B.maxBullets}  每命耐久 ${B.hp}
 ${classLines}
 爆炸子彈：命中坦克、牆或被抵消時爆炸，炸毀周圍 3×3 的磚牆（牆可破時），並對坦克中心距離爆炸中心 ${C.BLAST_RADIUS} 格以內（直線距離）的敵方坦克造成傷害。
 子彈命中判定：子彈中心進入坦克方框（邊長 ${C.TANK_SIZE}）外擴 ${C.HIT_MARGIN} 格的範圍內就算命中。
