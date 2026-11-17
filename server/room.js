@@ -31,7 +31,7 @@ class Room {
     this.onClose = onClose;
     this.players = [];
     this.hostId = null;
-    this.settings = { mode: 'ffa', baseMode: true, fog: false, hardWalls: false, codeOnly: false, items: true, ricochet: false, rounds: 3, timeLimit: 180, botClasses: false,
+    this.settings = { mode: 'ffa', baseMode: true, fog: false, hardWalls: false, codeOnly: false, items: true, ricochet: false, rounds: 3, timeLimit: 180, botClasses: false, hpSystem: true,
       mapStyle: 'random', customMap: null, disabledItems: [], objective: 'survival',
       adv: Object.assign({}, C.ADV_DEFAULTS) };
     this.state = 'lobby'; // lobby | playing | intermission | finished
@@ -185,6 +185,7 @@ class Room {
         if (typeof msg.hardWalls === 'boolean') s.hardWalls = msg.hardWalls;
         if (typeof msg.codeOnly === 'boolean') s.codeOnly = msg.codeOnly;
         if (typeof msg.botClasses === 'boolean') s.botClasses = msg.botClasses;
+        if (typeof msg.hpSystem === 'boolean') s.hpSystem = msg.hpSystem;
         if (typeof msg.items === 'boolean') s.items = msg.items;
         if (typeof msg.ricochet === 'boolean') s.ricochet = msg.ricochet;
         if (['random', 'open', 'forest', 'fortress', 'river', 'maze', 'custom'].includes(msg.mapStyle)) s.mapStyle = msg.mapStyle;
@@ -349,7 +350,7 @@ class Room {
     if (this.state === 'lobby') { this.roundNo = 0; for (const p of this.players) { p.wins = 0; p.kills = 0; } }
     this.roundNo++;
     this.round = new Round({
-      mode: s.mode, baseMode: s.baseMode, fog: s.fog, breakableWalls: !s.hardWalls, codeOnly: s.codeOnly, items: s.items, ricochet: s.ricochet,
+      mode: s.mode, baseMode: s.baseMode, fog: s.fog, breakableWalls: !s.hardWalls, codeOnly: s.codeOnly, hpSystem: s.hpSystem, items: s.items, ricochet: s.ricochet,
       rules: s.adv, objective: s.objective, attackerIndex: (this.roundNo - 1) % 2,   // 護送：每局交換攻守
       mapStyle: s.mapStyle, customMap: s.mapStyle === 'custom' ? s.customMap : null, disabledItems: s.disabledItems,
       timeLimit: s.timeLimit, sides: this._buildSides(), countdown: this.kind === 'tutorial' ? 3 : C.COUNTDOWN_SECONDS,

@@ -61,12 +61,13 @@ class Round {
     this.fog = !!opts.fog;
     this.breakableWalls = opts.breakableWalls !== false;
     this.codeOnly = !!opts.codeOnly;
+    this.hpSystem = !!opts.hpSystem;     // 血量系統：每條命有血量，子彈依職業扣血
     this.tankSize = C.TANK_SIZE;          // 給共用物理用
     this.alignRate = C.ALIGN_RATE;
     this.ricochet = !!opts.ricochet;
     this.itemsOn = !!opts.items;
     const off = new Set(opts.disabledItems || []);
-    this.allowedItems = C.ITEM_TYPES.map((t, i) => i).filter(i => !off.has(C.ITEM_TYPES[i].key));   // 房主可以關掉部分道具
+    this.allowedItems = C.ITEM_TYPES.map((t, i) => i).filter(i => !off.has(C.ITEM_TYPES[i].key) && (this.hpSystem || !C.ITEM_TYPES[i].hpOnly));   // 房主可以關掉部分道具
     this.items = [];
     this.nextItemId = 1;
     // 進階規則：命數（0 = 無限）、速度／彈速／冷卻倍率、重生時間
@@ -156,6 +157,8 @@ class Round {
           tank.unlimited = base === 0;
           tank.maxLives = tank.unlimited ? 1 : Math.max(1, base + (isBot ? 0 : (m.handicap || 0)));
           tank.lives = tank.maxLives;
+          tank.maxHp = this._maxHpFor(cls, isBot);
+          tank.hp = tank.maxHp;
           if (isBot || m.aiPilot) tank.sandbox = new BotSandbox(isBot ? m.code : (m.pilotCode || m.code), `${m.name}${isBot ? ' 電腦' : ''}`);
           this.tanks.push(tank);
         }
@@ -199,14 +202,14 @@ class Round {
       mode: this.mode, baseMode: this.baseMode, fog: this.fog && !this.codeOnly, breakableWalls: this.breakableWalls,
       codeOnly: this.codeOnly, timeLimitTicks: this.timeLimitTicks, startTicks: this.startTicks, blastRadius: C.BLAST_RADIUS,
       ricochet: this.ricochet, items: this.itemsOn, itemTypes: C.ITEM_TYPES, objective: this.objective,
-      angles: true, spreadAngle: C.SPREAD_ANGLE, escortPath: this.cart ? this.cart.path : null,
+      angles: true, hpSystem: this.hpSystem, spreadAngle: C.SPREAD_ANGLE, escortPath: this.cart ? this.cart.path : null,
       wallHp: [...this.wallHp], baseWallHp: C.BASE_WALL_HP, baseWallShieldTicks: C.BASE_WALL_SHIELD_TICKS, skills: C.SKILLS,   // 快照裡的方向是角度（度），不是八方向編號
       alignRate: C.ALIGN_RATE, speedBuff: C.SPEED_BUFF, bulletBounces: C.BULLET_BOUNCES, bounceBuff: C.BOUNCE_BUFF,
       tickRate: C.TICK_RATE, tankSize: C.TANK_SIZE,
       sides: this.sides.map(s => ({ key: s.key, name: s.name, color: s.color, base: s.base ? { x: s.base.x, y: s.base.y } : null, anchor: s.anchor })),
       tanks: this.tanks.map(t => ({
         id: t.id, side: t.side, owner: t.owner, name: t.ownerName, isBot: t.isBot, cls: t.cls,
-        maxLives: t.unlimited ? -1 : t.maxLives || 1, maxHp: t.stats.hp, vision: t.stats.vision,
+        maxLives: t.unlimited ? -1 : t.maxLives || 1, maxHp: t.maxHp || t.stats.hp, vision: t.stats.vision,
         grassSight: !!t.stats.grassSight,
       })),
     };
@@ -253,6 +256,7 @@ class Round {
       if (t.input.skill || t.skillQueued) { this._useSkill(t); t.skillQueued = false; }
     }
     this._updateSkills();
+    this._regen();
     for (const t of this.tanks) if (!t.isBot) t.ackSeq = t.inputSeq || 0;
     this._recordHistory();
     this._analyze();
@@ -283,7 +287,7 @@ class Round {
     for (const p of candidates) {
       const x = p.x + 0.5, y = p.y + 0.5;
       if (this._tileBlocked(x, y) || this._tankAt(x, y, t)) continue;
-      t.x = x; t.y = y; t.alive = true; t.hp = t.stats.hp;
+      t.x = x; t.y = y; t.alive = true; t.hp = t.maxHp || t.stats.hp; t.hurtTick = -1e9; t.regenAcc = 0;
       for (const k of TIMERS) t[k] = 0;
       for (const k of SHOTS) t[k] = 0;
       t.dashTicks = 0; t.charged = 0;
@@ -336,7 +340,8 @@ class Round {
     if (freeze || confuse) blast = false;
     let speed = t.stats.bulletSpeed * (t.swiftBuff > 0 ? C.SWIFT_BULLET : 1);
     let pierceTanks = 0;
-    if (t.charged > 0) { speed *= 1.8; pierce = true; pierceTanks = 1; t.charged = 0; }   // 狙擊蓄力射擊
+    let dmg = this._damageOf(t), dmgMult = 1;
+    if (t.charged > 0) { speed *= 1.8; pierce = true; pierceTanks = 1; t.charged = 0; dmgMult = C.HP.chargedMult; dmg = Math.round(dmg * dmgMult); }   // 狙擊蓄力射擊
     const bounces = Math.max(this.ricochet ? C.BULLET_BOUNCES : 0, t.bounceBuff > 0 ? C.BOUNCE_BUFF : 0);
     const a0 = t.angle || 0;
     // 延遲補償：玩家看到的敵人比伺服器晚一點，子彈用玩家畫面上的位置判定命中（最多 0.2 秒）
@@ -351,7 +356,7 @@ class Round {
       this.bullets.push({
         id: this.nextBulletId++, owner: t.id, side: t.side, angle: a, dir: Physics.dirOf(a), vx, vy,
         x: mx, y: my,
-        speed, pierce, blast, freeze, confuse, bounces, extra: i > 0, lag, born: this.tick, ox: t.x, oy: t.y, pierceTanks,
+        speed, pierce, blast, freeze, confuse, bounces, extra: i > 0, lag, born: this.tick, ox: t.x, oy: t.y, pierceTanks, dmg, snipe: t.cls === 'sniper' ? dmgMult : 0,
       });
     });
     t.cooldown = t.rapidBuff > 0 ? Math.ceil(t.stats.cooldown / 2) : t.stats.cooldown;
@@ -423,7 +428,11 @@ class Round {
       case 'spread': t.spreadBuff = C.BUFF_TICKS; break;
       case 'bounce': t.bounceBuff = C.BUFF_TICKS; break;
       case 'swift': t.swiftBuff = C.BUFF_TICKS; break;
-      case 'armor': t.hp = Math.min(t.hp + 1, t.stats.hp + 2); break;
+      case 'armor':
+        if (this.hpSystem) t.hp = Math.min(t.hp + Math.round(t.maxHp * C.HP.armor), Math.round(t.maxHp * C.HP.armorCap));
+        else t.hp = Math.min(t.hp + 1, t.stats.hp + 2);
+        break;
+      case 'medkit': t.hp = Math.max(t.hp, Math.min(t.maxHp, t.hp + Math.round(t.maxHp * C.HP.medkit))); break;
       case 'cloak': t.cloak = C.CLOAK_TICKS; break;
       case 'phase': t.phase = C.PHASE_TICKS; break;
       case 'radar': t.radar = C.RADAR_TICKS; break;
@@ -637,7 +646,7 @@ class Round {
     const shooter = this.tankById.get(b.owner);
     for (const t of this.tanks) {
       if (!t.alive || t === directHit || t.side === b.side) continue;
-      if (Math.hypot(t.x - x, t.y - y) <= C.BLAST_RADIUS) this._damage(t, shooter, x, y, 'blast');
+      if (Math.hypot(t.x - x, t.y - y) <= C.BLAST_RADIUS) this._damage(t, shooter, x, y, 'blast', b.mine ? C.HP.mine : Math.round((b.dmg || 1) * C.HP.splash));
     }
   }
 
@@ -666,7 +675,7 @@ class Round {
         if (through) {   // 蓄力射擊：打中這台後繼續飛
           const shooter0 = this.tankById.get(b.owner);
           if (shooter0) shooter0.hits++;
-          this._lastHit = b; this._damage(t, shooter0, b.x, b.y, 'shot'); this._lastHit = null;
+          this._lastHit = b; this._damage(t, shooter0, b.x, b.y, 'shot', this._bulletDmg(b)); this._lastHit = null;
           continue;
         }
         b.dead = true;
@@ -681,7 +690,7 @@ class Round {
           return;
         }
         this._lastHit = b;
-        this._damage(t, this.tankById.get(b.owner), b.x, b.y, 'shot');
+        this._damage(t, this.tankById.get(b.owner), b.x, b.y, 'shot', this._bulletDmg(b));
         this._lastHit = null;
         if (b.blast) this._blast(b, b.x, b.y, t);
         return;
@@ -689,10 +698,23 @@ class Round {
     }
   }
 
-  _damage(t, shooter, x, y, cause) {
+  // amount：扣幾點血。沒開血量系統時一律 1（每條命的耐久就是能挨幾發）
+  _damage(t, shooter, x, y, cause, amount) {
     if (!t.alive) return;
     if (t.shield > 0) { this.events.push(['spark', x, y]); return; }
-    if (t.hp > 1) { t.hp--; this.events.push(['armor', t.x, t.y]); return; }
+    let dmg = this.hpSystem ? Math.max(1, Math.round(amount || 1)) : 1;
+    if (this.hpSystem) {
+      if (t.cls === 'heavy' && cause === 'blast') dmg = Math.max(1, Math.round(dmg / 2));     // 重裝：爆炸減半
+      if (shooter && shooter.cls === 'assault' && cause === 'shot') {                          // 突擊：連擊
+        shooter.combo = shooter.comboTarget === t.id && this.tick - (shooter.comboTick ?? -1e9) <= C.TICK_RATE ? Math.min(C.HP.comboMax, (shooter.combo || 0) + 1) : 0;
+        shooter.comboTarget = t.id; shooter.comboTick = this.tick;
+        dmg += shooter.combo * C.HP.comboBonus;
+      }
+    }
+    t.hurtTick = this.tick; t.regenAcc = 0;
+    if (this.hpSystem) this.events.push(['dmg', t.x, t.y, dmg]);
+    if (t.hp > dmg) { t.hp -= dmg; this.events.push(['armor', t.x, t.y]); return; }
+    t.hp = 0;
     if (shooter) shooter.kills++;
     if (t.ana) this._recordDeath(t, shooter, cause);
     t.alive = false;
@@ -740,6 +762,41 @@ class Round {
     let n = 0;
     for (const t of this.tanks) if (t.side === side.key) n += t.unlimited && t.lives > 0 ? 100 : t.lives;
     return n;
+  }
+
+  // 血量系統：這台坦克每條命的血量；沒開時就是職業的耐久（能挨幾發）
+  _maxHpFor(cls, isBot) {
+    if (!this.hpSystem) return this.statsFor(cls).hp;
+    const R = this.rules || C.ADV_DEFAULTS;
+    const base = isBot && cls !== 'monster' ? (R.botHp || 100) : cls === 'monster' ? (R.botHp || 100) : (R.playerHp || 100);
+    return Math.max(1, Math.round(base * (C.HP.hpFactor[cls] || 1)));
+  }
+
+  _damageOf(t) { return this.hpSystem ? (C.HP.damage[t.cls] || 25) : 1; }
+
+  // 血量系統：一段時間沒受傷就慢慢回血
+  _regen() {
+    if (!this.hpSystem) return;
+    const nurses = this.tanks.filter(n => n.alive && n.cls === 'nurse');
+    for (const t of this.tanks) {
+      if (!t.alive || t.hp >= t.maxHp) continue;
+      const scout = t.cls === 'scout';
+      const delay = (scout ? C.HP.scoutRegenDelay : C.HP.regenDelay) * C.TICK_RATE;
+      let rate = 0;
+      if (this.tick - (t.hurtTick || 0) >= delay) rate += C.HP.regenPerSec * (scout ? C.HP.scoutRegenMult : 1);
+      if (nurses.some(n => n.side === t.side && Math.hypot(n.x - t.x, n.y - t.y) <= C.HP.nurseAura)) rate += C.HP.nurseAuraPerSec;   // 護士光環
+      if (!rate) continue;
+      t.regenAcc = (t.regenAcc || 0) + t.maxHp * rate / C.TICK_RATE;
+      if (t.regenAcc >= 1) { const n = Math.floor(t.regenAcc); t.regenAcc -= n; t.hp = Math.min(t.maxHp, t.hp + n); }
+    }
+  }
+
+  // 子彈實際傷害：狙擊依飛行距離加成
+  _bulletDmg(b) {
+    if (!this.hpSystem || !b.snipe) return b.dmg;
+    const d = Math.hypot(b.x - b.ox, b.y - b.oy);
+    const k = Math.max(0, Math.min(1, (d - 3) / 7));
+    return Math.round((C.HP.sniperNear + (C.HP.sniperFar - C.HP.sniperNear) * k) * b.snipe);
   }
 
   // 這一局的職業數值（套用房主的速度／彈速／冷卻倍率）
@@ -826,7 +883,7 @@ class Round {
 
   _tankView(t) {
     return {
-      id: t.id, x: t.x, y: t.y, dir: t.dir, angle: Math.round((t.angle || 0) * 10) / 10, isBot: t.isBot, owner: t.owner, cls: t.cls, lives: t.lives, hp: t.hp, shield: t.shield,
+      id: t.id, x: t.x, y: t.y, dir: t.dir, angle: Math.round((t.angle || 0) * 10) / 10, isBot: t.isBot, owner: t.owner, cls: t.cls, lives: t.lives, hp: t.hp, maxHp: t.maxHp || t.stats.hp, shield: t.shield,
       carrying: !!t.carrying,
       buffs: {
         speed: t.speedBuff || 0, rapid: t.rapidBuff || 0, spread: t.spreadBuff || 0, bounce: t.bounceBuff || 0, swift: t.swiftBuff || 0,
@@ -847,7 +904,8 @@ class Round {
       this.classTable = {};
       for (const k of [...Object.keys(C.CLASSES), 'bot', 'monster']) {
         const c = this.statsFor(k);
-        this.classTable[k] = { speed: c.speed, cooldown: c.cooldown, bulletSpeed: c.bulletSpeed, maxBullets: c.maxBullets, hp: c.hp, pierce: !!c.pierce, blast: !!c.blast, skill: c.skill || null };
+        this.classTable[k] = { speed: c.speed, cooldown: c.cooldown, bulletSpeed: c.bulletSpeed, maxBullets: c.maxBullets, hp: c.hp, pierce: !!c.pierce, blast: !!c.blast, skill: c.skill || null,
+          hpFactor: C.HP.hpFactor[k] || 1, damage: C.HP.damage[k] || 25, hpTrait: C.HP.traits[k] || null };
       }
     }
     const view = {
@@ -876,7 +934,8 @@ class Round {
       rules: {
         tickRate: C.TICK_RATE, tankSize: C.TANK_SIZE, blastRadius: C.BLAST_RADIUS,
         mode: this.mode, baseMode: this.baseMode, fog: this.fog, breakableWalls: this.breakableWalls,
-        codeOnly: this.codeOnly, classes: this.classTable,
+        codeOnly: this.codeOnly, classes: this.classTable, hpSystem: this.hpSystem,
+        playerHp: this.rules.playerHp, botHp: this.rules.botHp,
         botClasses: this.botClassesOn,
         playerLives: this.rules.playerLives, botLives: this.rules.botLives, respawnTicks: this.respawnTicks,
         ricochet: this.ricochet, bulletBounces: C.BULLET_BOUNCES, items: this.itemsOn,
@@ -928,7 +987,7 @@ class Round {
       if (this.objEvents.length) snap.OE = this.objEvents;
     }
     if (this.baseKillsNow.length) snap.X = this.baseKillsNow;
-    if (E.length) snap.E = E.map(e => [e[0], Math.round(e[1] * 100), Math.round(e[2] * 100)]);
+    if (E.length) snap.E = E.map(e => e.length > 3 ? [e[0], Math.round(e[1] * 100), Math.round(e[2] * 100), e[3]] : [e[0], Math.round(e[1] * 100), Math.round(e[2] * 100)]);
     if (this.tileChanges.length) snap.M = this.tileChanges;
     if (this.wallChanges.length) snap.W = this.wallChanges;
     if (this.tick % 10 === 1 || this.events.length) {

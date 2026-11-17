@@ -81,6 +81,32 @@ function shootAny(me, list, view) {
 }
 
 function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+function hpRatio(t) { return t.maxHp ? t.hp / t.maxHp : 1; }
+
+// 職業技能（沒有技能時 me.skill 是 null）：什麼時候按
+function wantSkill(view, act) {
+  var me = view.me;
+  if (!me.skillReady) return false;
+  var near = view.enemies.filter(function (e) { return dist(e, me) < 6; });
+  switch (me.skill) {
+    case 'heal':   // 護士：自己或 3 格內的隊友血不夠就治療
+      return hpRatio(me) < 0.6 || view.allies.some(function (a) { return dist(a, me) <= 3 && hpRatio(a) < 0.6; });
+    case 'charge': return !!act.fire && view.enemies.length > 0;          // 狙擊：要開火時順便蓄力
+    case 'mine':   return near.length > 0;                                   // 爆破：敵人在附近就埋雷
+    case 'smoke':  return hpRatio(me) < 0.5 && near.length > 0;              // 偵察：快不行時放煙霧
+    case 'dash':   // 突擊：有子彈快打到自己就衝刺閃開
+      return view.bullets.some(function (b) { return !b.ally && dist(b, me) < 2.5 && (b.vx * (me.x - b.x) + b.vy * (me.y - b.y)) > 0; });
+    default: return false;
+  }
+}
+
+// 外層：先決定移動和開火，再決定要不要用技能
+function think(view, memory) {
+  var act = decide(view, memory) || { move: null, fire: false };
+  act.skill = wantSkill(view, act);
+  return act;
+}
+
 function myPlayer(view) {
   for (var i = 0; i < view.allies.length; i++) { var a = view.allies[i]; if (!a.isBot && a.owner === view.me.owner) return a; }
   return null;
@@ -88,7 +114,7 @@ function myPlayer(view) {
 `;
 
 const GUARD = `// 守門員：守在自己基地（沒有基地就守在自己的玩家）旁邊，敵人靠近才出手
-function think(view, memory) {
+function decide(view, memory) {
   var me = view.me;
   var home = null;
   (view.bases || []).forEach(function (b) { if (b.ally && b.alive) home = b; });
@@ -108,13 +134,13 @@ function think(view, memory) {
 }
 ` + HELPERS;
 
-const ASSASSIN = `// 刺客：專挑敵方玩家（不是電腦），優先打命少的；走路偏好草叢隱藏行蹤
-function think(view, memory) {
+const ASSASSIN = `// 刺客：專挑敵方玩家（不是電腦），優先打命少、血少的；走路偏好草叢隱藏行蹤
+function decide(view, memory) {
   var me = view.me;
   var prey = view.enemies.filter(function (e) { return !e.isBot; });
   if (!prey.length) prey = view.enemies.slice();
   if (!prey.length) return { move: null, fire: false };
-  prey.sort(function (a, b) { return (a.lives - b.lives) || (dist(a, me) - dist(b, me)); });
+  prey.sort(function (a, b) { return (a.lives - b.lives) || (hpRatio(a) - hpRatio(b)) || (dist(a, me) - dist(b, me)); });
 
   var shot = shootAny(me, prey, view);
   if (shot && !(prey[0].shield > 10)) return shot;
@@ -133,7 +159,7 @@ function think(view, memory) {
 ` + HELPERS;
 
 const BODYGUARD = `// 保鑣：緊跟自己的玩家，看到朝玩家飛去的子彈就擋在前面或把它打掉
-function think(view, memory) {
+function decide(view, memory) {
   var me = view.me, boss = myPlayer(view);
   if (!boss) {   // 玩家不在（重生中或純代碼對戰）：就近打敵人
     var s0 = shootAny(me, view.enemies, view);
@@ -172,7 +198,7 @@ function think(view, memory) {
 
 module.exports = {
   standard:  { name: '標準',   desc: '會尋路，找最近的敵人或敵方基地，對齊就開火，打掉擋路的磚牆', code: CLASSIC },
-  guard:     { name: '守門員', desc: '守在基地或你旁邊，敵人靠近才出手', code: GUARD },
-  assassin:  { name: '刺客',   desc: '專挑敵方玩家、先打命少的，走草叢接近', code: ASSASSIN },
-  bodyguard: { name: '保鑣',   desc: '緊跟著你，把朝你飛來的子彈打掉', code: BODYGUARD },
+  guard:     { name: '守門員', desc: '守在基地或你旁邊，敵人靠近才出手；會用職業技能', code: GUARD },
+  assassin:  { name: '刺客',   desc: '專挑敵方玩家、先打命少血少的，走草叢接近；會用職業技能', code: ASSASSIN },
+  bodyguard: { name: '保鑣',   desc: '緊跟著你，把朝你飛來的子彈打掉；會用職業技能（護士會幫你補血）', code: BODYGUARD },
 };

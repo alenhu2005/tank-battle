@@ -256,8 +256,8 @@
   }
 
   let itemGuideOpen = false, advOpen = false;
-  const ADV_DEF = { playerLives: 3, botLives: 1, speed: 1, bullet: 1, fire: 1, respawn: 5, itemSec: 10 };
-  const ADV_RANGE = { playerLives: [0, 9], botLives: [0, 9], speed: [0.5, 1.5], bullet: [0.5, 1.5], fire: [0.5, 2], respawn: [1, 15], itemSec: [4, 30] };
+  const ADV_DEF = { playerLives: 3, botLives: 1, speed: 1, bullet: 1, fire: 1, respawn: 5, itemSec: 10, playerHp: 100, botHp: 100 };
+  const ADV_RANGE = { playerLives: [0, 9], botLives: [0, 9], speed: [0.5, 1.5], bullet: [0.5, 1.5], fire: [0.5, 2], respawn: [1, 15], itemSec: [4, 30], playerHp: [25, 500], botHp: [25, 500] };
   const advChanged = a => Object.keys(ADV_DEF).some(k => Math.abs((a[k] ?? ADV_DEF[k]) - ADV_DEF[k]) > 1e-6);
   function advRow(key, label, val, step, fmt) {
     const can = isHost() && room.state === 'lobby';
@@ -296,7 +296,7 @@
       const hc = p.handicap || 0;
       const hcTag = !p.isAI && (host || hc) ? `<button class="icon-btn hc ${hc > 0 ? 'plus' : hc < 0 ? 'minus' : ''}" data-act="handicap" data-id="${p.id}" ${host ? '' : 'disabled'} aria-label="讓分">命${hc > 0 ? '+' + hc : hc < 0 ? hc : '±'}</button>` : '';
       return `<li><span class="dot" style="background:${playerColor(p, i)}"></span>
-        <span class="pname">${esc(p.name)}${mine ? '（你）' : ''}</span>${cls}${tags}${hcTag}${groupChip}${kick}</li>`;
+        <div class="pinfo"><span class="pname">${esc(p.name)}${mine ? '（你）' : ''}</span><div class="ptags">${cls}${tags}</div></div>${hcTag}${groupChip}${kick}</li>`;
     }).join('');
 
     // 設定
@@ -310,6 +310,8 @@
       <div class="set-desc">${{ survival: '打到剩最後一隊', koth: '佔住中央區域累積 45 秒的隊伍獲勝（可以無限重生）', ctf: '把敵方旗子帶回自家旗子旁 3 次獲勝（可以無限重生，沒有基地）', escort: '進攻方把礦車推到敵方家門口，防守方撐到時間結束；每局交換攻守（需要剛好兩隊）', pve: '所有人同一隊，撐過 5 波怪物（不分隊伍）' }[s.objective || 'survival']}</div>
       <div class="set-row"><span>純代碼對戰</span>${sw('codeOnly', s.codeOnly)}</div>
       <div class="set-desc">玩家不下場，每人只派一台電腦坦克，大家一起看</div>
+      <div class="set-row"><span>血量系統</span>${sw('hpSystem', s.hpSystem)}</div>
+      <div class="set-desc">${s.hpSystem ? '每條命有血條，子彈依職業扣血（血量可以在進階規則調整）' : '經典模式：被打中一發就少一條命（重裝兩發）'}</div>
       <div class="set-row"><span>電腦也有職業</span>${sw('botClasses', s.botClasses)}</div>
       <div class="set-desc">${s.botClasses ? '每位玩家可以幫自己的電腦選職業，電腦也能用職業技能（代碼回傳 skill: true）' : '電腦都是標準規格、沒有技能'}</div>
       <div class="set-row"><span>基地模式</span>${sw('baseMode', s.baseMode)}</div>
@@ -331,6 +333,8 @@
       <details class="adv" ${advOpen ? 'open' : ''}><summary>⚙️ 進階規則${advChanged(s.adv) ? '（已調整）' : ''}</summary>
         ${advRow('playerLives', '玩家命數', s.adv.playerLives, 1, v => v === 0 ? '無限' : v + ' 條')}
         ${advRow('botLives', '電腦命數', s.adv.botLives, 1, v => v === 0 ? '無限' : v + ' 條')}
+        ${s.hpSystem ? advRow('playerHp', '玩家血量', s.adv.playerHp ?? 100, 25, v => v + '') : ''}
+        ${s.hpSystem ? advRow('botHp', '電腦血量', s.adv.botHp ?? 100, 25, v => v + '') : ''}
         ${advRow('speed', '移動速度', s.adv.speed, 0.1, v => '×' + v.toFixed(1))}
         ${advRow('bullet', '子彈速度', s.adv.bullet, 0.1, v => '×' + v.toFixed(1))}
         ${advRow('fire', '開火冷卻', s.adv.fire, 0.1, v => '×' + v.toFixed(1) + (v > 1 ? '（較慢）' : v < 1 ? '（較快）' : ''))}
@@ -365,19 +369,21 @@
     if (field === 'botCls' && !room.settings.botClasses) { el.innerHTML = ''; return; }
     if (field === 'cls' && room.settings.codeOnly) { el.innerHTML = '<p class="muted small-text">純代碼對戰不需要選職業。</p>'; return; }
     const all = Object.values(info.classes);
+    const hpOn = room.settings.hpSystem;
     const max = k => Math.max(...all.map(c => k(c)));
     const bars = (c) => {
       const stats = [
         ['移速', c.speed / max(x => x.speed)],
         ['射速', (1 / c.cooldown) / max(x => 1 / x.cooldown)],
         ['彈速', c.bulletSpeed / max(x => x.bulletSpeed)],
-        ['耐久', c.hp / max(x => x.hp)],
+        hpOn ? ['血量', c.hpFactor / max(x => x.hpFactor)] : ['耐久', c.hp / max(x => x.hp)],
       ];
+      if (hpOn) stats.push(['傷害', c.damage / max(x => x.damage)]);
       return stats.map(([n, v]) => `<div class="bar"><span>${n}</span><i style="--v:${Math.round(v * 100)}%"></i></div>`).join('');
     };
     el.innerHTML = Object.entries(info.classes).map(([k, c]) =>
       `<button class="cls-card ${mp && mp[field] === k ? 'sel' : ''}" data-cls="${k}" data-field="${field}">
-        <b>${c.name}</b>${bars(c)}<small>${c.desc}</small>${c.skill ? `<small class="skill">${c.skill.icon} 技能「${c.skill.name}」：${c.skill.desc}（冷卻 ${c.skill.cd} 秒）</small>` : ''}</button>`).join('');
+        <b>${c.name}</b>${bars(c)}<small>${c.desc}</small>${hpOn && c.hpTrait ? `<small class="trait">❤️ ${Math.round(c.hpFactor * ((field === 'botCls' ? room.settings.adv.botHp : room.settings.adv.playerHp) || 100))} 血・每發 ${c.damage}：${c.hpTrait}</small>` : ''}${c.skill ? `<small class="skill">${c.skill.icon} 技能「${c.skill.name}」：${c.skill.desc}（冷卻 ${c.skill.cd} 秒）</small>` : ''}</button>`).join('');
   }
   document.addEventListener('click', e => {
     const card = e.target.closest('.cls-card');
@@ -542,6 +548,7 @@
     return `我在玩一款手機坦克對戰遊戲，需要你幫我寫「電腦隊友」的 JavaScript 代碼。
 請完全依照下面的規格，寫出完整、可以直接執行的代碼（定義 think(view, memory)，可以加輔助函式）。
 只輸出代碼，放在一個 \`\`\`javascript 區塊裡；不要用 import、require、setTimeout。
+房主可能開或關「血量系統」「電腦也有職業」等設定，代碼要兩種情況都能正常跑（看 view.rules.hpSystem、view.me.skill）。
 
 ${specText}
 ${sample ? `## 參考：「${sample.name}」打法的範例（${sample.desc}），可以改進它，也可以完全重寫
@@ -827,10 +834,17 @@ ${sample.code}\`\`\`
     const ctrlH = portrait && hasCtrl ? Math.min(260, Math.max(190, window.innerHeight * 0.3)) : 0;
     document.documentElement.style.setProperty('--ctrl-h', ctrlH + 'px');
     const hudH = $('.hud').offsetHeight || 40;
+    document.documentElement.style.setProperty('--hud-h', hudH + 'px');
     renderer.layout = { top: hudH, ctrlBottom: ctrlH };
     renderer.resize();
   }
   window.addEventListener('resize', () => { if ($('#game').classList.contains('active')) layoutGame(); });
+  // HUD 高度會隨內容改變（例如出現目標進度）：跟著重新排版，地圖才不會被蓋住
+  let hudHSeen = 0;
+  if (window.ResizeObserver) new ResizeObserver(() => {
+    const h = $('.hud').offsetHeight;
+    if (h && h !== hudHSeen && $('#game').classList.contains('active')) { hudHSeen = h; layoutGame(); }
+  }).observe($('.hud'));
   window.addEventListener('orientationchange', () => setTimeout(layoutGame, 200));
 
   let shownCount = null, goUntil = 0, lastHudAt = 0;
@@ -911,7 +925,12 @@ ${sample.code}\`\`\`
       const maxL = r.myTank.maxLives;
       const hearts = maxL < 0 || ['koth', 'ctf', 'escort'].includes(r.meta.objective) ? '♥∞'
         : maxL > 5 ? `♥×${mine.lives}` : `${'♥'.repeat(mine.lives)}<span style="opacity:.3">${'♥'.repeat(Math.max(0, maxL - mine.lives))}</span>`;
-      $('#hudLives').innerHTML = `${buffIcons ? `<span class="buffs">${buffIcons}</span>` : ''}${hearts} 電腦${bot && bot.alive ? '✓' : '✕'}`;
+      const myLive = r.latest && r.latest.tanks.get(r.myTank.id);
+      const hpChip = r.meta.hpSystem && mine.alive && myLive && r.myTank.maxHp ? (() => {
+        const f = Math.max(0, Math.min(1, myLive.hp / r.myTank.maxHp));
+        return `<span class="hpchip ${f <= 0.3 ? 'low' : f <= 0.6 ? 'mid' : ''}"><i style="width:${Math.round(f * 100)}%"></i><b>${myLive.hp}</b></span>`;
+      })() : '';
+      $('#hudLives').innerHTML = `${buffIcons ? `<span class="buffs">${buffIcons}</span>` : ''}${hpChip}<span class="hearts">${hearts}</span> <span class="bot-l">電腦</span><span class="bot-s">🤖</span>${bot && bot.alive ? '✓' : '✕'}`;
       const sideOut = (r.sideState.get(r.myTank.side) || {}).out;
       const why = !lastDeath ? '' : lastDeath.cause === 'base' ? '基地被摧毀' : lastDeath.cause === 'blast' ? `被 ${tankName(lastDeath.killer)} 的爆炸波及` : `被 ${tankName(lastDeath.killer)} 擊中`;
       if (sideOut) { spect.innerHTML = `${lastDeath && lastDeath.cause === 'base' ? '基地被摧毀，' : ''}你的隊伍已出局<br><small>觀戰中</small>`; spect.classList.add('show'); }
@@ -1309,7 +1328,7 @@ ${sample.code}\`\`\`
     const winSide = r.sides.find(s => s.key === r.winner);
     $('#resultTitle').innerHTML = finished ? '比賽結束' : (winSide ? `<span style="color:${winSide.color}">${esc(winSide.name)}</span> 獲勝` : '平手');
     $('#resultSub').textContent = `第 ${r.roundNo} 局・${REASONS[r.reason] || ''}・${r.seconds} 秒` + (finished && winSide ? `｜本局 ${winSide.name} 獲勝` : '');
-    const clsName = c => c === 'bot' ? '電腦' : (info.classes[c] ? info.classes[c].name : c);
+    const clsName = c => c === 'bot' ? '標準' : (info.classes[c] ? info.classes[c].name : c);
     const acc = t => t.shots ? Math.round(t.hits / t.shots * 100) + '%' : '-';
     const mvp = r.tanks.find(t => t.mvp);
     const mvpSide = mvp && r.sides.find(s => s.key === mvp.side);

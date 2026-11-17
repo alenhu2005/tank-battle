@@ -492,3 +492,72 @@ console.log('ALL OK');
   room.close();
   console.log('bot classes OK');
 }
+
+// 血量系統：扣血、職業傷害、回血、醫療包、護士治療、狙擊距離加成、重裝爆炸減半、房主設定血量
+{
+  const { Round } = require('../server/game');
+  const C = require('../server/constants');
+  const idle = 'function think(){ return null; }';
+  const mk = (cls0, cls1, extra = {}) => {
+    const sides = [0, 1].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: idle, cls: i ? cls1 : cls0 }] }));
+    const r = new Round({ mode: 'ffa', baseMode: false, timeLimit: 0, sides, size: 21, hpSystem: true, ...extra });
+    r.startTicks = 0;
+    for (const t of r.tanks) t.shield = 0;
+    return { r, a: r.tanks[0], b: r.tanks[2] };
+  };
+  { const { r, a, b } = mk('assault', 'heavy');
+    assert.strictEqual(a.maxHp, 100); assert.strictEqual(b.maxHp, Math.round(100 * C.HP.hpFactor.heavy));
+    assert.strictEqual(r.tanks[1].maxHp, 100, 'bot hp');
+    r._damage(b, a, b.x, b.y, 'shot', 25);
+    assert.strictEqual(b.hp, b.maxHp - 25); assert(b.alive);
+    r._damage(b, a, b.x, b.y, 'shot', 25);   // 連擊 +5
+    assert.strictEqual(b.hp, b.maxHp - 55, 'assault combo');
+    r._damage(b, null, b.x, b.y, 'blast', 40);
+    assert.strictEqual(b.hp, b.maxHp - 75, 'heavy halves blast');
+    // 回血：5 秒沒受傷後開始
+    const before = b.hp;
+    for (let i = 0; i < C.HP.regenDelay * 30 - 5; i++) r._regen(), r.tick++;
+    assert.strictEqual(b.hp, before, 'no regen before delay');
+    for (let i = 0; i < 60; i++) r._regen(), r.tick++;
+    assert(b.hp > before, 'regen after delay');
+    // 醫療包
+    b.hp = 10; r._applyItem(b, C.ITEM_TYPES.findIndex(t => t.key === 'medkit'));
+    assert.strictEqual(b.hp, 10 + Math.round(b.maxHp * C.HP.medkit));
+    // 打到 0 才死
+    r._damage(a, b, a.x, a.y, 'shot', 99); assert(a.alive && a.hp === 1);
+    r._damage(a, b, a.x, a.y, 'shot', 5); assert(!a.alive && a.lives === 2);
+    r.dispose(); }
+  // 護士：技能治療附近隊友，光環讓隊友交戰中也回血
+  { const { r, a } = mk('nurse', 'assault');
+    const bot = r.tanks[1]; bot.x = a.x + 1; bot.y = a.y; bot.hp = 20; a.hp = 50;
+    assert(r._useSkill(a)); assert.strictEqual(bot.hp, 20 + Math.round(bot.maxHp * C.HP.healSkill)); assert.strictEqual(a.hp, 90);
+    bot.hurtTick = r.tick; const h = bot.hp;
+    for (let i = 0; i < 30; i++) { r._regen(); r.tick++; bot.hurtTick = r.tick; }
+    assert(bot.hp > h, 'nurse aura heals during combat');
+    r.dispose(); }
+  // 狙擊：越遠傷害越高
+  { const { r, a } = mk('sniper', 'assault');
+    const near = r._bulletDmg({ snipe: 1, dmg: 45, x: 5, y: 5, ox: 5, oy: 3 });
+    const far = r._bulletDmg({ snipe: 1, dmg: 45, x: 5, y: 15, ox: 5, oy: 3 });
+    assert.strictEqual(near, C.HP.sniperNear); assert.strictEqual(far, C.HP.sniperFar);
+    r.dispose(); }
+  // 房主設定血量
+  { const { r, a } = mk('heavy', 'assault', { rules: { playerHp: 200, botHp: 50 } });
+    assert.strictEqual(a.maxHp, Math.round(200 * C.HP.hpFactor.heavy)); assert.strictEqual(r.tanks[1].maxHp, 50);
+    r.dispose(); }
+  // 沒開血量系統：照舊一發一條命，醫療包不會出現
+  { const sides = [0, 1].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: idle, cls: 'assault' }] }));
+    const r = new Round({ mode: 'ffa', baseMode: false, timeLimit: 0, sides, size: 21, items: true });
+    const t = r.tanks[0]; t.shield = 0;
+    assert.strictEqual(t.maxHp, 1);
+    r._damage(t, null, t.x, t.y, 'shot', 25); assert(!t.alive);
+    assert(!r.allowedItems.some(i => C.ITEM_TYPES[i].key === 'medkit'));
+    r.dispose(); }
+  // 整局跑得完（全職業、道具全開）
+  { const D = require('../server/bots/classic');
+    const sides = Object.keys(C.CLASSES).map(c => ({ key: c, name: c, color: '#fff', members: [{ playerId: c, name: c, code: D, aiPilot: true, cls: c, botCls: c }] }));
+    const r = new Round({ mode: 'ffa', baseMode: true, timeLimit: 90, sides, hpSystem: true, items: true });
+    while (!r.over) r.step();
+    r.dispose(); }
+  console.log('hp system OK');
+}

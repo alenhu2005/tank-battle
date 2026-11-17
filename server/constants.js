@@ -32,11 +32,12 @@ const C = module.exports = {
 
   MAX_PLAYERS: 6,
   // 進階規則（房主可調）的預設值與範圍
-  ADV_DEFAULTS: { playerLives: 3, botLives: 1, speed: 1, bullet: 1, fire: 1, respawn: 5, itemSec: 10 },
+  ADV_DEFAULTS: { playerLives: 3, botLives: 1, speed: 1, bullet: 1, fire: 1, respawn: 5, itemSec: 10, playerHp: 100, botHp: 100 },
   ADV_RANGES: {
     playerLives: [0, 9], botLives: [0, 9],          // 0 = 無限重生
     speed: [0.5, 1.5], bullet: [0.5, 1.5], fire: [0.5, 2],
     respawn: [1, 15], itemSec: [4, 30],
+    playerHp: [25, 500], botHp: [25, 500],          // 血量系統：標準坦克的血量（各職業再乘上倍率）
   },
   NAME_MAX: 12,
 
@@ -66,6 +67,8 @@ const C = module.exports = {
       desc: '子彈命中或被抵消時爆炸：炸毀 3×3 磚牆，並波及周圍 1 格的敵人' },
     engineer: { name: '工兵', speed: 3.6, cooldown: 16, bulletSpeed: 9, maxBullets: 1, hp: 1, vision: 5.5,
       desc: '防守型：可以蓋磚牆，在自家基地旁還能修補基地圍牆' },
+    nurse:   { name: '護士', speed: 3.8, cooldown: 14, bulletSpeed: 8, maxBullets: 2, hp: 1, vision: 6,
+      desc: '支援型：火力弱，但可以治療身邊的隊友' },
   },
   MONSTER_CLASS: { name: '怪物', speed: 3.4, cooldown: 30, bulletSpeed: 7, maxBullets: 1, hp: 1, vision: 0 },
 
@@ -82,6 +85,36 @@ const C = module.exports = {
   PVE_WAVES: 5,
   PVE_MAX_MONSTERS: 12,
   BOT_CLASS: { name: '電腦', speed: 4.0, cooldown: 24, bulletSpeed: 8, maxBullets: 1, hp: 1, vision: 0 },
+  // 血量系統（房間設定，預設開啟）：每條命有血量，子彈依射手職業扣血
+  //   maxHp = 房主設定的血量（玩家／電腦分開，預設 100）× hpFactor；damage 是每發子彈扣的血
+  HP: {
+    hpFactor: { assault: 1, heavy: 1.4, scout: 0.9, sniper: 0.9, demo: 1.1, engineer: 1.35, nurse: 1, bot: 1, monster: 0.6 },
+    damage:   { assault: 25, heavy: 32, scout: 30, sniper: 45, demo: 38, engineer: 40, nurse: 24, bot: 35, monster: 25 },
+    // 各職業在血量系統下的特色（說明文字給大廳和規格用）
+    traits: {
+      assault:  '連擊：1 秒內連續打中同一個敵人，每發多 5 傷害（最多多 15）',
+      heavy:    '血量 1.4 倍，爆炸和地雷的傷害減半',
+      scout:    '血量略少，但沒受傷 3 秒就開始回血（一般是 5 秒），回血速度 2 倍',
+      sniper:   '距離越遠傷害越高：3 格內 45，10 格以上 80（蓄力射擊再 ×1.5）',
+      demo:     '直接命中 38，爆炸波及周圍敵人 23',
+      engineer: '血量 1.35 倍；每次成功使用築牆技能回復自己 20% 血量',
+      nurse:    '傷害最低（24）；身邊 3 格內的隊友（含自己）就算在交戰中也會持續回血（每秒 4%）',
+    },
+    comboBonus: 5, comboMax: 3,            // 突擊連擊
+    sniperNear: 45, sniperFar: 80,          // 狙擊：3 格內／10 格以上的傷害
+    scoutRegenDelay: 3, scoutRegenMult: 2,
+    engineerHeal: 0.2,
+    nurseAura: 3, nurseAuraPerSec: 0.04,
+    healSkill: 0.4,                         // 護士技能：回最大血量的 4 成
+    chargedMult: 1.5,        // 狙擊蓄力射擊的傷害倍率
+    splash: 0.6,             // 爆炸波及（不是直接命中）的傷害倍率
+    mine: 50,                // 地雷傷害
+    regenDelay: 5,           // 幾秒沒受傷後開始回血
+    regenPerSec: 0.06,       // 每秒回最大血量的幾成
+    medkit: 0.5,             // 醫療包：回最大血量的一半
+    armor: 0.5,              // 裝甲：加最大血量一半的額外血量（最多到 1.5 倍）
+    armorCap: 1.5,
+  },
   BLAST_RADIUS: 1.1,        // 爆炸傷害：坦克中心與爆炸中心的直線距離
   HIT_MARGIN: 0.03,         // 子彈命中判定比坦克外框多出的距離（越小越不會「沒碰到就死」）
   COUNTDOWN_SECONDS: 5,
@@ -99,7 +132,8 @@ const C = module.exports = {
     { key: 'spread',   icon: '🔱', name: '散彈',     label: '散彈', weight: 2, desc: '8 秒內每次開火射出 3 發（扇形）' },
     { key: 'bounce',   icon: '🏀', name: '彈跳彈',   label: '彈跳', weight: 2, desc: '8 秒內子彈撞牆會反彈，最多 3 次' },
     { key: 'swift',    icon: '💨', name: '疾風彈',   label: '快彈', weight: 2, desc: '8 秒內子彈速度 ×1.6' },
-    { key: 'armor',    icon: '🪖', name: '裝甲',     label: '裝甲', weight: 2, desc: '這條命可以多挨 1 發' },
+    { key: 'armor',    icon: '🪖', name: '裝甲',     label: '裝甲', weight: 2, desc: '這條命可以多挨 1 發（血量系統：多一半的額外血量）' },
+    { key: 'medkit',   icon: '🩹', name: '醫療包',   label: '補血', weight: 3, desc: '立刻回復一半血量（只在血量系統出現）', hpOnly: true },
     { key: 'cloak',    icon: '👻', name: '隱形',     label: '隱形', weight: 2, desc: '6 秒內敵人（包括敵方電腦）看不到你' },
     { key: 'phase',    icon: '🌀', name: '穿牆',     label: '穿牆', weight: 2, desc: '5 秒內可以穿過磚牆和水' },
     { key: 'freeze',   icon: '❄️', name: '冰凍彈',   label: '冰凍', weight: 2, desc: '接下來 3 發命中敵人時，把他凍住 2 秒（不扣命）' },
@@ -148,9 +182,13 @@ const SKILLS = {
   sniper:   { key: 'charge', name: '蓄力射擊', icon: '🎯', cd: 8,  desc: '下一發（5 秒內）速度 ×1.8、撞到敵方子彈不會被抵消、會穿過第一台坦克' },
   demo:     { key: 'mine',   name: '地雷',     icon: '🧨', cd: 7,  desc: '在腳下放地雷（只有自己隊看得到），1 秒後啟動，敵人碰到就爆炸；最多 3 個' },
   engineer: { key: 'build',  name: '築牆',     icon: '🔧', cd: 5,  desc: '在正前方蓋一塊磚牆；在自家基地旁使用時改成修補並加固基地圍牆' },
+  nurse:    { key: 'heal',   name: '治療',     icon: '💉', cd: 10, desc: '治療自己和 3 格內的隊友：回 40% 血量（沒開血量系統時改成補滿耐久並給 1.5 秒護盾）' },
 };
 for (const k in SKILLS) C.CLASSES[k].skill = SKILLS[k];
 C.SKILLS = SKILLS;
+for (const [k, c] of [...Object.entries(C.CLASSES), ['bot', C.BOT_CLASS]]) {   // 血量系統的數值也放進職業表（大廳顯示用）
+  c.hpFactor = C.HP.hpFactor[k]; c.damage = C.HP.damage[k]; c.hpTrait = C.HP.traits[k] || null;
+}
 
 // 套用全體速度倍率（職業、電腦、怪物都一樣，彼此的相對差異不變）
 const scale = (v, k) => Math.round(v * k * 100) / 100;

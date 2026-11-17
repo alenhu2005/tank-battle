@@ -53,9 +53,9 @@ module.exports = `# 坦克對戰：電腦隊友代碼規格
   objective: { type, ... },             // 遊戲目標，見下方「遊戲目標」
   items:   [ { x, y, type, ticksLeft } ],  // 場上的道具（格子中心座標）；沒開道具時是空陣列
   map:     { width, height, tiles },     // tiles[r][c] 是第 r 列第 c 欄的地形字元
-  rules:   { tickRate, tankSize, blastRadius, mode, baseMode, fog, breakableWalls, codeOnly, classes, botClasses, ricochet, bulletBounces, items }
+  rules:   { tickRate, tankSize, blastRadius, mode, baseMode, fog, breakableWalls, codeOnly, hpSystem, classes, botClasses, playerHp, botHp, ricochet, bulletBounces, items }
 }
-坦克 = { id, x, y, dir, isBot, owner, cls, lives, hp, shield, carrying, buffs }
+坦克 = { id, x, y, dir, isBot, owner, cls, lives, hp, maxHp, shield, carrying, buffs }
 - angle：精確角度（度，0 = 上，順時針）；dir：最接近的八方向名稱（給簡單的代碼用）
 - owner：這台坦克所屬玩家的 id。你的玩家是 allies 裡 isBot === false 且 owner === me.owner 的那台（他死掉等重生時不會出現在 allies）。
 - cls：職業，"bot" 表示沒有職業的電腦坦克，其他見下方職業表（開了「電腦也有職業」時電腦也會是這些職業）。各職業的數值也在 rules.classes[cls] 裡。
@@ -83,6 +83,15 @@ B  基地：擋坦克和子彈，被敵方子彈打中就會毀掉
   bot     電腦（沒有職業時）  移速 ${B.speed}  冷卻 ${B.cooldown}  彈速 ${B.bulletSpeed}  同時子彈 ${B.maxBullets}  每命耐久 ${B.hp}
 ${classLines}
 爆炸子彈：命中坦克、牆或被抵消時爆炸，炸毀周圍 3×3 的磚牆（牆可破時），並對坦克中心距離爆炸中心 ${C.BLAST_RADIUS} 格以內（直線距離）的敵方坦克造成傷害。
+
+## 血量系統（rules.hpSystem 為 true 時）
+- 每條命有血量 hp（上限 maxHp），被打中就扣血，扣到 0 才算死一次。maxHp = 房主設定的血量（rules.playerHp 或 rules.botHp，預設 100）× 職業倍率 rules.classes[cls].hpFactor。
+- 每發子彈的傷害是射手職業的 rules.classes[cls].damage；各職業的特色在 rules.classes[cls].hpTrait。
+${Object.entries(C.HP.traits).map(([k, t]) => `  ${k.padEnd(8)} 血量 ×${C.HP.hpFactor[k]}  傷害 ${C.HP.damage[k]}  ${t}`).join('\n')}
+  bot      血量 ×${C.HP.hpFactor.bot}  傷害 ${C.HP.damage.bot}（沒有職業的電腦）
+- 爆炸子彈波及（不是直接命中）的傷害是 ${C.HP.splash * 100}%；地雷 ${C.HP.mine}。
+- ${C.HP.regenDelay} 秒沒受傷後每秒回 ${C.HP.regenPerSec * 100}% 的最大血量。
+- rules.hpSystem 為 false 時：hp 是這條命還能挨幾發（大多是 1，重裝 2），每發扣 1。
 子彈命中判定：子彈中心進入坦克方框（邊長 ${C.TANK_SIZE}）外擴 ${C.HIT_MARGIN} 格的範圍內就算命中。
 
 ## 遊戲目標（view.objective）

@@ -508,3 +508,62 @@ body.room-practice #shareBtn { display: none; }
   .tut-text { font-size: 14px; }
 }
 #leagueResult { max-height: none; overflow: visible; }
+
+/* 血量系統 */
+.cls-card small.trait { color: #ffb4a8; }
+.hpchip { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 54px; height: 16px; margin-right: 6px;
+  border-radius: 8px; background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.25); overflow: hidden; vertical-align: middle; }
+.hpchip i { position: absolute; left: 0; top: 0; bottom: 0; background: #3fbf5f; transition: width .15s; }
+.hpchip.mid i { background: #d9a92a; }
+.hpchip.low i { background: #e0453b; }
+.hpchip b { position: relative; font-size: 11px; font-weight: 800; color: #fff; text-shadow: 0 1px 2px #000; }
+
+/* ---------- 版面整理（手機） ---------- */
+.pinfo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ptags { display: flex; gap: 4px; flex-wrap: wrap; }
+.ptags:empty { display: none; }
+.hud-left span { white-space: nowrap; }
+.kill-feed { top: calc(var(--hud-h, 44px) + 4px); }
+.replay-box { top: calc(var(--hud-h, 44px) + 6px); }
+@media (orientation: portrait) {
+  .hud {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "left right" "mid mid";
+    row-gap: 5px; column-gap: 6px; padding-bottom: 4px;
+    background: linear-gradient(rgba(7, 9, 12, .92), rgba(7, 9, 12, .6));
+  }
+  .hud-left { grid-area: left; gap: 8px; min-width: 0; }
+  .hud-right { grid-area: right; gap: 6px; }
+  .hud-mid { grid-area: mid; flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 4px 8px; }
+  .hud-sides { flex-wrap: wrap; }
+  .hud-btn { width: 32px; height: 32px; font-size: 15px; }
+}
+@media (orientation: portrait) and (max-width: 380px) {
+  .hud { font-size: 12px; }
+  .hud-left { gap: 6px; }
+  .hud-btn { width: 30px; height: 30px; font-size: 14px; }
+  .hudchip, .hpchip { width: 44px; }
+}
+.bot-s { display: none; }
+@media (orientation: portrait) and (max-width: 380px) {
+  .bot-l { display: none; } .bot-s { display: inline; }
+  .hud-right { gap: 4px; }
+  .hearts { letter-spacing: -1px; }
+  #hudNet { padding: 1px 4px; }
+}
+
+/* ---------- 對戰中的通知：不要蓋住 HUD、搖桿和開火鍵 ---------- */
+.toast { top: calc(var(--sat) + 70px); bottom: auto; transform: translateX(-50%) translateY(-12px); font-size: 14px; }
+#game.active ~ .toast { top: calc(var(--hud-h, 44px) + 54px); }
+.pickup-banner { top: calc(var(--hud-h, 44px) + 8px); }
+.wave-banner { white-space: nowrap; }
+@media (orientation: portrait) {
+  .pickup-banner { top: auto; bottom: calc(var(--ctrl-h, 230px) + 12px); transform: translate(-50%, 8px); }
+  .spectate { top: calc(var(--hud-h, 44px) + (100% - var(--hud-h, 44px) - var(--ctrl-h, 230px)) / 2); }
+  .wave-banner { top: calc(var(--hud-h, 44px) + (100% - var(--hud-h, 44px) - var(--ctrl-h, 230px)) * 0.35); }
+}
+.spectate { max-width: 86vw; line-height: 1.4; }
+.kill-feed div { max-width: 62vw; overflow: hidden; text-overflow: ellipsis; }
+/* 結果表格：第一欄固定，左右滑動看其他欄 */
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table-scroll th:first-child, .table-scroll td:first-child { position: sticky; left: 0; background: var(--panel); z-index: 1; }
+@media (max-width: 400px) { .table-scroll table { font-size: 13px; } .table-scroll td, .table-scroll th { padding: 6px 3px; } }

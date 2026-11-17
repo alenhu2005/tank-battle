@@ -45,7 +45,7 @@ module.exports = function install(Round) {
     for (let i = 0; i < C.PVE_MAX_MONSTERS; i++) {
       this.tanks.push({
         id: this.nextTankId++, side: side.key, owner: 'monster', ownerName: '怪物', isBot: true,
-        cls: 'monster', stats: this.statsFor('monster'), lives: 0, hp: 1, maxLives: 1,
+        cls: 'monster', stats: this.statsFor('monster'), lives: 0, hp: 1, maxHp: this._maxHpFor('monster', true), maxLives: 1,
         alive: false, x: 0, y: 0, dir: 'down', angle: 180, spawn: side.spawns[i % side.spawns.length],
         respawnTimer: 0, shield: 0, cooldown: 0, input: { move: null, fire: false },
         kills: 0, deaths: 0, baseKills: 0, shots: 0, hits: 0, dodges: 0, itemsPicked: 0, captures: 0, sandbox: null, monster: true,

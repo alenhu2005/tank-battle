@@ -122,7 +122,7 @@
         if (snap.W) for (const [idx, hp] of snap.W) { this.wallHp.set(idx, hp); (this.dirtyTiles = this.dirtyTiles || []).push(idx); }
         if (snap.L) for (const [id, lives, alive] of snap.L) this.lives.set(id, { lives, alive: !!alive });
         if (snap.S) for (const [key, out, base] of snap.S) this.sideState.set(key, { out: !!out, base });
-        if (snap.E) for (const [type, x, y] of snap.E) this.addEffect(type, x / 100, y / 100, now);
+        if (snap.E) for (const [type, x, y, v] of snap.E) this.addEffect(type, x / 100, y / 100, now, v);
         if (snap.I) this.items = snap.I.map(a => ({ id: a[0], x: a[1] / 100, y: a[2] / 100, type: a[3], left: a[4], k: snap.k }));
         if (snap.P) for (const [tankId, type, x, y] of snap.P) {
           const it = this.meta.itemTypes[type];
@@ -162,10 +162,15 @@
 
     playTick() { return Math.max(0, this.renderTick - (this.meta ? this.meta.startTicks || 0 : 0)); }
 
-    addEffect(type, x, y, now) {
+    addEffect(type, x, y, now, v) {
       if (this.silent) return;        // 重播快轉時不產生特效
       if (this.onEvent) this.onEvent(type, x, y);
       if (type === 'shot') return;   // 只有音效，沒有畫面特效
+      if (type === 'dmg') {          // 血量系統：飄出扣血數字
+        this.particles.push({ type: 'float', x: x + (Math.random() - 0.5) * 0.4, y: y - 0.3, t0: now, dur: 800, text: '-' + v, color: '255, 110, 90', small: true, bits: [] });
+        return;
+      }
+      if (type === 'heal') { this.particles.push({ type: 'float', x, y: y - 0.3, t0: now, dur: 900, text: '✚', color: '120, 240, 140', bits: [] }); }
       const dur = { skill: 400, wallHit: 250, capture: 900, waveStart: 1200, boom: 650, blast: 500, baseBoom: 1200, brick: 380, spark: 180, armor: 300, spawn: 500, emp: 600, timestop: 900, freezeHit: 400, confuseHit: 400, itemSpawn: 600 }[type] || 300;
       const p = { type, x, y, t0: now, dur, bits: [] };
       if (type === 'brick' || type === 'boom' || type === 'baseBoom' || type === 'blast') {
@@ -480,7 +485,7 @@
           const latestMe = this.latest && this.latest.tanks.get(id);
           t = Object.assign({}, latestMe || t, { dir: this.pred.angle });
         }
-        drawn.push([id, x, y]);
+        drawn.push([id, x, y, t.hp]);
         const ghost = t.buffs & (8 | 128);       // 隱形或穿牆：半透明
         if (ghost) ctx.globalAlpha = t.buffs & 8 ? 0.35 : 0.6;
         this._drawTank(ctx, x * tp, y * tp, t.dir, this.sideMeta.get(m.side).color, m, tp * this.meta.tankSize, t, now);
@@ -538,6 +543,22 @@
         }
       }
 
+      // 血條（血量系統）
+      const hpOn = this.meta.hpSystem;
+      if (hpOn && tp >= 7) {
+        for (const [id, x, y, hp] of drawn) {
+          const m = this.tankMeta.get(id);
+          if (!m || !m.maxHp) continue;
+          const w = 0.86 * tp, h = Math.max(3, 0.11 * tp), bx = x * tp - w / 2, by = (y - 0.62) * tp - h;
+          const f = Math.max(0, Math.min(1, hp / m.maxHp)), over = Math.max(0, Math.min(0.5, hp / m.maxHp - 1));
+          ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(bx - 1, by - 1, w + 2, h + 2);
+          ctx.fillStyle = f > 0.6 ? '#5ee07a' : f > 0.3 ? '#ffd23f' : '#ff5a4f';
+          ctx.fillRect(bx, by, w * f, h);
+          if (over) { ctx.fillStyle = '#9fdcff'; ctx.fillRect(bx, by, w * over * 2, h * 0.45); }
+          ctx.fillStyle = this.sideMeta.get(m.side).color; ctx.fillRect(bx - 1, by + h, w + 2, Math.max(1, h * 0.25));   // 隊伍色底線
+        }
+      }
+
       // 名字標籤
       if (tp >= 12) {
         ctx.font = `700 ${Math.max(9, Math.min(15, tp * 0.55))}px system-ui, sans-serif`;
@@ -547,9 +568,10 @@
           if (!m || (m.isBot && !this.meta.codeOnly)) continue;
           const label = m.name.length > 6 ? m.name.slice(0, 6) + '…' : m.name;
           ctx.fillStyle = 'rgba(0,0,0,.6)';
-          ctx.fillText(label, x * tp + 1, (y - 0.55) * tp + 1);
+          const ly = (y - (hpOn ? 0.8 : 0.55)) * tp;
+          ctx.fillText(label, x * tp + 1, ly + 1);
           ctx.fillStyle = this.sideMeta.get(m.side).color;
-          ctx.fillText(label, x * tp, (y - 0.55) * tp);
+          ctx.fillText(label, x * tp, ly);
         }
       }
 
@@ -755,47 +777,84 @@
       // 新版快照是角度（度）；舊的重播檔是八方向編號
       ctx.rotate(this.meta && this.meta.angles ? dirIdx * Math.PI / 180 : ANGLE[dirIdx]);
       const cls = m.cls;
-      const dark = shade(color, -0.35), darker = shade(color, -0.5), light = shade(color, 0.15);
-      // 履帶
-      const hullW = cls === 'heavy' ? 0.36 : cls === 'scout' ? 0.27 : 0.32;
+      const dark = shade(color, -0.35), darker = shade(color, -0.5), light = shade(color, 0.25);
+      const R = (fx, fy, fw, fh) => ctx.fillRect(fx * s, fy * s, fw * s, fh * s);
+      const poly = pts => { ctx.beginPath(); pts.forEach(([px, py], i) => i ? ctx.lineTo(px * s, py * s) : ctx.moveTo(px * s, py * s)); ctx.closePath(); ctx.fill(); };
+      const circle = (cx, cy, r) => { ctx.beginPath(); ctx.arc(cx * s, cy * s, r * s, 0, 7); ctx.fill(); };
+      const barrel = (w, len, off = 0) => R(off - w / 2, -len, w, len - 0.05);
+      // 每個職業的外型：履帶寬、車身寬
+      const hullW = { heavy: 0.37, scout: 0.25, sniper: 0.28, nurse: 0.3 }[cls] || 0.32;
+      const treadW = 0.5 - hullW + 0.04;
+      // 履帶（重裝有裝甲裙板、偵察履帶細）
       ctx.fillStyle = '#1d2026';
-      ctx.fillRect(-0.5 * s, -0.5 * s, (0.5 - hullW + 0.04) * s, s);
-      ctx.fillRect((hullW - 0.04) * s, -0.5 * s, (0.5 - hullW + 0.04) * s, s);
+      R(-0.5, -0.5, treadW, 1); R(hullW - 0.04, -0.5, treadW, 1);
       ctx.fillStyle = '#3a3f48';
-      const treadW = (0.5 - hullW + 0.04) * s;
-      for (let i = 0; i < 5; i++) {
-        const ty = (-0.45 + i * 0.2) * s;
-        ctx.fillRect(-0.5 * s, ty, treadW, 0.07 * s);
-        ctx.fillRect((hullW - 0.04) * s, ty, treadW, 0.07 * s);
+      const links = cls === 'scout' ? 4 : 5;
+      for (let i = 0; i < links; i++) {
+        const ty = -0.45 + i * (0.9 / links) + 0.02;
+        R(-0.5, ty, treadW, 0.07); R(hullW - 0.04, ty, treadW, 0.07);
+      }
+      if (cls === 'heavy') {          // 裝甲裙板＋鉚釘
+        ctx.fillStyle = darker;
+        R(-0.52, -0.36, treadW + 0.02, 0.72); R(hullW - 0.04, -0.36, treadW + 0.02, 0.72);
+        ctx.fillStyle = '#9aa3ad';
+        for (let i = 0; i < 3; i++) { circle(-0.52 + (treadW + 0.02) / 2, -0.24 + i * 0.24, 0.025); circle(hullW - 0.04 + (treadW + 0.02) / 2, -0.24 + i * 0.24, 0.025); }
       }
       // 車身
       ctx.fillStyle = m.isBot ? dark : color;
-      ctx.fillRect(-hullW * s, -0.42 * s, hullW * 2 * s, 0.84 * s);
-      if (m.isBot) { // 電腦：車身條紋
-        ctx.fillStyle = color;
-        ctx.fillRect(-hullW * s, -0.1 * s, hullW * 2 * s, 0.12 * s);
-      }
-      if (cls === 'heavy') {
+      if (cls === 'scout') poly([[-hullW, 0.42], [-hullW, -0.2], [0, -0.5], [hullW, -0.2], [hullW, 0.42]]);           // 尖頭
+      else if (cls === 'assault') poly([[-hullW, 0.42], [-hullW, -0.3], [-hullW + 0.1, -0.42], [hullW - 0.1, -0.42], [hullW, -0.3], [hullW, 0.42]]);   // 切角
+      else R(-hullW, -0.42, hullW * 2, 0.84);
+      if (m.isBot) { ctx.fillStyle = color; R(-hullW, -0.1, hullW * 2, 0.12); }      // 電腦：車身條紋
+      // 車身細節
+      if (cls === 'assault') { ctx.fillStyle = light; poly([[-0.14, 0.3], [0, 0.2], [0.14, 0.3], [0.14, 0.36], [0, 0.26], [-0.14, 0.36]]); }
+      else if (cls === 'scout') { ctx.fillStyle = darker; R(-hullW + 0.03, 0.3, 0.06, 0.16); R(hullW - 0.09, 0.3, 0.06, 0.16); }   // 尾翼
+      else if (cls === 'sniper') { ctx.fillStyle = darker; circle(-0.15, 0.25, 0.05); circle(0.13, 0.3, 0.04); circle(0.16, -0.28, 0.045); circle(-0.12, -0.3, 0.035); }   // 迷彩
+      else if (cls === 'demo') {      // 尾部警示條紋
+        ctx.save(); ctx.beginPath(); ctx.rect(-hullW * s, 0.24 * s, hullW * 2 * s, 0.18 * s); ctx.clip();
+        ctx.fillStyle = '#1d2026'; R(-hullW, 0.24, hullW * 2, 0.18);
+        ctx.fillStyle = '#ffb020';
+        for (let i = -4; i < 5; i++) poly([[i * 0.12, 0.42], [i * 0.12 + 0.06, 0.42], [i * 0.12 + 0.14, 0.24], [i * 0.12 + 0.08, 0.24]]);
+        ctx.restore();
+      } else if (cls === 'engineer') {  // 推土鏟
+        ctx.fillStyle = '#c9ced6'; R(-0.5, -0.58, 1, 0.12);
+        ctx.fillStyle = '#7d848e'; R(-0.5, -0.48, 1, 0.04);
+        ctx.fillStyle = '#ffcc33'; R(-hullW + 0.02, 0.3, 0.1, 0.1); R(hullW - 0.12, 0.3, 0.1, 0.1);
+      } else if (cls === 'nurse') { ctx.fillStyle = '#f4f6f8'; R(-hullW, 0.22, hullW * 2, 0.08); }
+      if (cls === 'heavy' && !(this.meta && this.meta.hpSystem)) {   // 沒開血量系統：還有第二層裝甲時亮白框
         ctx.strokeStyle = st.hp >= 2 ? '#e8edf3' : darker;
         ctx.lineWidth = Math.max(1, s * 0.07);
         ctx.strokeRect(-hullW * s, -0.42 * s, hullW * 2 * s, 0.84 * s);
       }
+      // 砲管（先畫，砲塔蓋在上面）
+      ctx.fillStyle = '#d9dee6';
+      if (cls === 'assault') { barrel(0.07, 0.62, -0.07); barrel(0.07, 0.62, 0.07); }
+      else if (cls === 'heavy') { barrel(0.16, 0.6); ctx.fillStyle = '#aeb5bf'; R(-0.12, -0.66, 0.24, 0.1); }   // 砲口制退器
+      else if (cls === 'scout') barrel(0.06, 0.48);
+      else if (cls === 'sniper') { barrel(0.06, 0.86); ctx.fillStyle = '#aeb5bf'; R(-0.055, -0.88, 0.11, 0.07); }
+      else if (cls === 'demo') { barrel(0.22, 0.44); ctx.fillStyle = '#ff9f43'; R(-0.12, -0.5, 0.24, 0.08); }
+      else if (cls === 'engineer') barrel(0.09, 0.5);
+      else if (cls === 'nurse') barrel(0.07, 0.48);
+      else barrel(0.09, 0.55);
       // 砲塔
       ctx.fillStyle = m.isBot ? color : dark;
-      if (m.isBot) ctx.fillRect(-0.15 * s, -0.15 * s, 0.3 * s, 0.3 * s);
-      else { ctx.beginPath(); ctx.arc(0, 0, (cls === 'heavy' ? 0.22 : 0.19) * s, 0, 7); ctx.fill(); }
-      // 砲管
-      ctx.fillStyle = '#d9dee6';
-      const barrel = (w, len, off = 0) => ctx.fillRect((off - w / 2) * s, -len * s, w * s, (len - 0.05) * s);
-      if (cls === 'assault') { barrel(0.07, 0.6, -0.06); barrel(0.07, 0.6, 0.06); }
-      else if (cls === 'heavy') barrel(0.16, 0.6);
-      else if (cls === 'scout') barrel(0.07, 0.52);
-      else if (cls === 'sniper') barrel(0.07, 0.8);
-      else if (cls === 'demo') { barrel(0.2, 0.45); ctx.fillStyle = '#ff9f43'; ctx.fillRect(-0.12 * s, -0.5 * s, 0.24 * s, 0.08 * s); }
-      else barrel(0.09, 0.55);
+      if (cls === 'bot' || cls === 'monster') R(-0.15, -0.15, 0.3, 0.3);
+      else if (cls === 'heavy') R(-0.22, -0.22, 0.44, 0.44);
+      else if (cls === 'assault') poly([[-0.2, -0.08], [-0.1, -0.2], [0.1, -0.2], [0.2, -0.08], [0.2, 0.12], [0.12, 0.2], [-0.12, 0.2], [-0.2, 0.12]]);
+      else if (cls === 'scout') circle(0, 0.02, 0.15);
+      else if (cls === 'demo') circle(0, 0, 0.23);
+      else if (cls === 'nurse') { ctx.fillStyle = '#f4f6f8'; circle(0, 0, 0.2); }
+      else circle(0, 0, 0.19);
+      // 砲塔上的標記
+      if (cls === 'sniper') { ctx.fillStyle = '#2b3038'; R(0.1, -0.2, 0.08, 0.26); ctx.fillStyle = '#7fdcff'; R(0.11, -0.22, 0.06, 0.05); }   // 瞄準鏡
+      else if (cls === 'nurse') { ctx.fillStyle = '#e84a5f'; R(-0.04, -0.13, 0.08, 0.26); R(-0.13, -0.04, 0.26, 0.08); }     // 紅十字
+      else if (cls === 'engineer') { ctx.strokeStyle = '#ffcc33'; ctx.lineWidth = Math.max(1, s * 0.05); ctx.beginPath(); ctx.arc(0, 0, 0.1 * s, 0, 7); ctx.stroke(); R(-0.02, -0.02, 0.04, 0.04); }   // 齒輪
+      else if (cls === 'heavy') { ctx.fillStyle = darker; R(-0.14, 0.06, 0.28, 0.06); }
+      else if (cls === 'demo') { ctx.fillStyle = '#ff9f43'; circle(0, 0, 0.07); }
       if (m.isBot) { // 天線
         ctx.strokeStyle = light; ctx.lineWidth = Math.max(1, s * 0.04);
         ctx.beginPath(); ctx.moveTo(0.2 * s, 0.3 * s); ctx.lineTo(0.3 * s, 0.48 * s); ctx.stroke();
+        ctx.fillStyle = light; circle(0.3, 0.48, 0.04);
       }
       ctx.restore();
       if (st.shield) {
@@ -829,9 +888,9 @@
         ctx.strokeStyle = `rgba(200, 230, 255, ${1 - k})`; ctx.lineWidth = Math.max(1, tp * 0.08);
         ctx.beginPath(); ctx.arc(x, y, tp * (0.4 + 0.4 * ease), 0, 7); ctx.stroke();
       } else if (p.type === 'float') {
-        ctx.font = `800 ${Math.max(11, tp * 0.5)}px system-ui, "Apple Color Emoji", sans-serif`;
+        ctx.font = `800 ${Math.max(p.small ? 10 : 11, tp * (p.small ? 0.42 : 0.5))}px system-ui, "Apple Color Emoji", sans-serif`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = `rgba(255, 236, 160, ${1 - k})`;
+        ctx.fillStyle = `rgba(${p.color || '255, 236, 160'}, ${1 - k})`;
         ctx.strokeStyle = `rgba(0, 0, 0, ${0.6 * (1 - k)})`; ctx.lineWidth = 3;
         ctx.strokeText(p.text, x, y - ease * tp * 1.2); ctx.fillText(p.text, x, y - ease * tp * 1.2);
       } else if (p.type === 'emp' || p.type === 'timestop') {

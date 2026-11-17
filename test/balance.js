@@ -5,11 +5,12 @@ const DEFAULT_BOT = require('../server/bots/classic');
 const C = require('../server/constants');
 const CLS = Object.keys(C.CLASSES);
 const N = +process.argv[2] || 60;
+const HP = !!process.env.HP;   // HP=1 用血量系統測
 const stats = Object.fromEntries(CLS.map(c => [c, { wins: 0, kills: 0, deaths: 0, duelW: 0, duelN: 0 }]));
 for (let r = 0; r < N; r++) {
   const order = CLS.slice().sort(() => Math.random() - 0.5);
   const sides = order.map((c, i) => ({ key: c, name: c, color: '#fff', members: [{ playerId: c, name: c, code: DEFAULT_BOT, aiPilot: true, cls: c }] }));
-  const round = new Round({ mode: 'ffa', baseMode: r % 2 === 0, fog: false, timeLimit: 240, breakableWalls: r % 3 !== 0, sides });
+  const round = new Round({ mode: 'ffa', baseMode: r % 2 === 0, fog: false, timeLimit: 240, breakableWalls: r % 3 !== 0, sides, hpSystem: HP });
   while (!round.over) round.step();
   if (round.result.winner) stats[round.result.winner].wins++;
   for (const t of round.result.tanks) if (!t.isBot) { stats[t.side].kills += t.kills; stats[t.side].deaths += t.deaths; }
@@ -20,7 +21,7 @@ for (let i = 0; i < CLS.length; i++) for (let j = i + 1; j < CLS.length; j++) fo
   const a = CLS[i], b = CLS[j];
   const sides = [a, b].map(c => ({ key: c, name: c, color: '#fff', members: [{ playerId: c, name: c, code: DEFAULT_BOT, aiPilot: true, cls: c }] }));
   if (k % 2) sides.reverse();
-  const round = new Round({ mode: 'ffa', baseMode: false, timeLimit: 180, sides });
+  const round = new Round({ mode: 'ffa', baseMode: false, timeLimit: 180, sides, hpSystem: HP });
   while (!round.over) round.step();
   stats[a].duelN++; stats[b].duelN++;
   if (round.result.winner) stats[round.result.winner].duelW++;

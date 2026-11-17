@@ -23,6 +23,7 @@ module.exports = function install(Round) {
     if (!sk || t.skillCd > 0 || !t.alive || t.frozen > 0) return false;
     const ok = this['_skill_' + sk.key](t);
     if (ok === false) return false;
+    if (this.hpSystem && t.cls === 'engineer') t.hp = Math.max(t.hp, Math.min(t.maxHp, t.hp + Math.round(t.maxHp * C.HP.engineerHeal)));   // 工兵：築牆回血
     t.skillCd = Math.round(sk.cd * C.TICK_RATE);
     t.skillsUsed = (t.skillsUsed || 0) + 1;
     this.events.push(['skill', t.x, t.y]);
@@ -84,6 +85,17 @@ module.exports = function install(Round) {
     this.zonesChanged = true;
   };
 
+  // 護士：治療自己和身邊的隊友
+  P._skill_heal = function (t) {
+    for (const o of this.tanks) {
+      if (!o.alive || o.side !== t.side || Math.hypot(o.x - t.x, o.y - t.y) > C.HP.nurseAura) continue;
+      if (this.hpSystem) o.hp = Math.max(o.hp, Math.min(o.maxHp, o.hp + Math.round(o.maxHp * C.HP.healSkill)));
+      else { o.hp = Math.max(o.hp, o.maxHp || o.stats.hp); o.shield = Math.max(o.shield, Math.round(1.5 * C.TICK_RATE)); }
+      o.hurtTick = Math.min(o.hurtTick || 0, this.tick);
+      this.events.push(['heal', o.x, o.y]);
+    }
+  };
+
   // 工兵：在自家基地旁就修牆，否則在前方蓋一塊磚牆
   P._skill_build = function (t) {
     const side = this.sideByKey.get(t.side);
@@ -121,7 +133,7 @@ module.exports = function install(Round) {
       const victim = this.tanks.find(o => o.alive && o.side !== m.side && Math.abs(o.x - m.x) < 0.6 && Math.abs(o.y - m.y) < 0.6);
       if (!victim) continue;
       this.mines.splice(this.mines.indexOf(m), 1);
-      this._blast({ side: m.side, owner: m.owner }, m.x, m.y, null);
+      this._blast({ side: m.side, owner: m.owner, mine: true }, m.x, m.y, null);
     }
     if (this.smokes.length + this.mines.length !== before) this.zonesChanged = true;
   };
