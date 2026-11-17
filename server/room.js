@@ -170,7 +170,7 @@ class Room {
         if (this.round) {
           // a：角度（度，0 = 上，順時針，-1 = 不動）；舊版用 m：八方向編號
           const move = typeof msg.a === 'number' ? (msg.a >= 0 ? msg.a : null) : (C.DIRS[msg.m] || null);
-          this.round.setInput(p.id, { move, fire: !!msg.f, seq: Number.isInteger(msg.s) ? msg.s : undefined, view: Number(msg.v) });
+          this.round.setInput(p.id, { move, fire: !!msg.f, skill: !!msg.k, seq: Number.isInteger(msg.s) ? msg.s : undefined, view: Number(msg.v) });
         }
         return;
       case 'ping':     // 連線延遲測量：原封不動回傳

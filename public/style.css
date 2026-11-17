@@ -360,6 +360,27 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   padding: 10px; font-size: 16px; outline: none; -webkit-text-security: none;
 }
 .head-btns { display: flex; gap: 6px; }
+/* 職業技能按鈕：在開火鍵旁邊 */
+.skill-btn {
+  position: absolute; width: calc(70px * var(--fire-scale, 1)); height: calc(70px * var(--fire-scale, 1)); border-radius: 50%;
+  background: rgba(79, 209, 255, .22); border: 3px solid rgba(79, 209, 255, .75); pointer-events: auto; z-index: 3;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden;
+  opacity: var(--ctrl-opacity, 1); touch-action: none;
+}
+.skill-btn .ic { font-size: 24px; line-height: 1; }
+.skill-btn .nm { font-size: 10px; font-weight: 800; }
+.skill-btn .cd { position: absolute; inset: 0; background: conic-gradient(rgba(0,0,0,.6) var(--cd, 0%), transparent 0); pointer-events: none; }
+.skill-btn.ready { box-shadow: 0 0 12px rgba(79, 209, 255, .7); }
+.skill-btn.down { transform: scale(.92); }
+@media (orientation: landscape) {
+  .skill-btn { right: calc(var(--sar) + 150px * var(--fire-scale, 1)); bottom: calc(var(--sab) + 120px * var(--fire-scale, 1)); }
+  body.lefty .skill-btn { right: auto; left: calc(var(--sal) + 150px * var(--fire-scale, 1)); }
+}
+@media (orientation: portrait) {
+  .skill-btn { right: calc(var(--sar) + 12px); bottom: calc(var(--ctrl-h, 230px) - 40px); }
+  body.lefty .skill-btn { right: auto; left: calc(var(--sal) + 12px); }
+}
+.cls-card .skill { font-size: 11px; color: #9be3ff; }
 .diag { list-style: none; display: flex; flex-direction: column; gap: 4px; }
 .diag li { font-size: 13px; padding: 6px 8px; border-radius: 8px; background: var(--panel-2); border-left: 3px solid var(--muted); }
 .diag li.bad { border-left-color: var(--danger); }

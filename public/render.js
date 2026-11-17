@@ -63,6 +63,8 @@
       this.replay = null;
       this.items = [];
       this.obj = null;
+      this.smokes = [];
+      this.mines = [];
       this.offset = null;
       this.appliedK = 0;
       this.renderTick = 0;
@@ -79,7 +81,7 @@
     applySnapshot(s, now) {
       const tickMs = 1000 / this.meta.tickRate;
       const tanks = new Map();
-      for (const a of s.T) tanks.set(a[0], { x: a[1] / 100, y: a[2] / 100, dir: a[3], shield: a[4], hp: a[5], buffs: a[6] || 0, ack: a[7] || 0 });
+      for (const a of s.T) tanks.set(a[0], { x: a[1] / 100, y: a[2] / 100, dir: a[3], shield: a[4], hp: a[5], buffs: a[6] || 0, ack: a[7] || 0, skillCd: a[8] || 0 });
       const bullets = new Map();
       for (const a of s.B) bullets.set(a[0], { x: a[1] / 100, y: a[2] / 100, dir: a[3], kind: a[4] });
       const last = this.buf[this.buf.length - 1];
@@ -87,7 +89,7 @@
       // 最新狀態（不延遲）：給自己坦克的預測用
       if (s.M) for (const [idx, ch] of s.M) this.liveTiles[idx] = ch;
       this.latest = { k: s.k, tanks, c: s.c };
-      const snap = { k: s.k, tanks, bullets, M: s.M, L: s.L, S: s.S, E: s.E, K: s.K, X: s.X, I: s.I, P: s.P, O: s.O, OE: s.OE };
+      const snap = { k: s.k, tanks, bullets, M: s.M, L: s.L, S: s.S, E: s.E, K: s.K, X: s.X, I: s.I, P: s.P, O: s.O, OE: s.OE, W: s.W, Z: s.Z, N: s.N };
       this.buf.push(snap);
       // 死亡重播用：保留最近約 6 秒
       this.hist.push(snap);
@@ -128,6 +130,8 @@
           if (this.onPickup) this.onPickup(tankId, type);
         }
         if (snap.O) this.obj = snap.O;
+        if (snap.Z) this.smokes = snap.Z.map(a => ({ x: a[0] / 100, y: a[1] / 100, r: a[2] / 100, left: a[3], k: snap.k }));
+        if (snap.N) this.mines = snap.N.map(a => ({ id: a[0], x: a[1] / 100, y: a[2] / 100, armed: a[3] }));
         if (snap.OE && this.onObjEvent) for (const e of snap.OE) this.onObjEvent(e);
         if (snap.X && this.onBaseKill) for (const [sideKey, shooter] of snap.X) this.onBaseKill(sideKey, shooter);
         if (snap.K) for (const [v, k, cause] of snap.K) {
@@ -162,7 +166,7 @@
       if (this.silent) return;        // 重播快轉時不產生特效
       if (this.onEvent) this.onEvent(type, x, y);
       if (type === 'shot') return;   // 只有音效，沒有畫面特效
-      const dur = { wallHit: 250, capture: 900, waveStart: 1200, boom: 650, blast: 500, baseBoom: 1200, brick: 380, spark: 180, armor: 300, spawn: 500, emp: 600, timestop: 900, freezeHit: 400, confuseHit: 400, itemSpawn: 600 }[type] || 300;
+      const dur = { skill: 400, wallHit: 250, capture: 900, waveStart: 1200, boom: 650, blast: 500, baseBoom: 1200, brick: 380, spark: 180, armor: 300, spawn: 500, emp: 600, timestop: 900, freezeHit: 400, confuseHit: 400, itemSpawn: 600 }[type] || 300;
       const p = { type, x, y, t0: now, dur, bits: [] };
       if (type === 'brick' || type === 'boom' || type === 'baseBoom' || type === 'blast') {
         const n = type === 'brick' ? 6 : type === 'baseBoom' ? 24 : 12;
@@ -425,6 +429,13 @@
         }
       }
 
+      // 我方地雷
+      for (const m of this.mines) {
+        ctx.fillStyle = '#2b2f36'; ctx.strokeStyle = '#ff9f43'; ctx.lineWidth = Math.max(1, tp * 0.05);
+        ctx.beginPath(); ctx.arc(m.x * tp, m.y * tp, tp * 0.22, 0, 7); ctx.fill(); ctx.stroke();
+        if (m.armed && Math.floor(now / 400) % 2) { ctx.fillStyle = '#ff3b3b'; ctx.beginPath(); ctx.arc(m.x * tp, m.y * tp, tp * 0.08, 0, 7); ctx.fill(); }
+      }
+
       // 子彈
       for (const [id, b] of A.bullets) {
         const [x, y] = pos(id, A.bullets, B.bullets);
@@ -455,6 +466,14 @@
         if (ghost) ctx.globalAlpha = t.buffs & 8 ? 0.35 : 0.6;
         this._drawTank(ctx, x * tp, y * tp, t.dir, this.sideMeta.get(m.side).color, m, tp * this.meta.tankSize, t, now);
         ctx.globalAlpha = 1;
+        if (t.buffs & 2048) {                     // 衝刺：殘影
+          ctx.fillStyle = 'rgba(255,255,255,.18)';
+          ctx.beginPath(); ctx.arc(x * tp, y * tp, tp * 0.6, 0, 7); ctx.fill();
+        }
+        if (t.buffs & 4096) {                     // 狙擊蓄力中
+          ctx.strokeStyle = `rgba(255, 235, 59, ${0.5 + 0.4 * Math.sin(now / 90)})`; ctx.lineWidth = Math.max(1.5, tp * 0.08);
+          ctx.beginPath(); ctx.arc(x * tp, y * tp, tp * 0.5, 0, 7); ctx.stroke();
+        }
         if (t.buffs & 32) {                       // 冰凍
           ctx.fillStyle = 'rgba(150, 220, 255, .45)';
           ctx.fillRect((x - 0.48) * tp, (y - 0.48) * tp, 0.96 * tp, 0.96 * tp);
@@ -486,6 +505,19 @@
       ctx.globalAlpha = this.myTank && (this.myTank.grassSight || radarOn) ? 0.45 : 0.94;
       ctx.drawImage(this.grass, 0, 0, mapW, mapW);
       ctx.globalAlpha = 1;
+
+      // 煙霧
+      for (const s of this.smokes) {
+        const left = s.left - (rt - s.k);
+        if (left <= 0) continue;
+        const fade = Math.min(1, left / 20);
+        for (let i = 0; i < 7; i++) {
+          const a = i / 7 * Math.PI * 2 + now / 3000;
+          const ox2 = Math.cos(a) * s.r * 0.45, oy2 = Math.sin(a) * s.r * 0.45;
+          ctx.fillStyle = `rgba(190, 196, 205, ${0.32 * fade})`;
+          ctx.beginPath(); ctx.arc((s.x + ox2) * tp, (s.y + oy2) * tp, s.r * 0.65 * tp, 0, 7); ctx.fill();
+        }
+      }
 
       // 名字標籤
       if (tp >= 12) {
@@ -768,6 +800,9 @@
       } else if (p.type === 'brick') {
         ctx.fillStyle = `rgba(190, 100, 50, ${1 - k})`;
         for (const b of p.bits) ctx.fillRect(x + b.vx * ease * tp * 0.6, y + b.vy * ease * tp * 0.6, b.s * tp, b.s * tp);
+      } else if (p.type === 'skill') {
+        ctx.strokeStyle = `rgba(79, 209, 255, ${1 - k})`; ctx.lineWidth = Math.max(1.5, tp * 0.08);
+        ctx.beginPath(); ctx.arc(x, y, tp * (0.4 + 0.6 * ease), 0, 7); ctx.stroke();
       } else if (p.type === 'spark' || p.type === 'wallHit') {
         ctx.fillStyle = `rgba(255, 255, 220, ${1 - k})`;
         ctx.beginPath(); ctx.arc(x, y, tp * 0.25 * (1 - k * 0.5), 0, 7); ctx.fill();

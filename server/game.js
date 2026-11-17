@@ -11,6 +11,7 @@ const { generateMap } = require('./mapgen');
 const { BotSandbox } = require('./botRunner');
 const Physics = require('../public/physics');
 const installObjectives = require('./objectives');
+const installSkills = require('./skills');
 
 const DIR_IDX = Object.fromEntries(C.DIRS.map((d, i) => [d, i]));
 // 單位向量（斜向為 1/√2）
@@ -163,6 +164,7 @@ class Round {
     this.tankById = new Map(this.tanks.map(t => [t.id, t]));
     for (const t of this.tanks) if (t.lives > 0) this._spawn(t, true);
     this._initObjective();
+    this._initSkills();
     this._reinforceBaseWalls();
     this.rowsCache = null;
   }
@@ -173,6 +175,7 @@ class Round {
     const t = this.playerTank(playerId);
     if (!t || t.sandbox) return;
     t.input = { move: toAngle(input.move), fire: !!input.fire };
+    if (input.skill) t.skillQueued = true;   // 技能按鈕（一次性）
     if (Number.isInteger(input.seq)) t.inputSeq = input.seq;   // 手機預測用：回報處理到第幾個輸入
     if (Number.isFinite(input.view)) t.viewTick = input.view;   // 延遲補償：玩家畫面上正在顯示第幾個 tick
   }
@@ -194,7 +197,7 @@ class Round {
       codeOnly: this.codeOnly, timeLimitTicks: this.timeLimitTicks, startTicks: this.startTicks, blastRadius: C.BLAST_RADIUS,
       ricochet: this.ricochet, items: this.itemsOn, itemTypes: C.ITEM_TYPES, objective: this.objective,
       angles: true, spreadAngle: C.SPREAD_ANGLE,
-      wallHp: [...this.wallHp], baseWallHp: C.BASE_WALL_HP, baseWallShieldTicks: C.BASE_WALL_SHIELD_TICKS,   // 快照裡的方向是角度（度），不是八方向編號
+      wallHp: [...this.wallHp], baseWallHp: C.BASE_WALL_HP, baseWallShieldTicks: C.BASE_WALL_SHIELD_TICKS, skills: C.SKILLS,   // 快照裡的方向是角度（度），不是八方向編號
       alignRate: C.ALIGN_RATE, speedBuff: C.SPEED_BUFF, bulletBounces: C.BULLET_BOUNCES, bounceBuff: C.BOUNCE_BUFF,
       tickRate: C.TICK_RATE, tankSize: C.TANK_SIZE,
       sides: this.sides.map(s => ({ key: s.key, name: s.name, color: s.color, base: s.base ? { x: s.base.x, y: s.base.y } : null, anchor: s.anchor })),
@@ -217,6 +220,7 @@ class Round {
     this.baseKillsNow = [];
     this.objEvents = [];
     this.wallChanges = [];
+    this.zonesChanged = false;
     this.pickups = [];
     this.itemsChanged = false;
     if (this.tick <= this.startTicks) return; // 倒數中
@@ -243,7 +247,9 @@ class Round {
       if (mv !== null && t.confused > 0) mv = Physics.norm(mv + 180);     // 混亂：方向顛倒
       if (mv !== null) this._move(t, mv);
       if (t.input.fire) this._fire(t);
+      if (t.input.skill || t.skillQueued) { this._useSkill(t); t.skillQueued = false; }
     }
+    this._updateSkills();
     for (const t of this.tanks) if (!t.isBot) t.ackSeq = t.inputSeq || 0;
     this._recordHistory();
     this._analyze();
@@ -277,6 +283,7 @@ class Round {
       t.x = x; t.y = y; t.alive = true; t.hp = t.stats.hp;
       for (const k of TIMERS) t[k] = 0;
       for (const k of SHOTS) t[k] = 0;
+      t.dashTicks = 0; t.charged = 0;
       t.dir = Math.abs(p.y - this.center) >= Math.abs(p.x - this.center)
         ? (p.y < this.center ? 'down' : 'up')
         : (p.x < this.center ? 'right' : 'left');
@@ -324,7 +331,9 @@ class Round {
     else if (!blast && t.blastShots > 0) { blast = true; t.blastShots--; }
     if (!pierce && t.pierceShots > 0) { pierce = true; t.pierceShots--; }
     if (freeze || confuse) blast = false;
-    const speed = t.stats.bulletSpeed * (t.swiftBuff > 0 ? C.SWIFT_BULLET : 1);
+    let speed = t.stats.bulletSpeed * (t.swiftBuff > 0 ? C.SWIFT_BULLET : 1);
+    let pierceTanks = 0;
+    if (t.charged > 0) { speed *= 1.8; pierce = true; pierceTanks = 1; t.charged = 0; }   // 狙擊蓄力射擊
     const bounces = Math.max(this.ricochet ? C.BULLET_BOUNCES : 0, t.bounceBuff > 0 ? C.BOUNCE_BUFF : 0);
     const a0 = t.angle || 0;
     // 延遲補償：玩家看到的敵人比伺服器晚一點，子彈用玩家畫面上的位置判定命中（最多 0.2 秒）
@@ -339,7 +348,7 @@ class Round {
       this.bullets.push({
         id: this.nextBulletId++, owner: t.id, side: t.side, angle: a, dir: Physics.dirOf(a), vx, vy,
         x: mx, y: my,
-        speed, pierce, blast, freeze, confuse, bounces, extra: i > 0, lag, born: this.tick, ox: t.x, oy: t.y,
+        speed, pierce, blast, freeze, confuse, bounces, extra: i > 0, lag, born: this.tick, ox: t.x, oy: t.y, pierceTanks,
       });
     });
     t.cooldown = t.rapidBuff > 0 ? Math.ceil(t.stats.cooldown / 2) : t.stats.cooldown;
@@ -649,6 +658,14 @@ class Round {
       const p = b.lag ? this._posAt(t, this.tick - b.lag) : [t.x, t.y];
       if (!p) continue;
       if (Math.abs(p[0] - b.x) < HALF + C.HIT_MARGIN && Math.abs(p[1] - b.y) < HALF + C.HIT_MARGIN) {
+        const through = this._piercesThrough(b, t);
+        if (through === 'skip') continue;
+        if (through) {   // 蓄力射擊：打中這台後繼續飛
+          const shooter0 = this.tankById.get(b.owner);
+          if (shooter0) shooter0.hits++;
+          this._lastHit = b; this._damage(t, shooter0, b.x, b.y, 'shot'); this._lastHit = null;
+          continue;
+        }
         b.dead = true;
         b.hitId = t.id;
         const shooter = this.tankById.get(b.owner);
@@ -820,7 +837,7 @@ class Round {
     const allies = [], enemies = [];
     for (const t of this.tanks) {
       if (!t.alive || t === me) continue;
-      if (t.side !== me.side && t.cloak > 0) continue;     // 隱形中的敵人看不到
+      if (t.side !== me.side && (t.cloak > 0 || this._inSmoke(t))) continue;     // 隱形或躲在煙霧裡的敵人看不到
       (t.side === me.side ? allies : enemies).push(this._tankView(t));
     }
     if (!this.classTable) {
@@ -837,11 +854,16 @@ class Round {
         ...this._tankView(me),
         cooldown: me.cooldown,
         canFire: me.cooldown === 0 && this._ownBullets(me) < this._maxBullets(me),
+        skill: me.stats.skill ? me.stats.skill.key : null,
+        skillCd: me.skillCd || 0,
+        skillReady: !!me.stats.skill && !(me.skillCd > 0),
+        charged: (me.charged || 0) > 0,
       },
       allies,
       enemies,
       bullets: this.bullets.map(b => ({ x: b.x, y: b.y, dir: b.dir, angle: Math.round(b.angle * 10) / 10, vx: b.vx * b.speed, vy: b.vy * b.speed, speed: b.speed, ally: b.side === me.side, blast: b.blast, pierce: b.pierce, freeze: b.freeze, confuse: b.confuse, bounces: b.bounces })),
       objective: this.objectiveView(me),
+      ...this._skillView(me),
       items: this.items.map(it => ({ x: it.x, y: it.y, type: C.ITEM_TYPES[it.type].key, ticksLeft: it.until - this.playTick })),
       bases: this.baseMode ? this.sides.filter(s => s.base).map(s => ({ x: s.base.x + 0.5, y: s.base.y + 0.5, ally: s.key === me.side, alive: s.base.alive })) : [],
       map: {
@@ -880,12 +902,13 @@ class Round {
     for (const t of this.tanks) {
       if (!t.alive) continue;
       if (vis && t.side !== vis.side && !vis.see(t.x, t.y)) continue;
-      if (t.cloak > 0 && viewerSide && t.side !== viewerSide) continue;    // 隱形
+      if ((t.cloak > 0 || this._inSmoke(t)) && viewerSide && t.side !== viewerSide) continue;    // 隱形、煙霧
       const buffs = (t.speedBuff > 0 ? 1 : 0) | (t.rapidBuff > 0 ? 2 : 0)
         | (t.blastShots > 0 || t.pierceShots > 0 || t.freezeShots > 0 || t.confuseShots > 0 ? 4 : 0)
         | (t.cloak > 0 ? 8 : 0) | (t.radar > 0 ? 16 : 0) | (t.frozen > 0 ? 32 : 0) | (t.confused > 0 ? 64 : 0)
-        | (t.phase > 0 ? 128 : 0) | (t.spreadBuff > 0 ? 256 : 0) | (t.bounceBuff > 0 ? 512 : 0) | (t.swiftBuff > 0 ? 1024 : 0);
-      T.push([t.id, Math.round(t.x * 100), Math.round(t.y * 100), Math.round(t.angle || 0), t.shield > 0 ? 1 : 0, t.hp, buffs, t.ackSeq || 0]);
+        | (t.phase > 0 ? 128 : 0) | (t.spreadBuff > 0 ? 256 : 0) | (t.bounceBuff > 0 ? 512 : 0) | (t.swiftBuff > 0 ? 1024 : 0)
+        | (t.dashTicks > 0 ? 2048 : 0) | (t.charged > 0 ? 4096 : 0);
+      T.push([t.id, Math.round(t.x * 100), Math.round(t.y * 100), Math.round(t.angle || 0), t.shield > 0 ? 1 : 0, t.hp, buffs, t.ackSeq || 0, t.skillCd || 0]);
     }
     const B = [];
     for (const b of this.bullets) {
@@ -914,13 +937,14 @@ class Round {
     if (this.pickups.length) {
       snap.P = this.pickups.map(p => [p[0], p[1], Math.round(p[2] * 100), Math.round(p[3] * 100)]);
     }
+    this._skillSnapshot(snap, viewer ? viewerSide : undefined);
     return snap;
   }
 
   // 每位玩家的代碼報告：bot = 電腦坦克，pilot = 由代碼駕駛的玩家坦克（純代碼對戰 / 電腦隊伍）
   // 需要每個玩家各自的快照（迷霧或有人隱形時）
   needsPerPlayerSnapshots() {
-    return !this.codeOnly && (this.fog || this.tanks.some(t => t.alive && t.cloak > 0));
+    return !this.codeOnly && (this.fog || this.mines.length > 0 || this.smokes.length > 0 || this.tanks.some(t => t.alive && t.cloak > 0));
   }
 
   botReports() {
@@ -993,5 +1017,6 @@ class Round {
 }
 
 installObjectives(Round);
+installSkills(Round);
 
 module.exports = { Round, mapSizeFor };

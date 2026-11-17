@@ -292,7 +292,7 @@ console.log('ALL OK');
   const { BotSandbox } = require('../server/botRunner');
   const sb = new BotSandbox('function think(v){ debug.line(1,2,3,4,"red"); debug.circle(v.me.x, v.me.y, 2); debug.text(5,5,"目標"); debug.path([{x:1,y:1},{x:2,y:2}], "#0f0"); return {move:"up", fire:true}; }', 't');
   const act = sb.think(JSON.stringify({ me: { x: 3, y: 4 } }), 1);
-  assert.deepStrictEqual(act, { move: 'up', fire: true });
+  assert.deepStrictEqual(act, { move: 'up', fire: true, skill: false });
   assert.strictEqual(sb.debugOps.length, 4);
   assert.deepStrictEqual(sb.debugOps[0], ['l', 1, 2, 3, 4, 'red']);
   const sb2 = new BotSandbox('function think(){ return {move:"left"}; }', 't2');
@@ -375,4 +375,66 @@ console.log('ALL OK');
   console.log('lag compensation: hit with comp =', withComp, '| hit without =', without);
   assert(withComp && !without, 'lag compensation should register the on-screen hit');
   console.log('lag compensation OK');
+}
+
+// 職業技能：衝刺、護盾牆、煙霧、蓄力射擊、地雷、工兵築牆／修基地
+{
+  const { Round } = require('../server/game');
+  const C = require('../server/constants');
+  const mk = (cls, extra = {}) => {
+    const sides = [0, 1].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: 'function think(){return null}', cls: i === 0 ? cls : 'assault' }] }));
+    const r = new Round({ mode: 'ffa', baseMode: true, timeLimit: 0, sides, size: 21, ...extra });
+    r.startTicks = 0;
+    for (let i = 0; i < r.tiles.length; i++) if (r.tiles[i] !== 'B' && !r.wallHp.has(i)) r.tiles[i] = '.';
+    for (const t of r.tanks) t.shield = 0;
+    const me = r.tanks[0], foe = r.tanks[2];
+    r.tanks[1].x = 1.5; r.tanks[1].y = 10.5; r.tanks[3].x = 19.5; r.tanks[3].y = 10.5;
+    return { r, me, foe };
+  };
+  // 衝刺：0.5 秒移動距離是平常的 2.5 倍
+  { const { r, me } = mk('assault'); me.x = 5.5; me.y = 14.5; me.angle = 90;
+    r.setInput('p0', { move: 90, skill: true }); r.step(); r.setInput('p0', { move: 90 });
+    for (let i = 0; i < 9; i++) r.step();
+    const normal = me.stats.speed / 30 * 10;
+    assert(me.x - 5.5 > normal * 2, 'dash moves faster: ' + (me.x - 5.5) + ' vs ' + normal);
+    assert(me.skillCd > 0, 'cooldown started'); r.dispose(); }
+  // 護盾牆：前方 3 格變鋼牆，5 秒後恢復
+  { const { r, me } = mk('heavy'); me.x = 10.5; me.y = 14.5; me.angle = 0;
+    r.setInput('p0', { skill: true }); r.step(); r.setInput('p0', {});
+    const row = () => [9, 10, 11].map(x => r.tiles[13 * r.size + x]).join('');
+    assert.strictEqual(row(), '@@@', 'shield wall up');
+    for (let i = 0; i < 5 * 30 + 2; i++) r.step();
+    assert.strictEqual(row(), '...', 'shield wall gone'); r.dispose(); }
+  // 煙霧：敵方電腦看不到煙霧裡的坦克
+  { const { r, me, foe } = mk('scout'); me.x = 10.5; me.y = 14.5;
+    r.setInput('p0', { skill: true }); r.step();
+    assert(!JSON.parse(r._viewFor(r.tanks[3])).enemies.some(e => e.id === me.id), 'hidden in smoke');
+    assert(!r.snapshotFor('p1').T.some(a => a[0] === me.id), 'hidden from enemy player'); r.dispose(); }
+  // 蓄力射擊：穿過第一台坦克，打到後面那台
+  { const { r, me, foe } = mk('sniper'); me.x = 5.5; me.y = 16.5; me.angle = 0;
+    foe.x = 5.5; foe.y = 13.5; const back = r.tanks[3]; back.x = 5.5; back.y = 10.5; for (const y of [10, 11, 12, 13, 14, 15]) r.tiles[y * r.size + 5] = '.'; back.shield = 0; foe.lives = 9; back.lives = 9;
+    r.setInput('p0', { skill: true }); r.step(); r.setInput('p0', { fire: true }); r.step(); r.setInput('p0', {});
+    for (let i = 0; i < 40; i++) r.step();
+    assert(foe.deaths === 1 && back.deaths === 1, `pierce hits both: ${foe.deaths} ${back.deaths}`); r.dispose(); }
+  // 地雷：敵人踩到就爆炸
+  { const { r, me, foe } = mk('demo'); me.x = 6.5; me.y = 14.5;
+    r.setInput('p0', { skill: true }); r.step(); r.setInput('p0', {});
+    assert.strictEqual(r.mines.length, 1);
+    assert(!JSON.parse(r._viewFor(r.tanks[3])).mines.length, 'enemy cannot see mine');
+    for (let i = 0; i < 35; i++) r.step();
+    me.x = 2.5; foe.x = 6.5; foe.y = 14.5; foe.lives = 9; r.step();
+    assert(foe.deaths === 1 && r.mines.length === 0, 'mine exploded'); r.dispose(); }
+  // 工兵：前方蓋牆；在基地旁修牆
+  { const { r, me } = mk('engineer'); me.x = 10.5; me.y = 14.5; me.angle = 0;
+    r.setInput('p0', { skill: true }); r.step(); r.setInput('p0', {});
+    assert.strictEqual(r.tiles[13 * r.size + 10], '#', 'built a brick');
+    const base = r.sides[0].base, idx = (base.y + 1) * r.size + base.x;
+    r.tiles[idx] = '.'; r.wallHp.delete(idx);
+    me.skillCd = 0; me.x = base.x + 0.5 + 2; me.y = base.y + 2.5;
+    r.setInput('p0', { skill: true }); r.step();
+    assert(r.tiles[idx] === '#' && r.wallHp.get(idx) === C.BASE_WALL_HP, 'repaired base wall'); r.dispose(); }
+  // 電腦代碼也能用技能
+  { const { validateCode } = require('../server/validate');
+    assert(validateCode('function think(v){ return { move: 45, fire: true, skill: v.me.skillReady }; }').ok); }
+  console.log('class skills OK');
 }

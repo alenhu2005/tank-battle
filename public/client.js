@@ -369,7 +369,7 @@
     };
     el.innerHTML = Object.entries(info.classes).map(([k, c]) =>
       `<button class="cls-card ${mp && mp.cls === k ? 'sel' : ''}" data-cls="${k}">
-        <b>${c.name}</b>${bars(c)}<small>${c.desc}</small></button>`).join('');
+        <b>${c.name}</b>${bars(c)}<small>${c.desc}</small>${c.skill ? `<small class="skill">${c.skill.icon} 技能「${c.skill.name}」：${c.skill.desc}（冷卻 ${c.skill.cd} 秒）</small>` : ''}</button>`).join('');
   }
   document.addEventListener('click', e => {
     const card = e.target.closest('.cls-card');
@@ -858,6 +858,7 @@ ${sample ? sample.code : defaultBot}\`\`\`
     if (!r.meta) return;
     $('#hudRound').textContent = roundMeta ? `第 ${roundMeta.roundNo}/${roundMeta.rounds} 局` : '';
     netHud();
+    skillHud();
     const played = r.playTick();
     if (r.meta.timeLimitTicks) {
       const left = Math.max(0, Math.ceil((r.meta.timeLimitTicks - played) / r.meta.tickRate));
@@ -908,7 +909,7 @@ ${sample ? sample.code : defaultBot}\`\`\`
 
   // ---------- 操作：虛擬搖桿（八方向）、開火鍵、鍵盤 ----------
   // 方向編號與伺服器一致：0 上 1 下 2 左 3 右 4 左上 5 右上 6 左下 7 右下
-  const input = { move: -1, fire: false };   // move：角度（度，0 = 上，順時針），-1 = 不動
+  const input = { move: -1, fire: false, skill: false };   // move：角度（度，0 = 上，順時針），-1 = 不動；skill：按了技能（送出一次後清掉）
   let sentInput = '', lastSendAt = 0, inputSeq = 0;
   let pending = [];   // 已送出、伺服器還沒確認的移動輸入（預測用）
   // 輸入改變時不立刻送，交給下面每秒 30 次的迴圈（同時做本機預測）
@@ -947,10 +948,11 @@ ${sample ? sample.code : defaultBot}\`\`\`
     if (!roundMeta || !renderer.latest) return;
     const r = renderer, now = performance.now();
     const key = Math.round(input.move) + ',' + (input.fire ? 1 : 0);
-    const active = input.move >= 0 || input.fire;
+    const active = input.move >= 0 || input.fire || input.skill;
     if (!active && key === sentInput && now - lastSendAt < 500) return;
     const seq = ++inputSeq;
-    send({ t: 'i', a: input.move >= 0 ? Math.round(input.move * 10) / 10 : -1, f: input.fire ? 1 : 0, s: seq, v: Math.round(r.renderTick * 10) / 10 });
+    send({ t: 'i', a: input.move >= 0 ? Math.round(input.move * 10) / 10 : -1, f: input.fire ? 1 : 0, k: input.skill ? 1 : 0, s: seq, v: Math.round(r.renderTick * 10) / 10 });
+    input.skill = false;
     sentInput = key; lastSendAt = now;
     // 本機預測：倒數中、凍住或沒活著時不動
     const me = r.myTank && r.latest.tanks.get(r.myTank.id);
@@ -1004,6 +1006,27 @@ ${sample ? sample.code : defaultBot}\`\`\`
     input.move = mv; pushInput();
   }
 
+  // 職業技能按鈕
+  const sb = $('#skillBtn');
+  sb.addEventListener('pointerdown', e => {
+    e.preventDefault(); e.stopPropagation();
+    if (!sb.classList.contains('ready')) return;
+    input.skill = true; sb.classList.add('down'); buzz(15);
+    setTimeout(() => sb.classList.remove('down'), 120);
+  });
+  function skillHud() {
+    const r = renderer;
+    const sk = r.myTank && info.classes[r.myTank.cls] && info.classes[r.myTank.cls].skill;
+    sb.classList.toggle('hidden', !sk || !roundMeta);
+    if (!sk) return;
+    sb.querySelector('.ic').textContent = sk.icon;
+    sb.querySelector('.nm').textContent = sk.name;
+    const me = r.latest && r.latest.tanks.get(r.myTank.id);
+    const cd = me ? me.skillCd : 0, total = sk.cd * r.meta.tickRate;
+    sb.style.setProperty('--cd', Math.round(Math.min(1, cd / total) * 100) + '%');
+    sb.classList.toggle('ready', !!me && cd === 0);
+  }
+
   let fireId = null;
   const fz = $('#fireZone'), fb = $('#fireBtn');
   fz.addEventListener('pointerdown', e => {
@@ -1029,6 +1052,7 @@ ${sample ? sample.code : defaultBot}\`\`\`
   }
   window.addEventListener('keydown', e => {
     if (!$('#game').classList.contains('active') || e.target.closest('input, textarea')) return;
+    if (e.code === 'KeyK' || e.code === 'ShiftLeft') { e.preventDefault(); input.skill = true; return; }   // 鍵盤：K 或左 Shift 用技能
     if (e.code in KEY_VEC || e.code === 'Space' || e.code === 'KeyJ') { e.preventDefault(); keys.add(e.code); keyInput(); }
   });
   window.addEventListener('keyup', e => { if (keys.delete(e.code)) keyInput(); });

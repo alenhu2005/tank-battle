@@ -64,6 +64,8 @@ const C = module.exports = {
       desc: '子彈速度最快（快將近一倍），迷霧模式視野較大' },
     demo:    { name: '爆破', speed: 3.8, cooldown: 14, bulletSpeed: 8, maxBullets: 1, hp: 1, vision: 5.5, blast: true,
       desc: '子彈命中或被抵消時爆炸：炸毀 3×3 磚牆，並波及周圍 1 格的敵人' },
+    engineer: { name: '工兵', speed: 3.6, cooldown: 16, bulletSpeed: 9, maxBullets: 1, hp: 1, vision: 5.5,
+      desc: '防守型：可以蓋磚牆，在自家基地旁還能修補基地圍牆' },
   },
   MONSTER_CLASS: { name: '怪物', speed: 3.4, cooldown: 30, bulletSpeed: 7, maxBullets: 1, hp: 1, vision: 0 },
 
@@ -133,6 +135,18 @@ const C = module.exports = {
   TEAM_COUNT: 6,
   FACTION_COLORS: { red: '#ff6b6b', blue: '#4aa8ff' },
 };
+
+// 職業主動技能（cd：冷卻秒數）
+const SKILLS = {
+  assault:  { key: 'dash',   name: '衝刺',     icon: '⏩', cd: 6,  desc: '0.5 秒內移動速度 ×2.5' },
+  heavy:    { key: 'wall',   name: '護盾牆',   icon: '🧱', cd: 12, desc: '在正前方立起 3 格鋼牆，5 秒後消失' },
+  scout:    { key: 'smoke',  name: '煙霧',     icon: '🌫️', cd: 12, desc: '放出 5 秒的煙霧，裡面的坦克敵人看不到（玩家和電腦都看不到）' },
+  sniper:   { key: 'charge', name: '蓄力射擊', icon: '🎯', cd: 8,  desc: '下一發（5 秒內）速度 ×1.8、撞到敵方子彈不會被抵消、會穿過第一台坦克' },
+  demo:     { key: 'mine',   name: '地雷',     icon: '🧨', cd: 7,  desc: '在腳下放地雷（只有自己隊看得到），1 秒後啟動，敵人碰到就爆炸；最多 3 個' },
+  engineer: { key: 'build',  name: '築牆',     icon: '🔧', cd: 5,  desc: '在正前方蓋一塊磚牆；在自家基地旁使用時改成修補並加固基地圍牆' },
+};
+for (const k in SKILLS) C.CLASSES[k].skill = SKILLS[k];
+C.SKILLS = SKILLS;
 
 // 套用全體速度倍率（職業、電腦、怪物都一樣，彼此的相對差異不變）
 const scale = (v, k) => Math.round(v * k * 100) / 100;

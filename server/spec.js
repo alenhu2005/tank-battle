@@ -13,12 +13,13 @@ module.exports = `# 坦克對戰：電腦隊友代碼規格
 用 JavaScript 定義一個函式 think(view, memory)。遊戲每秒呼叫它 ${C.TICK_RATE} 次（每個 tick 一次），回傳你的電腦坦克在這個 tick 的動作。
 
 ## 回傳格式
-{ move: 角度 | 方向 | null, fire: true | false }
+{ move: 角度 | 方向 | null, fire: true | false, skill: true | false }
 角度 = 0～360 的數字（度）：0 = 上、90 = 右、180 = 下、270 = 左，順時針，可以有小數（無段落，任何角度都可以）
 方向 = "up" | "down" | "left" | "right" | "upleft" | "upright" | "downleft" | "downright"（等於 0、180、270、90、315、45、225、135 度）
 - move：往該角度移動，車身和砲管也會轉向該角度；null 表示停住（保持原本的角度）。被擋住時只會轉向。
 - 離正上下左右 ${require('../public/physics').SNAP} 度以內時，移動會當作直走並自動靠向格子中心（方便鑽 1 格寬的通道），但砲管仍朝實際角度。
 - fire：true 表示朝砲管角度開火。冷卻中或自己的子彈數已達上限時會被忽略。
+- skill：true 表示使用職業技能（只有玩家坦克有職業；電腦坦克 cls 是 "bot"，沒有技能）。冷卻中會被忽略。
 
 ## 執行環境
 - 標準 JavaScript，可以用 Math、JSON、Array、Map 等內建物件。沒有 DOM、網路、檔案、require/import、setTimeout。
@@ -41,7 +42,9 @@ module.exports = `# 坦克對戰：電腦隊友代碼規格
 {
   tick,                // 從 1 開始
   ticksLeft,           // 本局剩餘 tick，沒有時間限制時為 null
-  me:      { ...坦克, cooldown, canFire },   // cooldown：還要幾個 tick 才能再開火
+  me:      { ...坦克, cooldown, canFire, skill, skillCd, skillReady, charged },   // cooldown：還要幾個 tick 才能再開火；skill：技能名稱；skillCd：技能還要幾個 tick 才能再用
+  smokes:  [ { x, y, r, ticksLeft } ],   // 場上的煙霧；煙霧裡的敵人不會出現在 enemies
+  mines:   [ { x, y, armed, mine } ],    // 我方的地雷（敵人的地雷看不到）
   allies:  [ 坦克 ],   // 同隊、還活著的其他坦克（包含你的玩家）
   enemies: [ 坦克 ],   // 所有還活著的敵方坦克
   bullets: [ { x, y, angle, dir, vx, vy, speed, ally, blast, pierce, freeze, confuse, bounces } ],   // vx、vy：每秒移動幾格   // 場上所有子彈；speed 單位是格/秒；ally 表示是不是我方的；bounces 是剩餘反彈次數
@@ -60,6 +63,9 @@ module.exports = `# 坦克對戰：電腦隊友代碼規格
   前面幾個是剩餘 tick 數（0 = 沒有），…Shots 是還剩幾發。frozen > 0 時不能動也不能射；confused > 0 時移動方向會被顛倒。
 - 隱形（cloak）中的敵人不會出現在 enemies 裡。
 - 電腦沒有視野限制：草叢和迷霧只會擋住人類玩家的畫面。
+
+## 職業技能（玩家坦克才有）
+${Object.entries(C.SKILLS).map(([cls, s]) => `- ${C.CLASSES[cls].name}（${cls}）：${s.key}「${s.name}」，冷卻 ${s.cd} 秒。${s.desc}`).join('\n')}
 
 ## 地形
 .  空地

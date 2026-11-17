@@ -56,6 +56,7 @@
     blast:     v => { noise({ dur: 0.4, gain: 0.45 * v, freq: 700 }); tone({ type: 'sine', from: 160, to: 50, dur: 0.25, gain: 0.25 * v }); },
     baseBoom:  v => { noise({ dur: 1.2, gain: 0.7 * v, freq: 350 }); tone({ type: 'sawtooth', from: 90, to: 30, dur: 1, gain: 0.3 * v }); },
     brick:     v => noise({ dur: 0.09, gain: 0.25 * v, freq: 1800, type: 'bandpass', q: 1.2 }),
+    skill:     v => { tone({ type: 'sine', from: 500, to: 1400, dur: 0.18, gain: 0.14 * v }); },
     wallHit:   v => { noise({ dur: 0.06, gain: 0.2 * v, freq: 900, type: 'bandpass', q: 2 }); tone({ type: 'square', from: 220, to: 160, dur: 0.06, gain: 0.08 * v }); },
     spark:     v => tone({ type: 'triangle', from: 1800, to: 900, dur: 0.04, gain: 0.08 * v }),
     armor:     v => tone({ type: 'square', from: 300, to: 200, dur: 0.12, gain: 0.15 * v }),
