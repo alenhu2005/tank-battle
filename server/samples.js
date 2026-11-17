@@ -3,7 +3,7 @@
 // 幾種不同打法的範例電腦代碼。玩家可以直接選用，或把它當作範本複製給 AI 修改。
 // 每份都是完整、可以單獨執行的代碼（共用的輔助函式會接在後面）。
 
-const DEFAULT_BOT = require('./defaultBot');
+const CLASSIC = require('./bots/classic');
 
 const HELPERS = `
 // ---- 共用輔助函式 ----
@@ -171,7 +171,7 @@ function think(view, memory) {
 ` + HELPERS;
 
 module.exports = {
-  standard:  { name: '標準',   desc: '找最近的敵人或敵方基地，對齊就開火（遊戲內建的 AI）', code: DEFAULT_BOT },
+  standard:  { name: '標準',   desc: '會尋路，找最近的敵人或敵方基地，對齊就開火，打掉擋路的磚牆', code: CLASSIC },
   guard:     { name: '守門員', desc: '守在基地或你旁邊，敵人靠近才出手', code: GUARD },
   assassin:  { name: '刺客',   desc: '專挑敵方玩家、先打命少的，走草叢接近', code: ASSASSIN },
   bodyguard: { name: '保鑣',   desc: '緊跟著你，把朝你飛來的子彈打掉', code: BODYGUARD },

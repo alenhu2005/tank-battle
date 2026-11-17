@@ -1,7 +1,7 @@
 'use strict';
 // 平衡測試：五個職業各一隊（玩家坦克也用範例代碼開），隨機位置，統計勝率與擊殺
 const { Round } = require('../server/game');
-const DEFAULT_BOT = require('../server/defaultBot');
+const DEFAULT_BOT = require('../server/bots/classic');
 const C = require('../server/constants');
 const CLS = Object.keys(C.CLASSES);
 const N = +process.argv[2] || 60;

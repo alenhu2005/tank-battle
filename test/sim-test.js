@@ -3,6 +3,7 @@ const assert = require('assert');
 const { validateCode } = require('../server/validate');
 const { Round } = require('../server/game');
 const DEFAULT_BOT = require('../server/defaultBot');
+const CLASSIC = require('../server/bots/classic');
 const CLS = Object.keys(require('../server/constants').CLASSES);
 
 let t0 = Date.now();
@@ -47,7 +48,7 @@ console.log('ALL OK');
 // 倒數：前 5 秒不模擬、不呼叫電腦代碼
 {
   const { Round } = require('../server/game');
-  const sides = [0, 1].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: DEFAULT_BOT, aiPilot: true }] }));
+  const sides = [0, 1].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: CLASSIC, aiPilot: true }] }));
   const r = new Round({ mode: 'ffa', baseMode: true, timeLimit: 60, countdown: 5, sides });
   const before = r.tanks.map(t => [t.x, t.y]).join();
   let s;
@@ -216,7 +217,7 @@ console.log('ALL OK');
   assert(t2.x > 9.4, 'not stuck inside wall');
   r2.dispose();
   // 隨機 30 局：道具全開＋反彈
-  const D = require('../server/defaultBot');
+  const D = require('../server/bots/classic');
   for (let k = 0; k < 30; k++) {
     const sides = [0, 1, 2].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: D, aiPilot: true, cls: Object.keys(C.CLASSES)[(i + k) % 5] }] }));
     const rr = new Round({ mode: 'ffa', baseMode: k % 2 === 0, fog: k % 3 === 0, timeLimit: 90, sides, items: true, ricochet: k % 2 === 1, breakableWalls: k % 4 !== 0 });
@@ -255,7 +256,7 @@ console.log('ALL OK');
 // 新模式：佔點、搶旗、打怪 — 全部用內建 AI 跑完整一局，確認會用模式自己的方式分出勝負
 {
   const { Round } = require('../server/game');
-  const D = require('../server/defaultBot');
+  const D = require('../server/bots/classic');
   const C = require('../server/constants');
   const run = (objective, n, extra = {}) => {
     const sides = Array.from({ length: n }, (_, i) => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: D, aiPilot: true, cls: 'assault' }] }));
@@ -442,7 +443,7 @@ console.log('ALL OK');
 // 護送模式：內建 AI 對打，會用推到終點或守住分出勝負；路線要挖通
 {
   const { Round } = require('../server/game');
-  const D = require('../server/defaultBot');
+  const D = require('../server/bots/classic');
   const out = [];
   for (let k = 0; k < 4; k++) {
     const sides = ['red', 'blue'].map((key, si) => ({ key, name: key, color: '#fff', members: [0, 1].map(i => ({ playerId: key + i, name: key + i, code: D, aiPilot: true, cls: 'assault' })) }));

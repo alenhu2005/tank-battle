@@ -532,10 +532,10 @@
 只輸出代碼，放在一個 \`\`\`javascript 區塊裡；不要用 import、require、setTimeout。
 
 ${specText}
-## 參考：${sample ? `「${sample.name}」打法的範例（${sample.desc}）` : '遊戲內建的範例 AI'}（可以改進它，也可以完全重寫）
+${sample ? `## 參考：「${sample.name}」打法的範例（${sample.desc}），可以改進它，也可以完全重寫
 \`\`\`javascript
-${sample ? sample.code : defaultBot}\`\`\`
-
+${sample.code}\`\`\`
+` : ''}
 ## 我想要的隊友
 `;
   }
