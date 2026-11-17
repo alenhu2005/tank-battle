@@ -3,7 +3,12 @@
 // 遊戲的所有數值都集中在這裡，方便之後調整平衡。
 const TICK_RATE = 30;
 
-module.exports = {
+// 全體速度倍率：想讓遊戲整體快一點或慢一點，改這兩個數字就好
+const MOVE_SCALE = 0.75;     // 坦克移動速度
+const BULLET_SCALE = 0.75;   // 子彈速度
+const FIRE_SCALE = 1.25;     // 開火冷卻（越大射越慢）
+
+const C = module.exports = {
   TICK_RATE,
   TANK_SPEED: 4,            // 格/秒
   BULLET_SPEED: 8,          // 格/秒（各職業以 CLASSES 為準）
@@ -12,8 +17,8 @@ module.exports = {
   MAX_BULLETS_PER_TANK: 1,
   PLAYER_LIVES: 3,
   BOT_LIVES: 1,
-  RESPAWN_DELAY: 2 * TICK_RATE,
-  BOT_RESPAWN_DELAY: 4 * TICK_RATE,   // 佔點、搶旗模式電腦的重生時間
+  RESPAWN_DELAY: 5 * TICK_RATE,       // 玩家重生時間：剛好看完死亡重播
+  BOT_RESPAWN_DELAY: 6 * TICK_RATE,   // 佔點、搶旗模式電腦的重生時間
   SHIELD_TICKS: 2 * TICK_RATE,
   FOG_RADIUS: 5.5,          // 迷霧模式下玩家的視野半徑（格）
   END_DELAY: Math.round(1.5 * TICK_RATE), // 分出勝負後再播一下爆炸
@@ -33,7 +38,10 @@ module.exports = {
     up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0],
     upleft: [-1, -1], upright: [1, -1], downleft: [-1, 1], downright: [1, 1],
   },
-  ALIGN_RATE: 1.0,          // 直向/橫向移動時，另一軸靠向格子中心的速度（相對於移動速度）
+  ALIGN_RATE: 1.0,
+  SPREAD_ANGLE: 25,
+  BASE_WALL_HP: 5,          // 基地周圍的磚牆要打幾下才會破
+  BASE_WALL_SHIELD_TICKS: 30 * TICK_RATE,   // 開局後多久內基地圍牆打不壞         // 散彈：左右各偏幾度          // 直向/橫向移動時，另一軸靠向格子中心的速度（相對於移動速度）
 
   // 人類玩家的五種職業（電腦隊友固定用 bot 規格）。速度單位：格/秒；冷卻單位：tick
   CLASSES: {
@@ -91,7 +99,7 @@ module.exports = {
     { key: 'swap',     icon: '🔄', name: '換位',     label: '換位', weight: 1, desc: '和離你最近的敵人互換位置' },
   ],
   ITEM_FIRST_DELAY: 6 * TICK_RATE,
-  ITEM_INTERVAL: 8 * TICK_RATE,
+  ITEM_INTERVAL: 10 * TICK_RATE,
   ITEM_MAX: 4,
   ITEM_LIFETIME: 20 * TICK_RATE,
   ITEM_PICKUP_RANGE: 0.6,
@@ -116,3 +124,17 @@ module.exports = {
   TEAM_COUNT: 6,
   FACTION_COLORS: { red: '#ff6b6b', blue: '#4aa8ff' },
 };
+
+// 套用全體速度倍率（職業、電腦、怪物都一樣，彼此的相對差異不變）
+const scale = (v, k) => Math.round(v * k * 100) / 100;
+for (const c of [...Object.values(C.CLASSES), C.BOT_CLASS, C.MONSTER_CLASS]) {
+  c.speed = scale(c.speed, MOVE_SCALE);
+  c.bulletSpeed = scale(c.bulletSpeed, BULLET_SCALE);
+  c.cooldown = Math.round(c.cooldown * FIRE_SCALE);
+}
+C.FIRE_COOLDOWN = Math.round(C.FIRE_COOLDOWN * FIRE_SCALE);
+C.FIRE_SCALE = FIRE_SCALE;
+C.TANK_SPEED = scale(C.TANK_SPEED, MOVE_SCALE);
+C.BULLET_SPEED = scale(C.BULLET_SPEED, BULLET_SCALE);
+C.MOVE_SCALE = MOVE_SCALE;
+C.BULLET_SCALE = BULLET_SCALE;

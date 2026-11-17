@@ -86,7 +86,7 @@ console.log('ALL OK');
   for (let i = 0; i < 10; i++) r.step();
   assert(t.x > 4.2 && t.y < 9.6, 'slides along wall: ' + t.x + ',' + t.y);
   // 斜向子彈
-  t.x = 5.5; t.y = 5.5; t.dir = 'upright'; t.cooldown = 0;
+  t.x = 5.5; t.y = 5.5; t.dir = 'upright'; t.angle = 45; t.cooldown = 0;
   r.setInput('p0', { move: null, fire: true });
   r.step();
   const b = r.bullets.find(b => b.owner === t.id);
@@ -117,14 +117,14 @@ console.log('ALL OK');
   const t = r.tanks[0];
   r.tanks.filter(o => o !== t).forEach((o, i) => { o.x = 18.5; o.y = 18.5 - i * 2; });
   // 正面打鋼牆：反彈回來
-  t.x = 10.5; t.y = 9.5; t.dir = 'up'; t.cooldown = 0;
+  t.x = 10.5; t.y = 9.5; t.dir = 'up'; t.angle = 0; t.cooldown = 0;
   r.setInput('p0', { fire: true }); r.step(); r.setInput('p0', { fire: false });
   let b = r.bullets.find(b => b.owner === t.id);
   for (let i = 0; i < 20 && b.dir === 'up'; i++) r.step();
   assert.strictEqual(b.dir, 'down', 'cardinal bounce'); assert.strictEqual(b.bounces, 1);
   // 斜打下方邊界：只翻 y
   r.bullets = [];
-  t.x = 5.5; t.y = 18.5; t.dir = 'downright'; t.cooldown = 0;
+  t.x = 5.5; t.y = 18.5; t.dir = 'downright'; t.angle = 135; t.cooldown = 0;
   r.setInput('p0', { fire: true }); r.step(); r.setInput('p0', { fire: false });
   b = r.bullets.find(b => b.owner === t.id);
   for (let i = 0; i < 20 && b.dir === 'downright'; i++) r.step();
@@ -209,8 +209,8 @@ console.log('ALL OK');
   const r2 = mk(); const t2 = r2.tanks[0]; r2.startTicks = 0;
   r2.tiles.fill('.'); for (let y = 0; y < r2.size; y++) r2.tiles[y * r2.size + 8] = '#';
   r2.tanks.filter(o => o !== t2).forEach((o, i) => { o.x = 18.5; o.y = 1.5 + i * 2; });
-  t2.x = 6.5; t2.y = 10.5; t2.phase = 10; r2.setInput('p0', { move: 'right' });
-  for (let i = 0; i < 12; i++) r2.step();
+  t2.x = 6.5; t2.y = 10.5; t2.phase = 18; r2.setInput('p0', { move: 'right' });
+  for (let i = 0; i < 20; i++) r2.step();
   assert(t2.phase === 0 && t2.x > 8, 'passed through brick');
   for (let i = 0; i < 20; i++) r2.step();
   assert(t2.x > 9.4, 'not stuck inside wall');
@@ -275,7 +275,8 @@ console.log('ALL OK');
     // 打怪：一隊玩家（2 個 AI 玩家）
     const sides = [{ key: 'players', name: '玩家隊', color: '#3ddc84', members: [0, 1].map(i => ({ playerId: 'p' + i, name: 'P' + i, code: D, aiPilot: true, cls: 'heavy' })) }];
     const r = new Round({ mode: 'ffa', baseMode: k % 2 === 0, timeLimit: 0, sides, objective: 'pve' });
-    let maxWave = 0; while (!r.over) { r.step(); maxWave = Math.max(maxWave, r.pveWave); }
+    let maxWave = 0, guard = 0; while (!r.over && guard++ < 30 * 60 * 8) { r.step(); maxWave = Math.max(maxWave, r.pveWave); }
+    if (!r.over) { r.forceEnd(); r.step(); }
     reasons.pve.push(r.result.reason + '@wave' + maxWave);
     r.dispose();
   }
@@ -300,4 +301,45 @@ console.log('ALL OK');
   const { validateCode } = require('../server/validate');
   assert(validateCode('function think(v){ for (var i=0;i<200;i++) debug.circle(i,i,1); return null; }').ok, 'debug spam is capped, not an error');
   console.log('debug draw OK');
+}
+
+// 無段落（任意角度）：移動、靠格子中心、射擊、反彈、電腦代碼回傳數字
+{
+  const { Round } = require('../server/game');
+  const { validateCode } = require('../server/validate');
+  const sides = [0, 1].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: 'function think(){return null}' }] }));
+  const r = new Round({ mode: 'ffa', baseMode: false, timeLimit: 0, sides, size: 21, ricochet: true });
+  r.startTicks = 0;
+  r.tiles.fill('.');
+  const t = r.tanks[0];
+  r.tanks.filter(o => o !== t).forEach((o, i) => { o.x = 19.5; o.y = 1.5 + i * 2; });
+  // 30°：往右上，x 增加量 / y 減少量 ≈ tan(30°)
+  t.x = 5.5; t.y = 15.5; t.shield = 0;
+  r.setInput('p0', { move: 30 });
+  for (let i = 0; i < 10; i++) r.step();
+  const dx = t.x - 5.5, dy = 15.5 - t.y;
+  assert(Math.abs(dx / dy - Math.tan(Math.PI / 6)) < 0.02, `moves at 30°: ${dx}/${dy}`);
+  assert.strictEqual(Math.round(t.angle), 30); assert.strictEqual(t.dir, 'upright');
+  // 離正上 8°：移動當作直走並靠中心，砲管照實際角度
+  t.x = 10.2; t.y = 15.5;
+  r.setInput('p0', { move: 8 });
+  for (let i = 0; i < 10; i++) r.step();
+  assert(Math.abs(t.x - 10.5) < 0.01 && Math.round(t.angle) === 8, 'near-cardinal snaps movement to lane');
+  // 任意角度射擊
+  r.setInput('p0', { move: null });
+  t.x = 10.5; t.y = 10.5; t.angle = 200; t.cooldown = 0; r.bullets = [];
+  r._fire(t);
+  const b = r.bullets[0];
+  assert(Math.abs(Math.atan2(b.vx, -b.vy) * 180 / Math.PI + 160) < 0.01, 'bullet at 200°');
+  // 斜射撞右邊界：只翻 x
+  r.bullets = []; t.x = 18.5; t.y = 10.5; t.angle = 60; t.cooldown = 0; r._fire(t);
+  const bb = r.bullets[0];
+  for (let i = 0; i < 30 && bb.vx > 0; i++) r.step();
+  assert(bb.vx < 0 && bb.vy < 0 && Math.round(bb.angle) === 300, 'bounce off right wall: 60° -> 300°, got ' + bb.angle);
+  r.dispose();
+  // 電腦代碼回傳角度
+  assert(validateCode('function think(v){ return { move: 137.5, fire: true }; }').ok, 'numeric move accepted');
+  const bad = validateCode('function think(){ return { move: "northeast" }; }');
+  assert(!bad.ok && /角度/.test(bad.errors[0]), 'helpful error mentions angles');
+  console.log('analog control OK');
 }

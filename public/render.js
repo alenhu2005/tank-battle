@@ -10,7 +10,7 @@
   const VEC = [[0, -1], [0, 1], [-1, 0], [1, 0], [-R2, -R2], [R2, -R2], [-R2, R2], [R2, R2]];
   const MIN_TILE_PX = 12;
   const INTERP_DELAY = 2;   // tick
-  const REPLAY_BEFORE = 60; // 重播死前 2 秒
+  const REPLAY_BEFORE = 54; // 重播死前 1.8 秒（慢動作播完約 4.6 秒，比重生的 5 秒短）
   const REPLAY_AFTER = 12;  // 加上死後 0.4 秒
   const REPLAY_SPEED = 0.5; // 慢動作
 
@@ -47,6 +47,9 @@
       this.myTankId = myTankId;
       this.size = meta.size;
       this.tiles = meta.tiles.split('');
+      this.wallHp = new Map(meta.wallHp || []);
+      this.baseWallHp = meta.baseWallHp || 3;
+      this.wallShieldTicks = meta.baseWallShieldTicks || 0;
       this.liveTiles = meta.tiles.split('');
       this.latest = null;
       this.pred = null;                 // 自己坦克的預測位置 { x, y, dir }
@@ -113,7 +116,8 @@
       for (const snap of this.buf) {
         if (snap.k <= this.appliedK) continue;
         if (snap.k > rt) break;
-        if (snap.M) for (const [idx, ch] of snap.M) { this.tiles[idx] = ch; (this.dirtyTiles = this.dirtyTiles || []).push(idx); }
+        if (snap.M) for (const [idx, ch] of snap.M) { this.tiles[idx] = ch; if (ch !== '#') this.wallHp.delete(idx); (this.dirtyTiles = this.dirtyTiles || []).push(idx); }
+        if (snap.W) for (const [idx, hp] of snap.W) { this.wallHp.set(idx, hp); (this.dirtyTiles = this.dirtyTiles || []).push(idx); }
         if (snap.L) for (const [id, lives, alive] of snap.L) this.lives.set(id, { lives, alive: !!alive });
         if (snap.S) for (const [key, out, base] of snap.S) this.sideState.set(key, { out: !!out, base });
         if (snap.E) for (const [type, x, y] of snap.E) this.addEffect(type, x / 100, y / 100, now);
@@ -158,7 +162,7 @@
       if (this.silent) return;        // 重播快轉時不產生特效
       if (this.onEvent) this.onEvent(type, x, y);
       if (type === 'shot') return;   // 只有音效，沒有畫面特效
-      const dur = { capture: 900, waveStart: 1200, boom: 650, blast: 500, baseBoom: 1200, brick: 380, spark: 180, armor: 300, spawn: 500, emp: 600, timestop: 900, freezeHit: 400, confuseHit: 400, itemSpawn: 600 }[type] || 300;
+      const dur = { wallHit: 250, capture: 900, waveStart: 1200, boom: 650, blast: 500, baseBoom: 1200, brick: 380, spark: 180, armor: 300, spawn: 500, emp: 600, timestop: 900, freezeHit: 400, confuseHit: 400, itemSpawn: 600 }[type] || 300;
       const p = { type, x, y, t0: now, dur, bits: [] };
       if (type === 'brick' || type === 'boom' || type === 'baseBoom' || type === 'blast') {
         const n = type === 'brick' ? 6 : type === 'baseBoom' ? 24 : 12;
@@ -232,6 +236,21 @@
         g.moveTo(x + tp * 3 / 4, y + tp / 2); g.lineTo(x + tp * 3 / 4, y + tp);
         g.stroke();
         g.strokeRect(x + g.lineWidth / 2, y + g.lineWidth / 2, tp - g.lineWidth, tp - g.lineWidth);
+        const whp = this.wallHp && this.wallHp.get(idx);
+        if (whp) {
+          // 加固的基地圍牆：鐵條＋依受損程度畫裂痕
+          g.fillStyle = 'rgba(200, 210, 220, .55)';
+          g.fillRect(x, y + tp * 0.12, tp, tp * 0.1);
+          g.fillRect(x, y + tp * 0.78, tp, tp * 0.1);
+          const dmg = this.baseWallHp - whp;
+          if (dmg > 0) {
+            g.strokeStyle = 'rgba(20, 10, 5, .85)'; g.lineWidth = Math.max(1, tp / 12);
+            g.beginPath();
+            g.moveTo(x + tp * 0.2, y + tp * 0.25); g.lineTo(x + tp * 0.45, y + tp * 0.5); g.lineTo(x + tp * 0.35, y + tp * 0.75);
+            if (dmg > 1) { g.moveTo(x + tp * 0.8, y + tp * 0.2); g.lineTo(x + tp * 0.55, y + tp * 0.45); g.lineTo(x + tp * 0.75, y + tp * 0.8); }
+            g.stroke();
+          }
+        }
         if (hard) {
           g.fillStyle = '#b8aaa2';
           const r = Math.max(1, tp / 12);
@@ -339,6 +358,16 @@
       ctx.drawImage(this.ground, 0, 0, mapW, mapW);
       ctx.strokeStyle = '#2f3845'; ctx.lineWidth = 2; ctx.strokeRect(-1, -1, mapW + 2, mapW + 2);
 
+      // 開局保護期：基地圍牆發光
+      if (this.wallShieldTicks && this.playTick() < this.wallShieldTicks) {
+        ctx.strokeStyle = `rgba(120, 220, 255, ${0.5 + 0.3 * Math.sin(now / 200)})`;
+        ctx.lineWidth = Math.max(1.5, tp * 0.08);
+        for (const [idx] of this.wallHp) {
+          if (this.tiles[idx] !== '#') continue;
+          ctx.strokeRect((idx % S) * tp + 1, Math.floor(idx / S) * tp + 1, tp - 2, tp - 2);
+        }
+      }
+
       // 基地
       for (const side of this.meta.sides) {
         if (!side.base) continue;
@@ -410,7 +439,7 @@
       if (predPos && this.myTank && !A.tanks.has(this.myTank.id) && this.latest && this.latest.tanks.has(this.myTank.id)) {
         // 剛重生：伺服器時間軸還沒播到，但預測已經有位置
         const m = this.myTank, t = this.latest.tanks.get(m.id);
-        this._drawTank(ctx, predPos[0] * tp, predPos[1] * tp, DIRS.indexOf(this.pred.dir), this.sideMeta.get(m.side).color, m, tp * this.meta.tankSize, t, now);
+        this._drawTank(ctx, predPos[0] * tp, predPos[1] * tp, this.pred.angle, this.sideMeta.get(m.side).color, m, tp * this.meta.tankSize, t, now);
       }
       for (let [id, t] of A.tanks) {
         const m = this.tankMeta.get(id);
@@ -419,7 +448,7 @@
         if (predPos && this.myTank && id === this.myTank.id) {
           [x, y] = predPos;
           const latestMe = this.latest && this.latest.tanks.get(id);
-          t = Object.assign({}, latestMe || t, { dir: DIRS.indexOf(this.pred.dir) });
+          t = Object.assign({}, latestMe || t, { dir: this.pred.angle });
         }
         drawn.push([id, x, y]);
         const ghost = t.buffs & (8 | 128);       // 隱形或穿牆：半透明
@@ -501,15 +530,15 @@
           const world = { size: S, tiles: this.liveTiles, tankSize: this.meta.tankSize };
           let bounces = this.meta.ricochet ? this.meta.bulletBounces : 0;
           if (me.buffs & 512) bounces = Math.max(bounces, this.meta.bounceBuff);
-          const dirs = [this.pred.dir];
-          if (me.buffs & 256) { const ring = ['up', 'upright', 'right', 'downright', 'down', 'downleft', 'left', 'upleft']; const i = ring.indexOf(this.pred.dir); dirs.push(ring[(i + 7) % 8], ring[(i + 1) % 8]); }
+          const a0 = this.pred.angle, spread = this.meta.spreadAngle || 25;
+          const dirs = me.buffs & 256 ? [a0, a0 - spread, a0 + spread] : [a0];
           ctx.save();
           ctx.setLineDash([tp * 0.18, tp * 0.16]);
           ctx.lineWidth = Math.max(1.2, tp * 0.06);
           ctx.strokeStyle = 'rgba(255, 255, 255, .6)';
           for (const d of dirs) {
-            const v = window.TankPhysics.DIR_VEC[d], half = this.meta.tankSize / 2;
-            const pts = window.TankPhysics.traceShot(world, predPos[0] + v[0] * half, predPos[1] + v[1] * half, d, bounces, 14, this.meta.breakableWalls !== false);
+            const mz = window.TankPhysics.muzzle(predPos[0], predPos[1], d, this.meta.tankSize / 2);
+            const pts = window.TankPhysics.traceShot(world, mz[0], mz[1], d, bounces, 14, this.meta.breakableWalls !== false);
             ctx.beginPath();
             pts.forEach((p, i) => i ? ctx.lineTo(p[0] * tp, p[1] * tp) : ctx.moveTo(p[0] * tp, p[1] * tp));
             ctx.stroke();
@@ -566,7 +595,7 @@
       this.replay = {
         kDeath, k0, k1: kDeath + REPLAY_AFTER, killerId, cause,
         x: last.x, y: last.y,
-        start: now + 350,               // 先讓本體爆炸播一下
+        start: now + 200,               // 先讓本體爆炸播一下
         durMs: (kDeath + REPLAY_AFTER - k0) * (1000 / this.meta.tickRate) / REPLAY_SPEED,
       };
     }
@@ -615,7 +644,7 @@
       // 子彈（拖尾讓軌跡更清楚）
       for (const [id, b] of A.bullets) {
         const [x, y] = pos(id, A.bullets, B.bullets);
-        const v = VEC[b.dir];
+        const v = this.meta.angles ? window.TankPhysics.vec(b.dir) : VEC[b.dir];
         ctx.strokeStyle = 'rgba(255, 240, 160, .45)'; ctx.lineWidth = Math.max(2, tp * 0.12);
         ctx.beginPath(); ctx.moveTo(x * tp, y * tp); ctx.lineTo((x - v[0] * 0.9) * tp, (y - v[1] * 0.9) * tp); ctx.stroke();
         ctx.fillStyle = b.kind === 2 ? '#ff9f43' : '#fff4b0';
@@ -672,7 +701,8 @@
     _drawTank(ctx, x, y, dirIdx, color, m, s, st, now) {
       ctx.save();
       ctx.translate(x, y);
-      ctx.rotate(ANGLE[dirIdx]);
+      // 新版快照是角度（度）；舊的重播檔是八方向編號
+      ctx.rotate(this.meta && this.meta.angles ? dirIdx * Math.PI / 180 : ANGLE[dirIdx]);
       const cls = m.cls;
       const dark = shade(color, -0.35), darker = shade(color, -0.5), light = shade(color, 0.15);
       // 履帶
@@ -738,7 +768,7 @@
       } else if (p.type === 'brick') {
         ctx.fillStyle = `rgba(190, 100, 50, ${1 - k})`;
         for (const b of p.bits) ctx.fillRect(x + b.vx * ease * tp * 0.6, y + b.vy * ease * tp * 0.6, b.s * tp, b.s * tp);
-      } else if (p.type === 'spark') {
+      } else if (p.type === 'spark' || p.type === 'wallHit') {
         ctx.fillStyle = `rgba(255, 255, 220, ${1 - k})`;
         ctx.beginPath(); ctx.arc(x, y, tp * 0.25 * (1 - k * 0.5), 0, 7); ctx.fill();
       } else if (p.type === 'armor') {

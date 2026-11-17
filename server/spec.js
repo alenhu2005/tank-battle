@@ -13,10 +13,12 @@ module.exports = `# 坦克對戰：電腦隊友代碼規格
 用 JavaScript 定義一個函式 think(view, memory)。遊戲每秒呼叫它 ${C.TICK_RATE} 次（每個 tick 一次），回傳你的電腦坦克在這個 tick 的動作。
 
 ## 回傳格式
-{ move: 方向 | null, fire: true | false }
-方向 = "up" | "down" | "left" | "right" | "upleft" | "upright" | "downleft" | "downright"（八個方向）
-- move：往該方向移動，車身和砲管也會轉向該方向；null 表示停住（保持原本的方向）。被擋住時只會轉向。
-- fire：true 表示朝車身方向開火（八個方向都可以）。冷卻中或自己的子彈數已達上限時會被忽略。
+{ move: 角度 | 方向 | null, fire: true | false }
+角度 = 0～360 的數字（度）：0 = 上、90 = 右、180 = 下、270 = 左，順時針，可以有小數（無段落，任何角度都可以）
+方向 = "up" | "down" | "left" | "right" | "upleft" | "upright" | "downleft" | "downright"（等於 0、180、270、90、315、45、225、135 度）
+- move：往該角度移動，車身和砲管也會轉向該角度；null 表示停住（保持原本的角度）。被擋住時只會轉向。
+- 離正上下左右 ${require('../public/physics').SNAP} 度以內時，移動會當作直走並自動靠向格子中心（方便鑽 1 格寬的通道），但砲管仍朝實際角度。
+- fire：true 表示朝砲管角度開火。冷卻中或自己的子彈數已達上限時會被忽略。
 
 ## 執行環境
 - 標準 JavaScript，可以用 Math、JSON、Array、Map 等內建物件。沒有 DOM、網路、檔案、require/import、setTimeout。
@@ -33,7 +35,7 @@ module.exports = `# 坦克對戰：電腦隊友代碼規格
 - 坦克座標是坦克中心。所有坦克都是邊長 ${C.TANK_SIZE} 格的正方形。
 - 斜向移動時，速度向量正規化（每軸速度為移速的 1/√2），撞牆時會沿著牆滑動。
 - 直向或橫向移動時，另一軸每 tick 會自動往所在格子的中心靠近（最多和移動距離一樣多），所以可以順利鑽進 1 格寬的通道。
-- 子彈從車身方向的邊緣（斜向時是車身角落）射出；斜向子彈的速度向量同樣正規化。
+- 子彈從砲管角度與車身方框邊緣的交點射出。
 
 ## view
 {
@@ -42,7 +44,7 @@ module.exports = `# 坦克對戰：電腦隊友代碼規格
   me:      { ...坦克, cooldown, canFire },   // cooldown：還要幾個 tick 才能再開火
   allies:  [ 坦克 ],   // 同隊、還活著的其他坦克（包含你的玩家）
   enemies: [ 坦克 ],   // 所有還活著的敵方坦克
-  bullets: [ { x, y, dir, speed, ally, blast, pierce, freeze, confuse, bounces } ],   // 場上所有子彈；speed 單位是格/秒；ally 表示是不是我方的；bounces 是剩餘反彈次數
+  bullets: [ { x, y, angle, dir, vx, vy, speed, ally, blast, pierce, freeze, confuse, bounces } ],   // vx、vy：每秒移動幾格   // 場上所有子彈；speed 單位是格/秒；ally 表示是不是我方的；bounces 是剩餘反彈次數
   bases:   [ { x, y, ally, alive } ],    // 基地中心座標；非基地模式時是空陣列
   objective: { type, ... },             // 遊戲目標，見下方「遊戲目標」
   items:   [ { x, y, type, ticksLeft } ],  // 場上的道具（格子中心座標）；沒開道具時是空陣列
@@ -50,7 +52,7 @@ module.exports = `# 坦克對戰：電腦隊友代碼規格
   rules:   { tickRate, tankSize, blastRadius, mode, baseMode, fog, breakableWalls, codeOnly, classes, ricochet, bulletBounces, items }
 }
 坦克 = { id, x, y, dir, isBot, owner, cls, lives, hp, shield, carrying, buffs }
-- dir：八個方向之一
+- angle：精確角度（度，0 = 上，順時針）；dir：最接近的八方向名稱（給簡單的代碼用）
 - owner：這台坦克所屬玩家的 id。你的玩家是 allies 裡 isBot === false 且 owner === me.owner 的那台（他死掉等重生時不會出現在 allies）。
 - cls：職業，"bot" 表示電腦坦克，其他見下方職業表。各職業的數值也在 rules.classes[cls] 裡。
 - hp：這條命還能挨幾發；shield：剩餘無敵的 tick 數。
@@ -61,7 +63,9 @@ module.exports = `# 坦克對戰：電腦隊友代碼規格
 
 ## 地形
 .  空地
-#  磚牆：擋坦克和子彈，被子彈打中就消失（rules.breakableWalls 為 false 時打不破）
+#  磚牆：擋坦克和子彈，被子彈打中就消失（rules.breakableWalls 為 false 時打不破）。
+   基地周圍的磚牆是加固的，要打 ${C.BASE_WALL_HP} 下才會破；剩餘耐久在 map.wallHp：[{ x, y, hp }]（只列出加固的牆）。
+   開局後前 ${C.BASE_WALL_SHIELD_TICKS / C.TICK_RATE} 秒加固的牆完全打不壞（剩餘 tick 數在 rules.baseWallShieldLeft）。
 @  鋼牆：擋坦克和子彈，打不壞
 ~  水：擋坦克，子彈可以飛過
 *  草叢：坦克和子彈都可以通過

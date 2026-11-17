@@ -29,6 +29,13 @@ const RING = ['up', 'upright', 'right', 'downright', 'down', 'downleft', 'left',
 const NEIGHBORS = Object.fromEntries(RING.map((d, i) => [d, [RING[(i + 7) % 8], RING[(i + 1) % 8]]]));
 const PHASE_SOLID = new Set(['@', 'B']);
 
+// 移動指令轉成角度（0 = 上，順時針）；接受數字（度）或八方向名稱，其他都當作不動
+function toAngle(m) {
+  if (typeof m === 'number' && Number.isFinite(m)) return Physics.norm(m);
+  if (typeof m === 'string' && m in Physics.ANGLE_OF) return Physics.ANGLE_OF[m];
+  return null;
+}
+
 function mapSizeFor(mode, sideCount, playerCount) {
   if (mode === 'ffa') return [21, 21, 21, 25, 27, 29, 31][sideCount] || 31;
   return Math.min(33, Math.max(21, 19 + 2 * playerCount, [21, 21, 21, 25, 27, 29, 31][sideCount] || 31));
@@ -99,6 +106,8 @@ class Round {
     });
     this.size = size;
     this.tiles = map.tiles;
+    this.wallHp = new Map();      // 基地周圍加固的磚牆：格子編號 -> 剩餘耐久
+    this.wallChanges = [];
     this.center = (size - 1) / 2;
 
     this.sides = sides.map((s, i) => ({
@@ -127,7 +136,7 @@ class Round {
           const tank = {
             id: id++, side: s.key, owner: m.playerId, ownerName: m.name, isBot, cls, stats,
             lives: isBot ? C.BOT_LIVES : C.PLAYER_LIVES, hp: stats.hp,
-            alive: false, x: 0, y: 0, dir: 'up',
+            alive: false, x: 0, y: 0, dir: 'up', angle: 0,
             spawn: this.sides[si].spawns[slot++ % this.sides[si].spawns.length],
             respawnTimer: 0, shield: 0, cooldown: 0,
             input: { move: null, fire: false },
@@ -144,6 +153,7 @@ class Round {
     this.tankById = new Map(this.tanks.map(t => [t.id, t]));
     for (const t of this.tanks) if (t.lives > 0) this._spawn(t, true);
     this._initObjective();
+    this._reinforceBaseWalls();
     this.rowsCache = null;
   }
 
@@ -152,7 +162,7 @@ class Round {
   setInput(playerId, input) {
     const t = this.playerTank(playerId);
     if (!t || t.sandbox) return;
-    t.input = { move: C.DIRS.includes(input.move) ? input.move : null, fire: !!input.fire };
+    t.input = { move: toAngle(input.move), fire: !!input.fire };
     if (Number.isInteger(input.seq)) t.inputSeq = input.seq;   // 手機預測用：回報處理到第幾個輸入
   }
 
@@ -172,6 +182,8 @@ class Round {
       mode: this.mode, baseMode: this.baseMode, fog: this.fog && !this.codeOnly, breakableWalls: this.breakableWalls,
       codeOnly: this.codeOnly, timeLimitTicks: this.timeLimitTicks, startTicks: this.startTicks, blastRadius: C.BLAST_RADIUS,
       ricochet: this.ricochet, items: this.itemsOn, itemTypes: C.ITEM_TYPES, objective: this.objective,
+      angles: true, spreadAngle: C.SPREAD_ANGLE,
+      wallHp: [...this.wallHp], baseWallHp: C.BASE_WALL_HP, baseWallShieldTicks: C.BASE_WALL_SHIELD_TICKS,   // 快照裡的方向是角度（度），不是八方向編號
       alignRate: C.ALIGN_RATE, speedBuff: C.SPEED_BUFF, bulletBounces: C.BULLET_BOUNCES, bounceBuff: C.BOUNCE_BUFF,
       tickRate: C.TICK_RATE, tankSize: C.TANK_SIZE,
       sides: this.sides.map(s => ({ key: s.key, name: s.name, color: s.color, base: s.base ? { x: s.base.x, y: s.base.y } : null, anchor: s.anchor })),
@@ -193,6 +205,7 @@ class Round {
     this.kills = [];
     this.baseKillsNow = [];
     this.objEvents = [];
+    this.wallChanges = [];
     this.pickups = [];
     this.itemsChanged = false;
     if (this.tick <= this.startTicks) return; // 倒數中
@@ -215,9 +228,9 @@ class Round {
       if (t.shield > 0) t.shield--;
       for (const k of TIMERS) if (t[k] > 0) t[k]--;
       if (t.frozen > 0) continue;                       // 被凍住：不能動也不能射
-      let mv = t.input.move;
-      if (mv && t.confused > 0) mv = OPPOSITE[mv];     // 混亂：方向顛倒
-      if (mv) this._move(t, mv);
+      let mv = toAngle(t.input.move);
+      if (mv !== null && t.confused > 0) mv = Physics.norm(mv + 180);     // 混亂：方向顛倒
+      if (mv !== null) this._move(t, mv);
       if (t.input.fire) this._fire(t);
     }
     for (const t of this.tanks) if (!t.isBot) t.ackSeq = t.inputSeq || 0;
@@ -254,6 +267,7 @@ class Round {
       t.dir = Math.abs(p.y - this.center) >= Math.abs(p.x - this.center)
         ? (p.y < this.center ? 'down' : 'up')
         : (p.x < this.center ? 'right' : 'left');
+      t.angle = Physics.ANGLE_OF[t.dir];
       t.shield = C.SHIELD_TICKS; // 開局與重生都有短暫無敵
       t.cooldown = 0;
       t.input = { move: null, fire: false };
@@ -299,14 +313,17 @@ class Round {
     if (freeze || confuse) blast = false;
     const speed = t.stats.bulletSpeed * (t.swiftBuff > 0 ? C.SWIFT_BULLET : 1);
     const bounces = Math.max(this.ricochet ? C.BULLET_BOUNCES : 0, t.bounceBuff > 0 ? C.BOUNCE_BUFF : 0);
-    const dirs = t.spreadBuff > 0 ? [t.dir, ...NEIGHBORS[t.dir]] : [t.dir];
+    const a0 = t.angle || 0;
+    const angles = t.spreadBuff > 0 ? [a0, a0 - C.SPREAD_ANGLE, a0 + C.SPREAD_ANGLE] : [a0];
     this.events.push(['shot', t.x, t.y]);   // 給手機播音效
     t.shots++;
-    dirs.forEach((d, i) => {
-      const [vx, vy] = C.DIR_VEC[d]; // 從砲口（斜向時為車身角落）射出
+    angles.forEach((ang, i) => {
+      const a = Physics.norm(ang);
+      const [vx, vy] = Physics.vec(a);
+      const [mx, my] = Physics.muzzle(t.x, t.y, a, HALF);   // 從砲口（車身邊緣）射出
       this.bullets.push({
-        id: this.nextBulletId++, owner: t.id, side: t.side, dir: d,
-        x: t.x + vx * HALF, y: t.y + vy * HALF,
+        id: this.nextBulletId++, owner: t.id, side: t.side, angle: a, dir: Physics.dirOf(a), vx, vy,
+        x: mx, y: my,
         speed, pierce, blast, freeze, confuse, bounces, extra: i > 0,
       });
     });
@@ -415,6 +432,7 @@ class Round {
           this.tiles[idx] = '#';
           this.tileChanges.push([idx, '#']);
         }
+        this._reinforceBaseWalls(side);
         this.events.push(['spawn', side.base.x + 0.5, side.base.y + 0.5]);
         break;
       }
@@ -458,7 +476,7 @@ class Round {
     for (let s = 0; s < BULLET_SUB; s++) {
       for (const b of this.bullets) {
         if (b.dead) continue;
-        const [vx, vy] = UNIT[b.dir];
+        const vx = b.vx, vy = b.vy;
         const step = b.speed / C.TICK_RATE / BULLET_SUB;
         b.px = b.x; b.py = b.y;
         b.x += vx * step; b.y += vy * step;
@@ -505,15 +523,12 @@ class Round {
 
   // 反彈：判斷撞到的是哪一面，翻轉對應的方向分量
   _bounce(b) {
-    let [vx, vy] = C.DIR_VEC[b.dir];
-    const xHit = this._stopsBullet(b.x, b.py), yHit = this._stopsBullet(b.px, b.y);
-    if (vx && vy) {
-      if (xHit && !yHit) vx = -vx;
-      else if (yHit && !xHit) vy = -vy;
-      else { vx = -vx; vy = -vy; }
-    } else { vx = -vx; vy = -vy; }
+    const v = [b.vx, b.vy];
+    Physics.bounceVec(v, this._stopsBullet(b.x, b.py), this._stopsBullet(b.px, b.y));
+    b.vx = v[0]; b.vy = v[1];
     b.x = b.px; b.y = b.py;
-    b.dir = C.DIRS.find(d => C.DIR_VEC[d][0] === vx && C.DIR_VEC[d][1] === vy);
+    b.angle = Physics.angleOfVec(b.vx, b.vy);
+    b.dir = Physics.dirOf(b.angle);
     b.bounces--;
     this.events.push(['spark', b.x, b.y]);
   }
@@ -535,9 +550,9 @@ class Round {
     const c = this.tiles[idx];
     if (c === '#') {
       b.dead = true;
-      if (this.breakableWalls) this._breakTile(tx, ty);
+      const broke = this.breakableWalls && this._breakTile(tx, ty);
       if (b.blast) this._blast(b, tx + 0.5, ty + 0.5, null);
-      else this.events.push([this.breakableWalls ? 'brick' : 'spark', tx + 0.5, ty + 0.5]);
+      else this.events.push([broke ? 'brick' : this.breakableWalls ? 'wallHit' : 'spark', tx + 0.5, ty + 0.5]);
     } else if (c === '@') {
       b.dead = true;
       if (b.blast) this._blast(b, b.x, b.y, null);
@@ -551,12 +566,38 @@ class Round {
     }
   }
 
+  // 打磚牆：加固的基地圍牆要打好幾下；回傳 true 表示這塊牆被打掉了
   _breakTile(tx, ty) {
-    if (tx < 0 || ty < 0 || tx >= this.size || ty >= this.size) return;
+    if (tx < 0 || ty < 0 || tx >= this.size || ty >= this.size) return false;
     const idx = ty * this.size + tx;
-    if (this.tiles[idx] !== '#') return;
+    if (this.tiles[idx] !== '#') return false;
+    const hp = this.wallHp.get(idx);
+    if (hp && this.playTick < C.BASE_WALL_SHIELD_TICKS) return false;   // 開局保護期：基地圍牆打不壞
+    if (hp > 1) {
+      this.wallHp.set(idx, hp - 1);
+      this.wallChanges.push([idx, hp - 1]);
+      return false;
+    }
+    this.wallHp.delete(idx);
     this.tiles[idx] = '.';
     this.tileChanges.push([idx, '.']);
+    return true;
+  }
+
+  // 基地周圍 8 格的磚牆加固（牆打不破的模式不需要）
+  _reinforceBaseWalls(sideFilter) {
+    if (!this.breakableWalls) return;
+    for (const s of this.sides) {
+      if (!s.base || !s.base.alive || (sideFilter && s !== sideFilter)) continue;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const x = s.base.x + dx, y = s.base.y + dy;
+        if (x < 0 || y < 0 || x >= this.size || y >= this.size) continue;
+        const idx = y * this.size + x;
+        if (this.tiles[idx] !== '#') continue;
+        if (this.wallHp.get(idx) !== C.BASE_WALL_HP) { this.wallHp.set(idx, C.BASE_WALL_HP); this.wallChanges.push([idx, C.BASE_WALL_HP]); }
+      }
+    }
   }
 
   // 爆破子彈：炸毀 3×3 磚牆（牆壁可破時），並傷害半徑內的敵方坦克
@@ -717,7 +758,7 @@ class Round {
 
   _tankView(t) {
     return {
-      id: t.id, x: t.x, y: t.y, dir: t.dir, isBot: t.isBot, owner: t.owner, cls: t.cls, lives: t.lives, hp: t.hp, shield: t.shield,
+      id: t.id, x: t.x, y: t.y, dir: t.dir, angle: Math.round((t.angle || 0) * 10) / 10, isBot: t.isBot, owner: t.owner, cls: t.cls, lives: t.lives, hp: t.hp, shield: t.shield,
       carrying: !!t.carrying,
       buffs: {
         speed: t.speedBuff || 0, rapid: t.rapidBuff || 0, spread: t.spreadBuff || 0, bounce: t.bounceBuff || 0, swift: t.swiftBuff || 0,
@@ -753,16 +794,20 @@ class Round {
       },
       allies,
       enemies,
-      bullets: this.bullets.map(b => ({ x: b.x, y: b.y, dir: b.dir, speed: b.speed, ally: b.side === me.side, blast: b.blast, pierce: b.pierce, freeze: b.freeze, confuse: b.confuse, bounces: b.bounces })),
+      bullets: this.bullets.map(b => ({ x: b.x, y: b.y, dir: b.dir, angle: Math.round(b.angle * 10) / 10, vx: b.vx * b.speed, vy: b.vy * b.speed, speed: b.speed, ally: b.side === me.side, blast: b.blast, pierce: b.pierce, freeze: b.freeze, confuse: b.confuse, bounces: b.bounces })),
       objective: this.objectiveView(me),
       items: this.items.map(it => ({ x: it.x, y: it.y, type: C.ITEM_TYPES[it.type].key, ticksLeft: it.until - this.playTick })),
       bases: this.baseMode ? this.sides.filter(s => s.base).map(s => ({ x: s.base.x + 0.5, y: s.base.y + 0.5, ally: s.key === me.side, alive: s.base.alive })) : [],
-      map: { width: this.size, height: this.size, tiles: this._rows() },
+      map: {
+        width: this.size, height: this.size, tiles: this._rows(),
+        wallHp: [...this.wallHp].map(([i, hp]) => ({ x: i % this.size, y: Math.floor(i / this.size), hp })),
+      },
       rules: {
         tickRate: C.TICK_RATE, tankSize: C.TANK_SIZE, blastRadius: C.BLAST_RADIUS,
         mode: this.mode, baseMode: this.baseMode, fog: this.fog, breakableWalls: this.breakableWalls,
         codeOnly: this.codeOnly, classes: this.classTable,
         ricochet: this.ricochet, bulletBounces: C.BULLET_BOUNCES, items: this.itemsOn,
+        baseWallShieldLeft: Math.max(0, C.BASE_WALL_SHIELD_TICKS - this.playTick),
       },
     };
     return JSON.stringify(view);
@@ -793,12 +838,12 @@ class Round {
         | (t.blastShots > 0 || t.pierceShots > 0 || t.freezeShots > 0 || t.confuseShots > 0 ? 4 : 0)
         | (t.cloak > 0 ? 8 : 0) | (t.radar > 0 ? 16 : 0) | (t.frozen > 0 ? 32 : 0) | (t.confused > 0 ? 64 : 0)
         | (t.phase > 0 ? 128 : 0) | (t.spreadBuff > 0 ? 256 : 0) | (t.bounceBuff > 0 ? 512 : 0) | (t.swiftBuff > 0 ? 1024 : 0);
-      T.push([t.id, Math.round(t.x * 100), Math.round(t.y * 100), DIR_IDX[t.dir], t.shield > 0 ? 1 : 0, t.hp, buffs, t.ackSeq || 0]);
+      T.push([t.id, Math.round(t.x * 100), Math.round(t.y * 100), Math.round(t.angle || 0), t.shield > 0 ? 1 : 0, t.hp, buffs, t.ackSeq || 0]);
     }
     const B = [];
     for (const b of this.bullets) {
       if (vis && b.side !== vis.side && !vis.see(b.x, b.y)) continue;
-      B.push([b.id, Math.round(b.x * 100), Math.round(b.y * 100), DIR_IDX[b.dir], b.freeze ? 3 : b.confuse ? 4 : b.blast ? 2 : b.pierce ? 1 : 0]);
+      B.push([b.id, Math.round(b.x * 100), Math.round(b.y * 100), Math.round(b.angle), b.freeze ? 3 : b.confuse ? 4 : b.blast ? 2 : b.pierce ? 1 : 0]);
     }
     const E = vis ? this.events.filter(e => vis.see(e[1], e[2]) || e[0] === 'baseBoom') : this.events;
     const snap = { t: 's', k: this.tick, T, B };
@@ -811,6 +856,7 @@ class Round {
     if (this.baseKillsNow.length) snap.X = this.baseKillsNow;
     if (E.length) snap.E = E.map(e => [e[0], Math.round(e[1] * 100), Math.round(e[2] * 100)]);
     if (this.tileChanges.length) snap.M = this.tileChanges;
+    if (this.wallChanges.length) snap.W = this.wallChanges;
     if (this.tick % 10 === 1 || this.events.length) {
       snap.L = this.tanks.map(t => [t.id, t.lives, t.alive ? 1 : 0]);
       snap.S = this.sides.map(s => [s.key, s.eliminated ? 1 : 0, s.base ? (s.base.alive ? 1 : 0) : -1]);

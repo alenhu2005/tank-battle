@@ -177,8 +177,9 @@ class BotSandbox {
     }
     let move = r.move;
     if (move === undefined || move === '' || move === 'none' || move === 'stop') move = null;
+    if (typeof move === 'number' && Number.isFinite(move)) return { move: ((move % 360) + 360) % 360, fire: !!r.fire };
     if (move !== null && !C.DIRS.includes(move)) {
-      this._error(`move 的值 ${JSON.stringify(move)} 無效，只能是 ${C.DIRS.map(d => '"' + d + '"').join(' ')} 或 null`);
+      this._error(`move 的值 ${JSON.stringify(move)} 無效：可以是角度（數字，0 = 上、90 = 右，順時針）、${C.DIRS.map(d => '"' + d + '"').join(' ')} 或 null`);
       move = null;
     }
     return { move, fire: !!r.fire };

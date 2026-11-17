@@ -13,6 +13,16 @@
   };
   var UNIT = {};
   DIRS.forEach(function (d) { var v = DIR_VEC[d], n = Math.hypot(v[0], v[1]); UNIT[d] = [v[0] / n, v[1] / n]; });
+  // 角度：0 = 上、90 = 右、180 = 下、270 = 左（順時針，像指南針）
+  var ANGLE_OF = { up: 0, upright: 45, right: 90, downright: 135, down: 180, downleft: 225, left: 270, upleft: 315 };
+  var SNAP = 12;   // 推搖桿時離正上下左右 12° 以內，就當作直走（才鑽得進 1 格寬的通道），但砲管照實際角度
+  function norm(a) { a = a % 360; return a < 0 ? a + 360 : a; }
+  function vec(deg) { var r = deg * Math.PI / 180; return [Math.round(Math.sin(r) * 1e9) / 1e9, Math.round(-Math.cos(r) * 1e9) / 1e9]; }
+  function angleOfVec(x, y) { return norm(Math.atan2(x, -y) * 180 / Math.PI); }
+  // 最接近的八方向名稱（給舊代碼用）
+  function dirOf(deg) { var names = ['up', 'upright', 'right', 'downright', 'down', 'downleft', 'left', 'upleft']; return names[Math.round(norm(deg) / 45) % 8]; }
+  // 從坦克中心沿角度射到坦克方框邊緣的點（砲口位置）
+  function muzzle(x, y, deg, half) { var u = vec(deg), k = half / Math.max(Math.abs(u[0]), Math.abs(u[1])); return [x + u[0] * k, y + u[1] * k]; }
   var OPPOSITE = { up: 'down', down: 'up', left: 'right', right: 'left', upleft: 'downright', downright: 'upleft', upright: 'downleft', downleft: 'upright' };
   var TANK_SOLID = { '#': 1, '@': 1, '~': 1, B: 1 };
   var PHASE_SOLID = { '@': 1, B: 1 };
@@ -66,10 +76,16 @@
     }
   }
 
-  // 往 dir 移動一個 tick；step = 這個 tick 的移動距離（格）
-  function move(world, t, dir, step, others) {
-    var u = UNIT[dir];
-    t.dir = dir;
+  // 往任意角度移動一個 tick；step = 這個 tick 的移動距離（格）。也接受八方向名稱。
+  function move(world, t, dirOrAngle, step, others) {
+    var a = typeof dirOrAngle === 'number' ? norm(dirOrAngle) : ANGLE_OF[dirOrAngle];
+    t.angle = a;
+    t.dir = dirOf(a);
+    // 接近正上下左右時，移動當作直走（砲管仍是實際角度）
+    var card = (Math.round(a / 90) * 90) % 360;
+    var diff = Math.abs(((a - card + 540) % 360) - 180);
+    var mv = diff <= SNAP ? card : a;
+    var u = vec(mv);
     moveAxis(world, t, u[0] * step, 0, others);          // 兩軸分開：斜走撞牆會沿牆滑動
     moveAxis(world, t, 0, u[1] * step, others);
     if (u[0] === 0) align(world, t, 'x', step * world.alignRate, others);  // 直走時自動靠向格子中心
@@ -79,9 +95,9 @@
   }
 
   // 瞄準輔助線：從 (x, y) 往 dir 追蹤子彈路徑（會算反彈），回傳折線的點
-  function traceShot(world, x, y, dir, bounces, maxLen, breakable) {
+  function traceShot(world, x, y, dirOrAngle, bounces, maxLen, breakable) {
     var pts = [[x, y]], len = 0, step = 0.05;
-    var v = DIR_VEC[dir].slice(), u = UNIT[dir].slice();
+    var u = vec(typeof dirOrAngle === 'number' ? dirOrAngle : ANGLE_OF[dirOrAngle]), v = u.slice();
     function stops(px, py) {
       var tx = Math.floor(px), ty = Math.floor(py);
       if (tx < 0 || ty < 0 || tx >= world.size || ty >= world.size) return 'edge';
@@ -98,13 +114,9 @@
       if (!hit) continue;
       if ((hit === 'steel' || hit === 'edge') && bounces > 0) {
         var xHit = !!stops(x, py), yHit = !!stops(px, y);
-        if (v[0] && v[1]) {
-          if (xHit && !yHit) v[0] = -v[0];
-          else if (yHit && !xHit) v[1] = -v[1];
-          else { v[0] = -v[0]; v[1] = -v[1]; }
-        } else { v[0] = -v[0]; v[1] = -v[1]; }
+        bounceVec(v, xHit, yHit);
         x = px; y = py;
-        var n = Math.hypot(v[0], v[1]); u = [v[0] / n, v[1] / n];
+        u = v.slice();
         bounces--;
         pts.push([x, y]);
         continue;
@@ -116,8 +128,18 @@
     return pts;
   }
 
+  // 子彈撞牆反彈：判斷撞到哪一面，翻轉對應分量（直直撞上就整個反向）
+  function bounceVec(v, xHit, yHit) {
+    var straight = Math.abs(v[0]) < 1e-6 || Math.abs(v[1]) < 1e-6;
+    if (straight) { v[0] = -v[0]; v[1] = -v[1]; return; }
+    if (xHit && !yHit) v[0] = -v[0];
+    else if (yHit && !xHit) v[1] = -v[1];
+    else { v[0] = -v[0]; v[1] = -v[1]; }
+  }
+
   return {
-    DIRS: DIRS, DIR_VEC: DIR_VEC, UNIT: UNIT, OPPOSITE: OPPOSITE,
+    DIRS: DIRS, DIR_VEC: DIR_VEC, UNIT: UNIT, OPPOSITE: OPPOSITE, ANGLE_OF: ANGLE_OF, SNAP: SNAP,
+    norm: norm, vec: vec, angleOfVec: angleOfVec, dirOf: dirOf, muzzle: muzzle, bounceVec: bounceVec,
     tileBlocked: tileBlocked, blocked: blocked, move: move, traceShot: traceShot,
   };
 });

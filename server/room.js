@@ -166,7 +166,11 @@ class Room {
     const isHost = p.id === this.hostId;
     switch (msg.t) {
       case 'i': // 操作輸入
-        if (this.round) this.round.setInput(p.id, { move: C.DIRS[msg.m] || null, fire: !!msg.f, seq: Number.isInteger(msg.s) ? msg.s : undefined });
+        if (this.round) {
+          // a：角度（度，0 = 上，順時針，-1 = 不動）；舊版用 m：八方向編號
+          const move = typeof msg.a === 'number' ? (msg.a >= 0 ? msg.a : null) : (C.DIRS[msg.m] || null);
+          this.round.setInput(p.id, { move, fire: !!msg.f, seq: Number.isInteger(msg.s) ? msg.s : undefined });
+        }
         return;
       case 'settings': {
         if (!isHost || this.state !== 'lobby') return;

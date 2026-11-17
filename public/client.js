@@ -295,7 +295,7 @@
       <div class="set-desc">玩家只看得到自己周圍；電腦不受影響</div>
       <div class="set-row"><span>牆壁打不破</span>${sw('hardWalls', s.hardWalls)}</div>
       <div class="set-row"><span>場地道具</span>${sw('items', s.items)}</div>
-      <details class="item-guide ${host ? 'host' : ''}" ${itemGuideOpen ? 'open' : ''}><summary>每 8 秒刷新一個道具，開放 ${info.itemTypes.length - (s.disabledItems || []).length} / ${info.itemTypes.length} 種（點開看說明${host ? '，點道具可以關掉' : ''}）</summary>
+      <details class="item-guide ${host ? 'host' : ''}" ${itemGuideOpen ? 'open' : ''}><summary>每 10 秒刷新一個道具，開放 ${info.itemTypes.length - (s.disabledItems || []).length} / ${info.itemTypes.length} 種（點開看說明${host ? '，點道具可以關掉' : ''}）</summary>
         <ul>${info.itemTypes.map(t => `<li data-item="${t.key}" class="${(s.disabledItems || []).includes(t.key) ? 'off' : ''}"><span class="ic">${t.icon}</span><div><b>${esc(t.name)}</b>${esc(t.desc)}</div></li>`).join('')}</ul></details>
       <div class="set-row"><span>子彈反彈</span>${sw('ricochet', s.ricochet)}</div>
       <div class="set-desc">子彈撞到鋼牆和邊界會反彈，最多 2 次</div>
@@ -658,7 +658,7 @@ ${sample ? sample.code : defaultBot}\`\`\`
   // ---------- 新手教學 ----------
   const TUT_STEPS = [
     '推動左下的搖桿移動坦克（往任何方向都可以）',
-    '試試把搖桿斜著推，坦克可以斜走',
+    '把搖桿往斜的方向推：推到哪個角度，坦克就朝那個角度走、朝那個角度射',
     '按住右下的「開火」射擊。虛線是子彈會飛的路線',
     '打掉一塊磚牆（橘色的牆打得破，灰色鋼牆打不破）',
     '地圖上發亮的小方塊是道具，開過去撿一個',
@@ -688,8 +688,12 @@ ${sample ? sample.code : defaultBot}\`\`\`
   function tutTick() {
     if (!tut.on || !renderer.pred) return;
     if (!tut.start) tut.start = { x: renderer.pred.x, y: renderer.pred.y };
-    if (tut.step === 0 && Math.hypot(renderer.pred.x - tut.start.x, renderer.pred.y - tut.start.y) > 1.5) tutAdvance(0);
-    if (tut.step === 1) { tut.diagTicks = input.move >= 4 ? tut.diagTicks + 1 : 0; if (tut.diagTicks > 3) tutAdvance(1); }
+    if (tut.step === 0 && Math.hypot(renderer.pred.x - tut.start.x, renderer.pred.y - tut.start.y) > 1) tutAdvance(0);
+    if (tut.step === 1) {
+      const off = input.move >= 0 ? Math.abs(((input.move % 90) + 90) % 90 - 45) : 45;   // 離正上下左右多遠
+      tut.diagTicks = input.move >= 0 && off < 30 ? tut.diagTicks + 1 : 0;
+      if (tut.diagTicks > 3) tutAdvance(1);
+    }
     if (tut.step === 2 && input.fire) tutAdvance(2);
   }
   setInterval(tutTick, 100);
@@ -823,6 +827,10 @@ ${sample ? sample.code : defaultBot}\`\`\`
     } else if (o && o.type === 'pve') {
       objHtml = `<span>第 ${o.wave}/${o.waves} 波・剩 ${o.left} 隻</span>`;
     }
+    if (r.meta.baseMode && r.wallShieldTicks && r.wallHp.size) {
+      const left = Math.ceil((r.wallShieldTicks - Math.max(0, played)) / r.meta.tickRate);
+      if (left > 0) objHtml += `<span>🛡️ 基地圍牆無敵 ${left}s</span>`;
+    }
     $('#hudObj').innerHTML = objHtml;
     const spect = $('#spectate');
     if (r.myTank) {
@@ -847,7 +855,7 @@ ${sample ? sample.code : defaultBot}\`\`\`
 
   // ---------- 操作：虛擬搖桿（八方向）、開火鍵、鍵盤 ----------
   // 方向編號與伺服器一致：0 上 1 下 2 左 3 右 4 左上 5 右上 6 左下 7 右下
-  const input = { move: -1, fire: false };
+  const input = { move: -1, fire: false };   // move：角度（度，0 = 上，順時針），-1 = 不動
   let sentInput = '', lastSendAt = 0, inputSeq = 0;
   let pending = [];   // 已送出、伺服器還沒確認的移動輸入（預測用）
   // 輸入改變時不立刻送，交給下面每秒 30 次的迴圈（同時做本機預測）
@@ -874,7 +882,7 @@ ${sample ? sample.code : defaultBot}\`\`\`
     const me = r.latest.tanks.get(r.myTank.id);
     if (!me) { r.pred = null; pending = []; return; }
     pending = pending.filter(p => p.seq > me.ack);
-    const p = { x: me.x, y: me.y, dir: PHYS.DIRS[me.dir], phase: me.buffs & 128 ? 1 : 0 };
+    const p = { x: me.x, y: me.y, angle: me.dir, dir: PHYS.dirOf(me.dir), phase: me.buffs & 128 ? 1 : 0 };
     const world = predWorld(), others = predOthers(r.myTank.id);
     for (const inp of pending) PHYS.move(world, p, inp.dir, inp.step, others);
     if (!r.pred || Math.abs(r.pred.x - p.x) + Math.abs(r.pred.y - p.y) > 1.5) { r.predOff.x = 0; r.predOff.y = 0; }
@@ -885,17 +893,17 @@ ${sample ? sample.code : defaultBot}\`\`\`
   setInterval(() => {
     if (!roundMeta || !renderer.latest) return;
     const r = renderer, now = performance.now();
-    const key = input.move + ',' + (input.fire ? 1 : 0);
+    const key = Math.round(input.move) + ',' + (input.fire ? 1 : 0);
     const active = input.move >= 0 || input.fire;
     if (!active && key === sentInput && now - lastSendAt < 500) return;
     const seq = ++inputSeq;
-    send({ t: 'i', m: input.move, f: input.fire ? 1 : 0, s: seq });
+    send({ t: 'i', a: input.move >= 0 ? Math.round(input.move * 10) / 10 : -1, f: input.fire ? 1 : 0, s: seq });
     sentInput = key; lastSendAt = now;
     // 本機預測：倒數中、凍住或沒活著時不動
     const me = r.myTank && r.latest.tanks.get(r.myTank.id);
     if (!me || !r.pred || r.latest.c > 0 || input.move < 0 || (me.buffs & 32)) return;
-    let dir = PHYS.DIRS[input.move];
-    if (me.buffs & 64) dir = PHYS.OPPOSITE[dir];
+    let dir = Math.round(input.move * 10) / 10;
+    if (me.buffs & 64) dir = PHYS.norm(dir + 180);   // 混亂：方向顛倒
     const step = myStep(me);
     r.pred.phase = me.buffs & 128 ? 1 : 0;
     PHYS.move(predWorld(), r.pred, dir, step, predOthers(r.myTank.id));
@@ -937,13 +945,9 @@ ${sample ? sample.code : defaultBot}\`\`\`
     const d = Math.hypot(dx, dy), maxR = 45;
     if (d > maxR) { dx = dx / d * maxR; dy = dy / d * maxR; }
     knob.style.transform = `translate(${dx}px, ${dy}px)`;
-    let mv = -1;
-    if (d > 12) {
-      const ang = Math.atan2(-dy, dx);                       // 螢幕 y 向下，翻轉成數學角度
-      const sector = ((Math.round(ang / (Math.PI / 4)) % 8) + 8) % 8;
-      mv = SECTOR_TO_DIR[sector];
-    }
-    if (mv !== input.move && mv >= 0) buzz(6);
+    // 無段落：推多少角度就是多少角度
+    const mv = d > 12 ? PHYS.angleOfVec(dx, dy) : -1;
+    if (input.move < 0 && mv >= 0) buzz(6);
     input.move = mv; pushInput();
   }
 
@@ -966,7 +970,7 @@ ${sample ? sample.code : defaultBot}\`\`\`
     let x = 0, y = 0;
     for (const k of keys) if (KEY_VEC[k]) { x += KEY_VEC[k][0]; y += KEY_VEC[k][1]; }
     x = Math.sign(x); y = Math.sign(y);
-    input.move = (x || y) ? VEC_TO_DIR[x + ',' + y] : -1;
+    input.move = (x || y) ? PHYS.angleOfVec(x, y) : -1;
     input.fire = keys.has('Space') || keys.has('KeyJ');
     pushInput();
   }
