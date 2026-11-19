@@ -28,6 +28,7 @@ module.exports = function install(Round) {
       used.add(key); used.add(k2);
       this.portalPair.set(key, q); this.portalPair.set(k2, p);
     }
+    for (const p of portals) { const k = p.y * S + p.x; if (!this.portalPair.has(k)) this.tiles[k] = '.'; }   // 落單的傳送門（例如被護送路線挖掉另一個）
     // 縮圈：只在生存和佔點模式
     const Z = C.ZONE;
     this.zone = null;

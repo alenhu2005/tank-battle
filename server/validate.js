@@ -27,7 +27,7 @@ function validateCode(code) {
 
     let round;
     try {
-      round = new Round({ mode: sc.mode, baseMode: sc.baseMode, fog: sc.fog, breakableWalls: !sc.hard, codeOnly: !!sc.codeOnly, hpSystem: !!sc.items, items: !!sc.items, ricochet: !!sc.ricochet, timeLimit: 0, sides, size: 21 });
+      round = new Round({ mode: sc.mode, baseMode: sc.baseMode, fog: sc.fog, breakableWalls: !sc.hard, codeOnly: !!sc.codeOnly, hpSystem: !!sc.items, specialTerrain: !!sc.items, zone: !!sc.items, items: !!sc.items, ricochet: !!sc.ricochet, timeLimit: 0, sides, size: 21 });
     } catch (e) {
       result.errors.push('測試環境建立失敗：' + e.message);
       return result;

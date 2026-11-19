@@ -118,11 +118,13 @@ function placeSpecials(g, anchors, symmetry) {
   };
   place('O', Math.max(2, Math.round(size / 9)));
   place('H', 1);
-  // 傳送門：一對，彼此點對稱（伺服器會把點對稱的兩個傳送門配成一對）
+  // 傳送門：彼此點對稱的一對（伺服器會把點對稱的兩個傳送門配成一對）；四隊地圖放兩對（旋轉 90 度），每隊都有一個在附近
   for (let tries = 0; tries < 200; tries++) {
     const x = 1 + Math.floor(Math.random() * (m - 1)), y = 1 + Math.floor(Math.random() * (m - 1));
-    if (!okCell(x, y) || !okCell(m - x, m - y) || Math.abs(x - (m - x)) + Math.abs(y - (m - y)) < size * 0.6) continue;
-    g[y][x] = 'P'; g[m - y][m - x] = 'P';
+    const cells = symmetry === 4 ? orbit(x, y, size, 4) : [[x, y], [m - x, m - y]];
+    if (!cells.every(([px, py]) => okCell(px, py)) || Math.abs(x - (m - x)) + Math.abs(y - (m - y)) < size * 0.6) continue;
+    if (symmetry === 4 && new Set(cells.map(([px, py]) => py * size + px)).size < 4) continue;
+    for (const [px, py] of cells) g[py][px] = 'P';
     break;
   }
 }

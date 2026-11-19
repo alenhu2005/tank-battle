@@ -457,7 +457,7 @@
     if (li && isHost() && room.state === 'lobby') {
       const off = new Set(room.settings.disabledItems || []);
       if (off.has(li.dataset.item)) off.delete(li.dataset.item); else off.add(li.dataset.item);
-      if (off.size >= info.itemTypes.length) return toast('至少要留一種道具（或直接關掉場地道具）');
+      if (!info.itemTypes.some(t => !off.has(t.key) && (room.settings.hpSystem || !t.hpOnly))) return toast('至少要留一種用得到的道具（或直接關掉場地道具）');
       return send({ t: 'settings', disabledItems: [...off] });
     }
     const b = e.target.closest('[data-set]'); if (!b || !isHost()) return;
@@ -1399,7 +1399,7 @@ ${sample.code}\`\`\`
   if (urlReplay && /^\d{4}-\d+$/.test(urlReplay)) loadReplay(urlReplay);
 
   // ---------- 局後結果 ----------
-  const REASONS = { last: '最後存活', draw: '同歸於盡', time: '時間到，剩餘命數較多', timeDraw: '時間到，平手', forced: '房主強制結束', escortWin: '礦車推到終點', escortDefend: '守住了礦車', koth: '佔點時間先達標', ctf: '搶旗次數先達標', pveWin: '撐過所有怪物', pveLose: '被怪物打倒了' };
+  const REASONS = { last: '最後存活', draw: '同歸於盡', time: '時間到，剩餘命數較多', timeDraw: '時間到，平手', forced: '房主強制結束', escortWin: '礦車推到終點', escortDefend: '守住了礦車', koth: '佔點時間先達標', ctf: '搶旗次數先達標', pveWin: '撐過所有怪物', pveLose: '被怪物打倒了', pveTime: '時間到，怪物沒清完' };
 
   function renderResult() {
     if (!lastResult || !room) return;

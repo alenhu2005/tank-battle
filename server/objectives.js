@@ -201,6 +201,7 @@ module.exports = function install(Round) {
       if (players.eliminated || this._sideStrength(players) === 0) { players.eliminated = true; return { winner: null, reason: 'pveLose' }; }
       const left = this.tanks.filter(t => t.monster && (t.alive || t.lives > 0)).length;
       if (this.pveWave >= C.PVE_WAVES && left === 0) return { winner: players, reason: 'pveWin' };
+      if (this.timeLimitTicks && this.playTick >= this.timeLimitTicks) return { winner: null, reason: 'pveTime' };   // 時間到還沒撐過所有波：算輸
       return false;
     }
     return null;

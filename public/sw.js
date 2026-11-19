@@ -16,6 +16,7 @@ self.addEventListener('fetch', e => {
   // 遊戲資料（規格、重播、擂台）不快取
   if (!SHELL.includes(url.pathname)) return;
   e.respondWith(fetch(e.request).then(res => {
+    if (!res.ok) return res;          // 錯誤頁不要快取
     const copy = res.clone();
     caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
     return res;

@@ -70,7 +70,9 @@ class Round {
     this.ricochet = !!opts.ricochet;
     this.itemsOn = !!opts.items;
     const off = new Set(opts.disabledItems || []);
-    this.allowedItems = C.ITEM_TYPES.map((t, i) => i).filter(i => !off.has(C.ITEM_TYPES[i].key) && (this.hpSystem || !C.ITEM_TYPES[i].hpOnly));   // 房主可以關掉部分道具
+    const usable = i => this.hpSystem || !C.ITEM_TYPES[i].hpOnly;
+    this.allowedItems = C.ITEM_TYPES.map((t, i) => i).filter(i => !off.has(C.ITEM_TYPES[i].key) && usable(i));   // 房主可以關掉部分道具
+    if (!this.allowedItems.length) this.allowedItems = C.ITEM_TYPES.map((t, i) => i).filter(usable);   // 留下的都用不到時：全部開放
     this.items = [];
     this.nextItemId = 1;
     // 進階規則：命數（0 = 無限）、速度／彈速／冷卻倍率、重生時間
@@ -296,6 +298,7 @@ class Round {
       const x = p.x + 0.5, y = p.y + 0.5;
       if (this._tileBlocked(x, y) || this._tankAt(x, y, t)) continue;
       t.x = x; t.y = y; t.alive = true; t.hp = t.maxHp || t.stats.hp; t.hurtTick = -1e9; t.regenAcc = 0;
+      t.zoneTicks = 0; t.portalCd = 0; t.padTicks = 0; t.padAcc = 0; if (t.hurtBy) t.hurtBy.clear();
       for (const k of TIMERS) t[k] = 0;
       for (const k of SHOTS) t[k] = 0;
       t.dashTicks = 0; t.charged = 0;
@@ -604,6 +607,7 @@ class Round {
     } else if (c === 'O') {        // 油桶：打到就爆炸
       b.dead = true;
       this._explodeBarrel(tx, ty, b);
+      if (b.blast) this._blast(b, tx + 0.5, ty + 0.5, null);
     } else if (c === 'B') {
       b.dead = true;
       const side = this.sides.find(s => s.base && s.base.alive && s.base.x === tx && s.base.y === ty);
@@ -720,7 +724,7 @@ class Round {
     if (t.shield > 0) { this.events.push(['spark', x, y]); return; }
     let dmg = this.hpSystem ? Math.max(1, Math.round(amount || 1)) : 1;
     if (this.hpSystem) {
-      if (t.cls === 'heavy' && cause === 'blast') dmg = Math.max(1, Math.round(dmg / 2));     // 重裝：爆炸減半
+      if (t.cls === 'heavy' && (cause === 'blast' || cause === 'barrel')) dmg = Math.max(1, Math.round(dmg / 2));     // 重裝：爆炸減半
       if (shooter && shooter.cls === 'assault' && cause === 'shot') {                          // 突擊：連擊
         shooter.combo = shooter.comboTarget === t.id && this.tick - (shooter.comboTick ?? -1e9) <= C.TICK_RATE ? Math.min(C.HP.comboMax, (shooter.combo || 0) + 1) : 0;
         shooter.comboTarget = t.id; shooter.comboTick = this.tick;

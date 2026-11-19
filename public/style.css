@@ -583,3 +583,13 @@ body.room-practice #shareBtn { display: none; }
 .spectate { z-index: 6; }
 .tag.tap { outline: 1px dashed rgba(255,255,255,.35); cursor: pointer; }
 .hud-obj .zone-warn { background: rgba(220, 40, 40, .85); color: #fff; animation: low-hp-pulse 1s infinite; }
+
+/* 設定列：標籤不換行；選項太多時整排換到下一行，按鈕文字不拆字 */
+.set-row { flex-wrap: wrap; row-gap: 6px; }
+.set-row > span { white-space: nowrap; flex: none; }
+.seg { flex-wrap: nowrap; max-width: 100%; }
+.seg button { white-space: nowrap; }
+@media (max-width: 400px) {
+  .set-row:has(.seg) > .seg { flex: 1 1 100%; display: flex; }
+  .set-row:has(.seg) > .seg button { flex: 1; padding-left: 4px; padding-right: 4px; }
+}

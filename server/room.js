@@ -342,7 +342,12 @@ class Room {
 
   _member(p) {
     // 新手教學時，玩家的電腦先待著不動，免得搶走練習目標
-    const code = this.kind === 'tutorial' && !p.isAI ? 'function think() { return null; }' : (p.code || DEFAULT_BOT);
+    let code = this.kind === 'tutorial' && !p.isAI ? 'function think() { return null; }' : (p.code || DEFAULT_BOT);
+    // 電腦隊伍選了「我的代碼／我的上一版」：開局時才取房主當下的版本，不會用到舊的複本
+    if (p.isAI && (p.aiKey === 'mine' || p.aiKey === 'prev')) {
+      const host = this.get(this.hostId);
+      code = (host && (p.aiKey === 'mine' ? host.code : host.prevCode)) || code;
+    }
     return { playerId: p.id, name: p.name, code, cls: p.cls, botCls: this.settings.botClasses ? (p.botCls || 'assault') : null,
       aiPilot: p.isAI, handicap: p.handicap || 0 };
   }

@@ -61,9 +61,9 @@ ${CHANGELOG.slice(0, 3).map(([v, s]) => `- v${v}：${s}`).join('\n')}
   items:   [ { x, y, type, ticksLeft } ],  // 場上的道具（格子中心座標）；沒開道具時是空陣列
   map:     { width, height, tiles },     // tiles[r][c] 是第 r 列第 c 欄的地形字元
   zone:    { ... } | null,             // 縮圈的安全區，見下方「縮圈」
-  rules:   { specVersion, tickRate, tankSize, blastRadius, mode, baseMode, fog, breakableWalls, codeOnly, hpSystem, regen, classes, botClasses, playerHp, botHp, playerLives, botLives, ricochet, bulletBounces, items }
+  rules:   { specVersion, tickRate, tankSize, blastRadius, mode, baseMode, fog, breakableWalls, codeOnly, hpSystem, regen, classes, botClasses, playerHp, botHp, playerLives, botLives, respawnTicks, baseWallShieldLeft, ricochet, bulletBounces, items }
 }
-坦克 = { id, x, y, dir, isBot, owner, cls, lives, hp, maxHp, shield, carrying, buffs }
+坦克 = { id, x, y, angle, dir, isBot, owner, cls, lives, hp, maxHp, shield, carrying, buffs }
 - angle：精確角度（度，0 = 上，順時針）；dir：最接近的八方向名稱（給簡單的代碼用）
 - owner：這台坦克所屬玩家的 id。你的玩家是 allies 裡 isBot === false 且 owner === me.owner 的那台（他死掉等重生時不會出現在 allies）。
 - cls：職業，"bot" 表示沒有職業的電腦坦克，其他見下方職業表（開了「電腦也有職業」時電腦也會是這些職業）。各職業的數值也在 rules.classes[cls] 裡。
@@ -117,7 +117,7 @@ ${Object.entries(C.HP.traits).map(([k, t]) => `  ${k.padEnd(8)} 血量 ×${C.HP.
 - { type: "koth", x, y, radius, myScore, bestEnemyScore, target, holder }：佔點。地圖中央以 (x, y) 為中心、兩軸各 ±radius 的區域，只有你們隊在裡面時每 tick 加 1 分，先到 target 分獲勝。holder 是 "me" | "enemy" | "contested" | null。
 - { type: "ctf", flags: [ { x, y, homeX, homeY, ally, atHome, carrier } ], myCaptures, bestEnemyCaptures, target }：搶旗。碰到敵方的旗子就會撿起來（me.carrying 變成 true）；帶著它碰到「在家」的己方旗子就得 1 分，先到 target 分獲勝。帶旗的坦克被打掉時旗子會掉在原地，碰到自己掉落的旗子會把它送回家，掉落 ${C.FLAG_RETURN_TICKS / C.TICK_RATE} 秒沒人碰也會自己回家。
 - { type: "escort", attacking, cart: { x, y }, radius, progress, state, path: [{ x, y }] }：護送。進攻方（attacking 為 true）要把礦車推到路線終點：礦車 radius 格內只有進攻方時會沿著 path 前進（人越多越快），只有防守方時會慢慢後退，兩邊都有時停住。progress 是 0～1 的進度。時間到之前推到終點進攻方贏，否則防守方贏。每局交換攻守。
-- { type: "pve", wave, waves, monstersLeft }：打怪。所有玩家同一隊，怪物（cls 為 "monster"）會一波波出現，撐過 ${C.PVE_WAVES} 波就獲勝。每撐過一波，玩家坦克回 1 條命。
+- { type: "pve", wave, waves, monstersLeft }：打怪。所有玩家同一隊，怪物（cls 為 "monster"）會一波波出現，撐過 ${C.PVE_WAVES} 波就獲勝；有時間限制時，時間到還沒撐過就算輸。每撐過一波，玩家坦克回 1 條命。
 - 佔點、搶旗和護送模式所有坦克都會無限重生（電腦 ${C.BOT_RESPAWN_DELAY / C.TICK_RATE} 秒後重生）；生存和打怪模式照一般的命數規則。
 
 ## 子彈反彈（rules.ricochet 為 true 時）
