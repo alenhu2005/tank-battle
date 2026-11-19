@@ -1,6 +1,6 @@
 // 離線外殼：網路優先（拿得到新版就用新版，部署後不會卡在舊版），沒網路時才用快取
-const CACHE = 'tank-shell-v1';
-const SHELL = ['/', '/index.html', '/style.css', '/client.js', '/render.js', '/physics.js', '/sfx.js', '/manifest.webmanifest', '/icon-192.png'];
+const CACHE = 'tank-shell-v2';
+const SHELL = ['/', '/index.html', '/style.css', '/client.js', '/render.js', '/pve-draw.js', '/pve-ui.js', '/physics.js', '/sfx.js', '/manifest.webmanifest', '/icon-192.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).catch(() => {}));

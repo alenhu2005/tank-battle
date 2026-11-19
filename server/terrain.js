@@ -94,7 +94,7 @@ module.exports = function install(Round) {
         const max = t.maxHp || t.stats.hp;
         if (t.hp < max) {
           if (this.hpSystem) {
-            t.padAcc = (t.padAcc || 0) + max * C.HEAL_PAD_PER_SEC / C.TICK_RATE;
+            t.padAcc = (t.padAcc || 0) + max * C.HEAL_PAD_PER_SEC * this._healMult() / C.TICK_RATE;
             if (t.padAcc >= 1) { const n = Math.floor(t.padAcc); t.padAcc -= n; t.hp = Math.min(max, t.hp + n); }
           } else if ((t.padTicks = (t.padTicks || 0) + 1) >= 3 * C.TICK_RATE) { t.hp = max; t.padTicks = 0; this.events.push(['heal', t.x, t.y]); }
         }

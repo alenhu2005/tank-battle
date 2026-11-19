@@ -74,6 +74,11 @@
     if (type === 'brick') tutAdvance(3);
     if (type === 'portal' && me && Math.hypot(me[0] - x, me[1] - y) < 1.5) tutAdvance(7);
   };
+  window.PveUI.init({
+    $: (q) => document.querySelector(q), $$: (q) => document.querySelectorAll(q), esc: (x) => esc(x), send: (o) => send(o), toast: (m) => toast(m),
+    buzz: (p) => buzz(p), show: (id) => show(id), store, renderer, onData: () => { if (room && $('#lobby').classList.contains('active')) renderLobby(); },
+  });
+  document.addEventListener('click', e => { const b = e.target.closest('[data-skin]'); if (b) { window.PveUI.chooseSkin(b.dataset.skin); $('#skinPicker').innerHTML = window.PveUI.skinRow(); } });
   let specText = '';
   let defaultBot = '';
 
@@ -148,6 +153,7 @@
         info = { classes: m.classes, botClass: m.botClass, colors: m.colors, factionColors: m.factionColors, teamCount: m.teamCount, itemTypes: m.itemTypes || [] };
         store.set('session', { code: m.code, id: m.id, token: m.token, at: Date.now() });
         history.replaceState(null, '', '?room=' + m.code);
+        { const sk = window.PveUI.progress().skin; if (sk && sk !== 'default') setTimeout(() => send({ t: 'skin', skin: sk }), 200); }
         break;
       case 'resumeFailed':
         store.del('session');
@@ -323,27 +329,29 @@
     const dis = host && room.state === 'lobby' ? '' : 'disabled';
     const seg = (key, opts, val) => `<div class="seg" ${dis ? 'style="opacity:.6;pointer-events:none"' : ''}>${opts.map(([v, label]) => `<button data-set="${key}" data-val="${v}" class="${v === val ? 'sel' : ''}">${label}</button>`).join('')}</div>`;
     const sw = (key, val) => `<button class="switch ${val ? 'on' : ''}" data-set="${key}" data-val="${!val}" ${dis} aria-label="${key}"></button>`;
+    $('#settings').classList.toggle('is-pve', (s.objective || 'survival') === 'pve');
     $('#settings').innerHTML = `
-      <div class="set-row"><span>模式</span>${seg('mode', [['ffa', '大亂鬥'], ['faction', '陣營戰'], ['team', '組隊']], s.mode)}</div>
-      <div class="set-desc">${{ ffa: '玩家與自己的電腦一隊，最後存活者獲勝', faction: '紅藍兩隊；點玩家列表的顏色換隊', team: '點玩家列表的「N隊」換隊，同號為隊友' }[s.mode]}</div>
+      <div class="set-row pvp-only"><span>模式</span>${seg('mode', [['ffa', '大亂鬥'], ['faction', '陣營戰'], ['team', '組隊']], s.mode)}</div>
+      <div class="set-desc pvp-only">${{ ffa: '玩家與自己的電腦一隊，最後存活者獲勝', faction: '紅藍兩隊；點玩家列表的顏色換隊', team: '點玩家列表的「N隊」換隊，同號為隊友' }[s.mode]}</div>
       <div class="set-row"><span>目標</span>${seg('objective', [['survival', '生存'], ['koth', '佔點'], ['ctf', '搶旗'], ['escort', '護送'], ['pve', '打怪']], s.objective || 'survival')}</div>
-      <div class="set-desc">${{ survival: '最後存活的隊伍獲勝', koth: '佔領中央區域累計 45 秒獲勝；無限重生', ctf: '奪取敵旗帶回己方旗位 3 次獲勝；無限重生、無基地', escort: '進攻方將礦車推至終點，防守方守到時間結束；每局交換攻守，限兩隊', pve: '全員同隊，撐過 5 波怪物' }[s.objective || 'survival']}</div>
+      <div class="set-desc">${{ survival: '最後存活的隊伍獲勝', koth: '佔領中央區域累計 45 秒獲勝；無限重生', ctf: '奪取敵旗帶回己方旗位 3 次獲勝；無限重生、無基地', escort: '進攻方將礦車推至終點，防守方守到時間結束；每局交換攻守，限兩隊', pve: '全員同隊對抗怪物：戰役 9 關、無盡、每週挑戰' }[s.objective || 'survival']}</div>
+      ${(s.objective || 'survival') === 'pve' ? window.PveUI.lobbyRows(s, host && room.state === 'lobby', seg) : ''}
       <div class="set-row"><span>純代碼對戰</span>${sw('codeOnly', s.codeOnly)}</div>
       <div class="set-desc">玩家不上場，每人派出一台電腦坦克</div>
-      <div class="set-row"><span>血量系統</span>${sw('hpSystem', s.hpSystem)}</div>
-      <div class="set-desc">${s.hpSystem ? '每條命有血量，傷害依職業而定；血量於進階規則調整' : '經典：中彈一次扣一命（重裝兩次）'}</div>
-      ${s.hpSystem ? `<div class="set-row"><span>自動回血</span>${sw('regen', s.regen)}</div>
-      <div class="set-desc">${s.regen ? '5 秒未受傷開始回血（偵察 3 秒、速度 2 倍）' : '僅能透過護士、醫療包、補血站回復（偵察除外）'}</div>` : ''}
+      <div class="set-row pvp-only"><span>血量系統</span>${sw('hpSystem', s.hpSystem)}</div>
+      <div class="set-desc pvp-only">${s.hpSystem ? '每條命有血量，傷害依職業而定；血量於進階規則調整' : '經典：中彈一次扣一命（重裝兩次）'}</div>
+      ${s.hpSystem ? `<div class="set-row pvp-only"><span>自動回血</span>${sw('regen', s.regen)}</div>
+      <div class="set-desc pvp-only">${s.regen ? '5 秒未受傷開始回血（偵察 3 秒、速度 2 倍）' : '僅能透過護士、醫療包、補血站回復（偵察除外）'}</div>` : ''}
       <div class="set-row"><span>特殊地形</span>${sw('terrain', s.terrain)}</div>
       <div class="set-desc">🛢️ 油桶（受擊爆炸）、✚ 補血站、🌀 傳送門</div>
-      <div class="set-row"><span>縮圈</span>${sw('zone', s.zone)}</div>
-      <div class="set-desc">${['survival', 'koth'].includes(s.objective || 'survival') ? '40% 時間後安全區向中央收縮，圈外持續受傷' : '僅適用於生存、佔點'}</div>
+      <div class="set-row pvp-only"><span>縮圈</span>${sw('zone', s.zone)}</div>
+      <div class="set-desc pvp-only">${['survival', 'koth'].includes(s.objective || 'survival') ? '40% 時間後安全區向中央收縮，圈外持續受傷' : '僅適用於生存、佔點'}</div>
       <div class="set-row"><span>近距離鏡頭</span>${sw('closeCam', s.closeCam)}</div>
       <div class="set-desc">玩家視野限於周圍，無法查看全圖；不影響電腦</div>
       <div class="set-row"><span>電腦也有職業</span>${sw('botClasses', s.botClasses)}</div>
       <div class="set-desc">${s.botClasses ? '玩家可為電腦選擇職業，電腦可使用技能（skill: true）' : '電腦為標準規格，無技能'}</div>
-      <div class="set-row"><span>基地模式</span>${sw('baseMode', s.baseMode)}</div>
-      <div class="set-desc">每隊一座基地，被摧毀即全隊淘汰</div>
+      <div class="set-row pvp-only"><span>基地模式</span>${sw('baseMode', s.baseMode)}</div>
+      <div class="set-desc pvp-only">每隊一座基地，被摧毀即全隊淘汰</div>
       <div class="set-row"><span>迷霧</span>${sw('fog', s.fog)}</div>
       <div class="set-desc">玩家視野受限；不影響電腦</div>
       <div class="set-row"><span>牆壁打不破</span>${sw('hardWalls', s.hardWalls)}</div>
@@ -357,7 +365,7 @@
         <select id="mapStyleSel" ${dis}>${[['random', '隨機'], ['maze', '迷宮'], ['open', '開闊'], ['river', '河流'], ['forest', '森林'], ['fortress', '堡壘'], ['custom', '自訂']].map(([v, l]) => `<option value="${v}" ${s.mapStyle === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
       <div class="set-row"><span>局數</span><div class="stepper">
         <button data-set="rounds" data-val="${s.rounds - 1}" ${dis}>−</button><b>${s.rounds}</b><button data-set="rounds" data-val="${s.rounds + 1}" ${dis}>＋</button></div></div>
-      <div class="set-row"><span>每局時間</span>${seg('timeLimit', TIME_OPTS, s.timeLimit)}</div>
+      <div class="set-row pvp-only"><span>每局時間</span>${seg('timeLimit', TIME_OPTS, s.timeLimit)}</div>
       <details class="adv" ${advOpen ? 'open' : ''}><summary>⚙️ 進階規則${advChanged(s.adv) ? '（已調整）' : ''}</summary>
         ${advRow('playerLives', '玩家命數', s.adv.playerLives, 1, v => v === 0 ? '無限' : v + ' 條')}
         ${advRow('botLives', '電腦命數', s.adv.botLives, 1, v => v === 0 ? '無限' : v + ' 條')}
@@ -386,6 +394,7 @@
     renderClassPicker('#classPicker2');
     renderClassPicker('#botClassPicker', 'botCls');
     renderClassPicker('#botClassPicker2', 'botCls');
+    $('#skinPicker').innerHTML = window.PveUI.skinRow();
     $('#botClassPanel').classList.toggle('hidden', !room.settings.botClasses);
   }
 
@@ -443,6 +452,7 @@
     }
   });
   $('#settings').addEventListener('change', e => {
+    if (e.target.id === 'pveLevelSel' && isHost()) return send({ t: 'settings', pveLevel: e.target.value });
     if (e.target.id !== 'mapStyleSel' || !isHost()) return;
     const v = e.target.value;
     if (v === 'custom') return openMapEditor();
@@ -714,6 +724,8 @@ ${sample.code}\`\`\`
 
   // 擊殺訊息
   renderer.onKill = (victim, killer, cause) => {
+    const vm = renderer.tankMeta && renderer.tankMeta.get(victim);
+    if (vm && vm.cls === 'monster') { if (renderer.myTank && killer === renderer.myTank.id) window.Sfx.play('kill'); return; }   // 一般怪物不進擊殺訊息
     const feed = $('#killFeed');
     const el = document.createElement('div');
     const icon = cause === 'blast' ? '💥' : cause === 'barrel' ? '🛢️' : cause === 'zone' ? '☠️' : cause === 'base' ? '🏳️' : '➜';
@@ -751,6 +763,7 @@ ${sample.code}\`\`\`
   // 遊戲目標事件：搶旗、得分、新的一波怪物
   let waveTimer = null;
   renderer.onObjEvent = (e) => {
+    if (window.PveUI.onObjEvent(e)) { hudDirty = true; return; }
     const [type, a, b] = e;
     const feed = $('#killFeed');
     const el = document.createElement('div');
@@ -860,6 +873,7 @@ ${sample.code}\`\`\`
     $('#editor').classList.remove('show');
     $('#killFeed').innerHTML = '';
     renderer.setRound(m.meta, m.myTank);
+    window.PveUI.onRoundStart(m.meta);
     pending = [];
     Object.assign(tut, { on: room && room.kind === 'tutorial', step: 0, start: null, diagTicks: 0 });
     tutShow();
@@ -908,6 +922,7 @@ ${sample.code}\`\`\`
   function frame(now) {
     if ($('#game').classList.contains('active')) {
       renderer.draw(now);
+      if (renderer.meta && renderer.meta.pve) window.PveUI.frame();
       // 開局倒數
       const left = renderer.countdownLeft();
       const cd = $('#countdown');
@@ -963,8 +978,8 @@ ${sample.code}\`\`\`
       const mine = r.myTank ? (r.myTank.side === o.att ? '進攻' : '防守') : '';
       const stTxt = { push: '前進中', back: '後退中', contested: '爭奪中', idle: '停住' }[o.st] || '';
       objHtml = `<span>${mine ? `${mine}・` : ''}礦車 <i class="bar"><i style="width:${pct}%;background:${sm.color}"></i></i> ${pct}%・${stTxt}</span>`;
-    } else if (o && o.type === 'pve') {
-      objHtml = `<span>第 ${o.wave}/${o.waves} 波・剩 ${o.left} 隻</span>`;
+    } else if (r.meta.pve) {
+      objHtml = window.PveUI.hud(r);
     }
     if (r.meta.baseMode && r.wallShieldTicks && r.wallHp.size) {
       const left = Math.ceil((r.wallShieldTicks - Math.max(0, played)) / r.meta.tickRate);
@@ -1037,7 +1052,8 @@ ${sample.code}\`\`\`
   }
   function predOthers(myId) {
     const out = [];
-    for (const [id, t] of renderer.latest.tanks) if (id !== myId) out.push({ x: t.x, y: t.y });
+    const pass = { queen: 1, qclone: 1, train: 1, tcar: 1 };   // 飛行與列車：伺服器上可以穿過
+    for (const [id, t] of renderer.latest.tanks) if (id !== myId && !pass[t.kindName]) out.push({ x: t.x, y: t.y, size: t.size || (renderer.tankMeta.get(id) || {}).size });
     return out;
   }
   function myStep(me) {
@@ -1266,6 +1282,8 @@ ${sample.code}\`\`\`
     catch { $('#leagueTable').innerHTML = '<p class="muted">讀取排行榜失敗</p>'; }
   }
   $('#leagueBtn').onclick = openLeague;
+  $('#pveHubBtn').onclick = () => window.PveUI.openHub('codex');
+  $('#pveHubBack').onclick = () => show('home');
   $('#leagueBack').onclick = () => show('home');
   $('#leagueSubmit').onclick = async () => {
     const sel = $('#leagueCodeSel').value;
@@ -1399,7 +1417,7 @@ ${sample.code}\`\`\`
   if (urlReplay && /^\d{4}-\d+$/.test(urlReplay)) loadReplay(urlReplay);
 
   // ---------- 局後結果 ----------
-  const REASONS = { last: '最後存活', draw: '同歸於盡', time: '時間到・戰力較高', timeDraw: '時間到・平手', forced: '房主強制結束', escortWin: '礦車抵達終點', escortDefend: '防守成功', koth: '佔點達標', ctf: '搶旗達標', pveWin: '擊退所有怪物', pveLose: '全員陣亡', pveTime: '時間到・未清除怪物' };
+  const REASONS = { last: '最後存活', draw: '同歸於盡', time: '時間到・戰力較高', timeDraw: '時間到・平手', forced: '房主強制結束', escortWin: '礦車抵達終點', escortDefend: '防守成功', koth: '佔點達標', ctf: '搶旗達標', pveWin: '擊退所有怪物', pveLose: '全員陣亡', pveTime: '時間到・未完成目標', pveEndless: '無盡模式結束', pveCore: '核心被摧毀', pveNpc: '友軍被擊毀' };
 
   function renderResult() {
     if (!lastResult || !room) return;
@@ -1413,7 +1431,7 @@ ${sample.code}\`\`\`
     const mvp = r.tanks.find(t => t.mvp);
     const showHeal = r.tanks.some(t => t.healed > 0);
     const mvpSide = mvp && r.sides.find(s => s.key === mvp.side);
-    $('#roundTable').innerHTML = (mvp ? `<div class="mvp"><span class="medal">🏅</span><div><b>MVP：<span style="color:${mvpSide.color}">${esc(mvp.name)}${mvp.isBot ? '的電腦' : ''}</span></b>
+    $('#roundTable').innerHTML = (r.pve ? window.PveUI.resultHtml(r, me.id) : '') + (mvp ? `<div class="mvp"><span class="medal">🏅</span><div><b>MVP：<span style="color:${mvpSide.color}">${esc(mvp.name)}${mvp.isBot ? '的電腦' : ''}</span></b>
         <span class="muted">擊殺 ${mvp.kills}${mvp.assists ? `・助攻 ${mvp.assists}` : ''}${r.hpSystem && mvp.dmg ? `・傷害 ${mvp.dmg}` : ''}${mvp.healed ? `・治療 ${mvp.healed}` : ''}・命中率 ${acc(mvp)}・閃避 ${mvp.dodges}${mvp.captures ? `・搶旗 ${mvp.captures}` : ''}${mvp.baseKills ? `・拆基地 ${mvp.baseKills}` : ''}</span></div></div>` : '') +
       `<div class="table-scroll"><table><tr><th>坦克</th><th class="num">擊殺</th><th class="num">助攻</th><th class="num">陣亡</th>${r.hpSystem ? '<th class="num">傷害</th>' : ''}${showHeal ? '<th class="num">治療</th>' : ''}<th class="num">命中率</th><th class="num">閃避</th><th class="num">道具</th>${r.objective === 'ctf' ? '<th class="num">搶旗</th>' : ''}<th class="num">分數</th></tr>${
       r.tanks.slice().sort((a, b) => b.score - a.score).map(t => {

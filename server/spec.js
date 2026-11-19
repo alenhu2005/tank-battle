@@ -8,6 +8,7 @@ const classLines = Object.entries(C.CLASSES).map(([k, c]) =>
 const B = C.BOT_CLASS;
 
 const { SPEC_VERSION, CHANGELOG } = C;
+const PVE = require('./pve/data');
 
 // 給玩家（和他們的 AI 助手）看的電腦代碼規格。只寫必要的事實，策略留給玩家自己設計。
 const text = `# 坦克對戰：電腦隊友代碼規格（版本 v${SPEC_VERSION}）
@@ -117,8 +118,29 @@ ${Object.entries(C.HP.traits).map(([k, t]) => `  ${k.padEnd(8)} 血量 ×${C.HP.
 - { type: "koth", x, y, radius, myScore, bestEnemyScore, target, holder }：佔點。地圖中央以 (x, y) 為中心、兩軸各 ±radius 的區域，只有你們隊在裡面時每 tick 加 1 分，先到 target 分獲勝。holder 是 "me" | "enemy" | "contested" | null。
 - { type: "ctf", flags: [ { x, y, homeX, homeY, ally, atHome, carrier } ], myCaptures, bestEnemyCaptures, target }：搶旗。碰到敵方的旗子就會撿起來（me.carrying 變成 true）；帶著它碰到「在家」的己方旗子就得 1 分，先到 target 分獲勝。帶旗的坦克被打掉時旗子會掉在原地，碰到自己掉落的旗子會把它送回家，掉落 ${C.FLAG_RETURN_TICKS / C.TICK_RATE} 秒沒人碰也會自己回家。
 - { type: "escort", attacking, cart: { x, y }, radius, progress, state, path: [{ x, y }] }：護送。進攻方（attacking 為 true）要把礦車推到路線終點：礦車 radius 格內只有進攻方時會沿著 path 前進（人越多越快），只有防守方時會慢慢後退，兩邊都有時停住。progress 是 0～1 的進度。時間到之前推到終點進攻方贏，否則防守方贏。每局交換攻守。
-- { type: "pve", wave, waves, monstersLeft }：打怪。所有玩家同一隊，怪物（cls 為 "monster"）會一波波出現，撐過 ${C.PVE_WAVES} 波就獲勝；有時間限制時，時間到還沒撐過就算輸。每撐過一波，玩家坦克回 1 條命。
+- { type: "pve", ... }：打怪。見下方「打怪模式」。
 - 佔點、搶旗和護送模式所有坦克都會無限重生（電腦 ${C.BOT_RESPAWN_DELAY / C.TICK_RATE} 秒後重生）；生存和打怪模式照一般的命數規則。
+
+## 打怪模式（view.objective.type 為 "pve"）
+所有玩家同一隊對抗怪物（cls 為 "monster"），固定使用血量系統。
+view.objective = {
+  type: "pve", mode: "campaign" | "endless" | "weekly", level, objective, difficulty,
+  wave, waves（無盡或循環關為 null）, phase: "prep" | "preview" | "fight" | "draft", monstersLeft,
+  parts（全隊共用的零件）, shop: { life, repair, reroll, revive }（各項價格）,
+  draft: [ { key, name, rarity, mods } ] | null（抽卡階段給你的 3 張卡；已選或不在抽卡時為 null）, draftTicksLeft, myCards: [ key ],
+  core: { x, y, hp, maxHp } | null, npc: { x, y, hp, maxHp, alive } | null, exit: { x, y } | null,
+  generators: [ { x, y, progress, done, active } ] | null, bunkers: [ { x, y, hp, maxHp } ], track: [ [x, y] ] | null, laps,
+  boss: { kind, x, y, hp, maxHp, phase, vulnerable } | null,
+  hazards: [ { kind: "line" | "circle" | "poison" | "map", x, y, x2, y2, r, w, firesIn, endsIn, dmg, dps, islands } ]
+}
+- objective：waves 撐過所有波、destroy 摧毀據點、boss 擊敗 Boss、core 守護核心到時間結束、rescue 護送 npc 到 exit（npc 附近 4 格內有我方坦克、且 3 格內沒有怪物時才會前進）、generators 依序站在發電機上 10 秒（開始啟動時會引來一批怪物）、train 在列車繞 4 圈前擊毀車頭、endless 無盡。
+- hazards 是預警區：firesIn 個 tick 後在範圍內造成 dmg 傷害；dps > 0 表示持續傷害區（每秒 dps）。line 是寬 w 的線段（x,y → x2,y2），circle／poison 是半徑 r 的圓，map 是全圖、但 islands（[{ x, y, r }]）裡面安全。
+- 抽卡：phase 為 "draft" 時，回傳 { pick: 0～2 } 選卡，{ buy: "life" | "repair" | "reroll" | "revive" } 用零件買東西（可以和 move、fire 一起回傳）。時間到沒選會隨機。
+- enemies 裡的怪物多了 kind、elite（詞綴陣列）、size（方框邊長）、boss、invulnerable。大型單位的命中範圍以 size 為準。
+- 怪物種類（kind）：${Object.entries(PVE.MONSTERS).map(([k, m]) => `${k} ${m.name}：${m.desc}`).join('；')}
+- Boss：${Object.entries(PVE.BOSSES).map(([k, m]) => `${k} ${m.name}：${m.desc}`).join('；')}
+- 精英詞綴（elite）：${Object.entries(PVE.AFFIXES).map(([k, a]) => `${k} ${a.name}（${a.desc}）`).join('、')}
+- 強化卡 key：${PVE.CARDS.map(c => `${c.key}（${c.name}：${c.desc}${c.cls ? '，限' + c.cls : ''}）`).join('、')}
 
 ## 子彈反彈（rules.ricochet 為 true 時）
 - 子彈撞到鋼牆、地圖邊界，或打不破的磚牆時會反彈，每顆最多反彈 ${C.BULLET_BOUNCES} 次，用完後再撞牆就消失。

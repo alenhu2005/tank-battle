@@ -116,8 +116,9 @@ const C = module.exports = {
     armorCap: 1.5,
   },
   // 規格版本：每次規格有新東西就 +1，並在 CHANGELOG 最前面加一行（玩家拿舊代碼給 AI 改時，AI 才知道要補什麼）
-  SPEC_VERSION: 4,
+  SPEC_VERSION: 5,
   CHANGELOG: [
+    [5, '打怪模式改版：view.objective 的 pve 欄位（波次、Boss、預警區 hazards、核心、發電機等）、抽卡回傳 pick／buy、怪物的 kind／elite／size'],
     [4, '新地形 O 油桶、H 補血站、P 傳送門；縮圈 view.zone；坦克多了 maxHp'],
     [3, '血量系統（rules.hpSystem、hp／maxHp、各職業傷害）、自動回血 rules.regen、護士職業與 heal 技能、電腦也能有職業（rules.botClasses）'],
     [2, '職業技能 skill、工兵職業、護送模式、進階規則（命數、速度倍率）'],

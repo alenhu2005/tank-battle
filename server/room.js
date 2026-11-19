@@ -7,6 +7,8 @@ const C = require('./constants');
 const { Round } = require('./game');
 const { validateAsync } = require('./validateWorker');
 const DEFAULT_BOT = require('./defaultBot');
+const PVE = require('./pve/data');
+const pveBoard = require('./pveBoard');
 const codeHints = require('./codeHints');
 const SAMPLES = require('./samples');
 
@@ -32,7 +34,7 @@ class Room {
     this.onClose = onClose;
     this.players = [];
     this.hostId = null;
-    this.settings = { mode: 'ffa', baseMode: true, fog: false, hardWalls: false, codeOnly: false, items: true, ricochet: false, rounds: 3, timeLimit: 180, botClasses: false, hpSystem: true, regen: false, terrain: true, zone: false, closeCam: false,
+    this.settings = { mode: 'ffa', baseMode: true, fog: false, hardWalls: false, codeOnly: false, items: true, ricochet: false, rounds: 3, timeLimit: 180, botClasses: false, hpSystem: true, regen: false, terrain: true, zone: false, closeCam: false, pveMode: 'campaign', pveLevel: '1-1', pveDiff: 'normal',
       mapStyle: 'random', customMap: null, disabledItems: [], objective: 'survival',
       adv: Object.assign({}, C.ADV_DEFAULTS) };
     this.state = 'lobby'; // lobby | playing | intermission | finished
@@ -189,6 +191,9 @@ class Room {
         if (typeof msg.hpSystem === 'boolean') s.hpSystem = msg.hpSystem;
         if (typeof msg.regen === 'boolean') s.regen = msg.regen;
         for (const k of ['terrain', 'zone', 'closeCam']) if (typeof msg[k] === 'boolean') s[k] = msg[k];
+        if (['campaign', 'endless', 'weekly'].includes(msg.pveMode)) s.pveMode = msg.pveMode;
+        if (PVE.LEVELS[msg.pveLevel]) s.pveLevel = msg.pveLevel;
+        if (PVE.DIFFICULTY[msg.pveDiff]) s.pveDiff = msg.pveDiff;
         if (typeof msg.items === 'boolean') s.items = msg.items;
         if (typeof msg.ricochet === 'boolean') s.ricochet = msg.ricochet;
         if (['random', 'open', 'forest', 'fortress', 'river', 'maze', 'custom'].includes(msg.mapStyle)) s.mapStyle = msg.mapStyle;
@@ -242,6 +247,16 @@ class Room {
         if (C.CLASSES[msg.cls]) target.cls = msg.cls;
         return this.sendRoom();
       }
+      case 'pick':       // 打怪：選強化卡
+        if (this.state === 'playing' && this.round && this.round.pve) this.round.pvePick(p.id, msg.i);
+        return;
+      case 'shop':       // 打怪：零件商店
+        if (this.state === 'playing' && this.round && this.round.pve) this.round.pveShop(p.id, String(msg.item || ''));
+        return;
+      case 'skin':       // 坦克塗裝（解鎖狀態存在玩家手機裡）
+        if (this.state === 'playing') return;
+        if (['default', 'camo', 'stripes', 'gold', 'neon', 'carbon'].includes(msg.skin)) p.skin = msg.skin;
+        return this.sendRoom();
       case 'aiCode': {   // 房主幫電腦隊伍換打法（練習場選對手用）
         const target = this.get(msg.id);
         if (!isHost || !target || !target.isAI || this.state === 'playing') return;
@@ -349,7 +364,7 @@ class Room {
       code = (host && (p.aiKey === 'mine' ? host.code : host.prevCode)) || code;
     }
     return { playerId: p.id, name: p.name, code, cls: p.cls, botCls: this.settings.botClasses ? (p.botCls || 'assault') : null,
-      aiPilot: p.isAI, handicap: p.handicap || 0 };
+      aiPilot: p.isAI, handicap: p.handicap || 0, skin: p.skin || 'default' };
   }
 
   startError() {
@@ -374,7 +389,8 @@ class Room {
       mode: s.mode, baseMode: s.baseMode, fog: s.fog, breakableWalls: !s.hardWalls, codeOnly: s.codeOnly, hpSystem: s.hpSystem, regen: s.regen, specialTerrain: s.terrain, zone: s.zone, closeCam: s.closeCam, items: s.items, ricochet: s.ricochet,
       rules: s.adv, objective: s.objective, attackerIndex: (this.roundNo - 1) % 2,   // 護送：每局交換攻守
       mapStyle: s.mapStyle, customMap: s.mapStyle === 'custom' ? s.customMap : null, disabledItems: s.disabledItems,
-      timeLimit: s.timeLimit, sides: this._buildSides(), countdown: this.kind === 'tutorial' ? 3 : C.COUNTDOWN_SECONDS,
+      timeLimit: s.objective === 'pve' ? (s.pveMode === 'endless' ? 0 : 900) : s.timeLimit, sides: this._buildSides(), countdown: this.kind === 'tutorial' ? 3 : C.COUNTDOWN_SECONDS,
+      pve: { mode: s.pveMode, level: s.pveLevel, difficulty: s.pveDiff }, size: s.objective === 'pve' ? 25 : undefined,
       itemFirstDelay: this.kind === 'tutorial' ? 2 : undefined, itemInterval: this.kind === 'tutorial' ? 4 : undefined,
     });
     this.state = 'playing';
@@ -445,9 +461,12 @@ class Room {
     this.lastResult = {
       roundNo: this.roundNo, winner: sideWinner, winners, reason: res.reason,
       seconds: Math.round(res.ticks / C.TICK_RATE), sides: sideInfo, tanks: res.tanks,
-      objective: res.objective, hpSystem: !!res.hpSystem,
+      objective: res.objective, hpSystem: !!res.hpSystem, pve: res.pve,
       reports: r.botReports(),
     };
+    if (res.pve && (res.pve.mode === 'endless' || res.pve.mode === 'weekly') && this.kind === 'normal') {
+      pveBoard.submit(res.pve, this.humans().map(p => p.name)).catch(() => {});
+    }
     r.dispose();
     this.state = this.roundNo >= this.settings.rounds ? 'finished' : 'intermission';
     this.sendRoom();

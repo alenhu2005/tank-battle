@@ -32,6 +32,7 @@
       <button id="tutorialBtn" class="btn">🎓 新手教學</button>
       <button id="practiceBtn" class="btn">🧪 代碼練習場</button>
       <button id="leagueBtn" class="btn span2">🏆 代碼擂台（每週排行榜）</button>
+      <button id="pveHubBtn" class="btn span2">📖 打怪圖鑑・成就・排行榜</button>
       <button id="installBtn" class="btn span2 hidden">📲 安裝 App</button>
     </div>
     <label class="link-btn file-link">📂 開啟重播檔<input id="replayFile" type="file" accept=".json,application/json"></label>
@@ -44,6 +45,16 @@
 </section>
 
 <!-- 代碼擂台 -->
+<section id="pveHub" class="screen">
+  <header class="lobby-head">
+    <button id="pveHubBack" class="btn ghost small">返回</button>
+    <b>📖 打怪紀錄</b>
+    <span></span>
+  </header>
+  <div class="hub-tabs seg"><button data-hub="codex" class="sel">圖鑑</button><button data-hub="progress">進度</button><button data-hub="ach">成就</button><button data-hub="board">排行榜</button></div>
+  <div id="pveHubBody" class="hub-body"></div>
+</section>
+
 <section id="league" class="screen">
   <header class="lobby-head">
     <button id="leagueBack" class="btn ghost small">返回</button>
@@ -88,6 +99,7 @@
     <div class="panel">
       <div class="panel-title"><span>我的職業</span></div>
       <div id="classPicker" class="cls-grid"></div>
+      <div class="skin-row"><span class="muted small-text">塗裝</span><div id="skinPicker" class="skin-chips"></div></div>
     </div>
     <div id="botClassPanel" class="panel hidden">
       <div class="panel-title"><span>我的電腦職業</span></div>
@@ -130,6 +142,13 @@
   </div>
   <div id="spectate" class="spectate"></div>
   <div id="lowHp" class="low-hp"></div>
+  <div id="pveBanner" class="pve-banner"></div>
+  <div id="bossBar" class="boss-bar"><div class="bb-name"></div><div class="bb-track"><i></i></div></div>
+  <div id="draft" class="draft">
+    <div class="dr-head"><b>選擇強化</b><span class="dr-parts"></span><span class="dr-time"></span></div>
+    <div class="dr-cards"></div>
+    <div class="dr-shop"></div>
+  </div>
   <div id="killFeed" class="kill-feed"></div>
   <div id="waveBanner" class="wave-banner"></div>
   <div id="tutorial" class="tutorial hidden" role="status" aria-live="polite">
@@ -330,6 +349,8 @@
 <script src="/physics.js"></script>
 <script src="/sfx.js"></script>
 <script src="/render.js"></script>
+<script src="/pve-draw.js"></script>
+<script src="/pve-ui.js"></script>
 <script src="/client.js"></script>
 </body>
 </html>

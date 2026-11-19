@@ -34,22 +34,6 @@ module.exports = function install(Round) {
       this.objScore = Object.fromEntries(this.sides.map(s => [s.key, 0]));
     } else if (o === 'escort') {
       this._initEscort();
-    } else if (o === 'pve') {
-      this.pveWave = 0;
-      this.pveDelay = 2 * C.TICK_RATE;
-    }
-  };
-
-  // 打怪模式：預先建立一批怪物坦克（一開始都還沒上場）
-  P._createMonsterPool = function (side) {
-    for (let i = 0; i < C.PVE_MAX_MONSTERS; i++) {
-      this.tanks.push({
-        id: this.nextTankId++, side: side.key, owner: 'monster', ownerName: '怪物', isBot: true,
-        cls: 'monster', stats: this.statsFor('monster'), lives: 0, hp: 1, maxHp: this._maxHpFor('monster', true), maxLives: 1,
-        alive: false, x: 0, y: 0, dir: 'down', angle: 180, spawn: side.spawns[i % side.spawns.length],
-        respawnTimer: 0, shield: 0, cooldown: 0, input: { move: null, fire: false },
-        kills: 0, deaths: 0, baseKills: 0, shots: 0, hits: 0, dodges: 0, itemsPicked: 0, captures: 0, sandbox: null, monster: true,
-      });
     }
   };
 
@@ -106,27 +90,6 @@ module.exports = function install(Round) {
       if (att && !def) { c.i = Math.min(c.end, c.i + C.CART_SPEED * (1 + 0.25 * (att - 1)) / C.TICK_RATE); c.state = 'push'; }
       else if (def && !att) { c.i = Math.max(c.start, c.i - C.CART_BACK_SPEED / C.TICK_RATE); c.state = 'back'; }
       else c.state = att && def ? 'contested' : 'idle';
-    } else if (o === 'pve') {
-      const monsters = this.tanks.filter(t => t.monster);
-      const remaining = monsters.filter(t => t.alive || t.lives > 0).length;
-      if (remaining === 0 && this.pveWave < C.PVE_WAVES) {
-        if (--this.pveDelay > 0) return;
-        this.pveWave++;
-        this.pveDelay = 3 * C.TICK_RATE;
-        const n = Math.min(C.PVE_MAX_MONSTERS, 1 + this.pveWave * 2);
-        if (this.pveWave > 1) {
-          // 撐過一波：玩家坦克回 1 條命（最多 3 條）
-          for (const t of this.tanks) if (t.side === 'players' && !t.isBot && !t.unlimited && t.lives > 0 && t.lives < (t.maxLives || 1)) t.lives++;
-        }
-        monsters.slice(0, n).forEach((t, i) => {
-          if (t.sandbox) t.sandbox.dispose();
-          t.sandbox = new BotSandbox(DEFAULT_BOT, '怪物');
-          t.lives = 1;
-          t.respawnTimer = i * 8;     // 錯開出場
-        });
-        this.events.push(['waveStart', this.center, this.center]);
-        this.objEvents.push(['wave', this.pveWave, n]);
-      }
     }
   };
 
@@ -197,12 +160,7 @@ module.exports = function install(Round) {
       if (this.timeLimitTicks && this.playTick >= this.timeLimitTicks) return { winner: this.sideByKey.get(c.defender), reason: 'escortDefend' };
       return false;
     } else if (o === 'pve') {
-      const players = this.sideByKey.get('players');
-      if (players.eliminated || this._sideStrength(players) === 0) { players.eliminated = true; return { winner: null, reason: 'pveLose' }; }
-      const left = this.tanks.filter(t => t.monster && (t.alive || t.lives > 0)).length;
-      if (this.pveWave >= C.PVE_WAVES && left === 0) return { winner: players, reason: 'pveWin' };
-      if (this.timeLimitTicks && this.playTick >= this.timeLimitTicks) return { winner: null, reason: 'pveTime' };   // 時間到還沒撐過所有波：算輸
-      return false;
+      return this._pveEnd();
     }
     return null;
   };
@@ -216,7 +174,7 @@ module.exports = function install(Round) {
     const o = this.objective;
     if (o === 'koth') return { type: 'koth', hill: [this.hill.x, this.hill.y, this.hill.r], s: this.sides.map(s => [s.key, this.objScore[s.key]]), h: this.hillHolder, target: C.KOTH_TARGET_TICKS };
     if (o === 'ctf') return { type: 'ctf', f: this.flags.map(f => [f.side, Math.round(f.x * 100), Math.round(f.y * 100), f.carrier || 0, f.atHome ? 1 : 0]), s: this.sides.map(s => [s.key, this.objScore[s.key]]), target: C.CTF_CAPTURES };
-    if (o === 'pve') return { type: 'pve', wave: this.pveWave, waves: C.PVE_WAVES, left: this.tanks.filter(t => t.monster && (t.alive || t.lives > 0)).length };
+    if (o === 'pve') return { type: 'pve', wave: this.pve.wave };
     if (o === 'escort') return { type: 'escort', att: this.cart.attacker, i: Math.round(this.cart.i * 100) / 100, start: this.cart.start, end: this.cart.end, st: this.cart.state };
     return null;
   };
@@ -239,7 +197,6 @@ module.exports = function install(Round) {
         flags: this.flags.map(f => ({ x: f.x, y: f.y, homeX: f.home.x, homeY: f.home.y, ally: f.side === me.side, atHome: f.atHome, carrier: f.carrier })),
       };
     }
-    if (o === 'pve') return { type: 'pve', wave: this.pveWave, waves: C.PVE_WAVES, monstersLeft: this.tanks.filter(t => t.monster && (t.alive || t.lives > 0)).length };
     if (o === 'escort') {
       const c = this.cart, pos = this._cartPos();
       return {

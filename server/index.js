@@ -6,6 +6,8 @@ const path = require('path');
 const { WebSocketServer } = require('ws');
 const C = require('./constants');
 const { Room, send } = require('./room');
+const pveBoard = require('./pveBoard');
+const { weeklySpec } = require('./pve');
 const SPEC = require('./spec');
 const DEFAULT_BOT = require('./defaultBot');
 const SAMPLES = require('./samples');
@@ -80,11 +82,25 @@ const server = http.createServer((req, res) => {
     }).catch(e => json(res, 500, { error: e.message }));
     return;
   }
+  if (url.pathname === '/api/pve/board' && req.method === 'GET') {
+    const board = url.searchParams.get('board') === 'weekly' ? 'weekly' : 'endless';
+    pveBoard.top(board).then(data => json(res, 200, { ...data, weekly: weeklySpec() })).catch(e => json(res, 500, { error: e.message }));
+    return;
+  }
   if (url.pathname === '/api/league/submit' && req.method === 'POST') {
     readBody(req, 300 * 1024).then(body => league.submit(JSON.parse(body)))
       .then(data => json(res, 200, data))
       .catch(e => json(res, 400, { ok: false, error: e.message }));
     return;
+  }
+  if (url.pathname === '/pve.json') {   // 打怪資料：圖鑑、關卡、強化卡（首頁的圖鑑與大廳的關卡選單用）
+    const D = require('./pve/data');
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=300' });
+    return res.end(JSON.stringify({
+      monsters: D.MONSTERS, bosses: D.BOSSES, affixes: D.AFFIXES, cards: D.CARDS, shop: D.SHOP, difficulty: D.DIFFICULTY,
+      levels: Object.fromEntries(Object.entries(D.LEVELS).map(([k, v]) => [k, { chapter: v.chapter, name: v.name, story: v.story, objective: v.objective, boss: v.boss || null, par: v.par }])),
+      weeklyMods: D.WEEKLY_MODS, kinds: D.MONSTER_KINDS, weekly: weeklySpec(),
+    }));
   }
   if (url.pathname === '/samples.json') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });

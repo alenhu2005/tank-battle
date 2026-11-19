@@ -24,7 +24,8 @@ module.exports = function install(Round) {
     const ok = this['_skill_' + sk.key](t);
     if (ok === false) return false;
     if (this.hpSystem && t.cls === 'engineer') t.hp = Math.max(t.hp, Math.min(t.maxHp, t.hp + Math.round(t.maxHp * C.HP.engineerHeal)));   // 工兵：築牆回血
-    t.skillCd = Math.round(sk.cd * C.TICK_RATE);
+    t.skillCd = Math.round(sk.cd * C.TICK_RATE * Math.max(0.2, 1 + (t.mods && t.mods.skillCd || 0)));
+    if (t.mods && t.mods.teamShield) for (const o of this.tanks) if (o.alive && o.side === t.side && !o.structure) o.shield = Math.max(o.shield, Math.round(t.mods.teamShield * C.TICK_RATE));
     t.skillsUsed = (t.skillsUsed || 0) + 1;
     this.events.push(['skill', t.x, t.y]);
     return true;
@@ -41,7 +42,7 @@ module.exports = function install(Round) {
     if (cx < 0 || cy < 0 || cx >= this.size || cy >= this.size) return false;
     const c = this.tiles[cy * this.size + cx];
     if (c !== '.' && c !== '*') return false;
-    return !this.tanks.some(o => o.alive && Math.abs(o.x - (cx + 0.5)) < 0.92 && Math.abs(o.y - (cy + 0.5)) < 0.92);
+    return !this.tanks.some(o => { if (!o.alive || o.flying) return false; const r = (o.size || C.TANK_SIZE) / 2 + 0.5; return Math.abs(o.x - (cx + 0.5)) < r && Math.abs(o.y - (cy + 0.5)) < r; });
   };
 
   P._setTile = function (idx, ch) {
@@ -50,7 +51,7 @@ module.exports = function install(Round) {
   };
 
   // 突擊：衝刺
-  P._skill_dash = function (t) { t.dashTicks = Math.round(0.5 * C.TICK_RATE); };
+  P._skill_dash = function (t) { t.dashTicks = Math.round(0.5 * C.TICK_RATE); if (t.mods && t.mods.dashShield) t.shield = Math.max(t.shield, t.dashTicks); };
 
   // 重裝：前方立起 3 格鋼牆，5 秒後消失
   P._skill_wall = function (t) {
@@ -88,8 +89,9 @@ module.exports = function install(Round) {
   // 護士：治療自己和身邊的隊友
   P._skill_heal = function (t) {
     for (const o of this.tanks) {
-      if (!o.alive || o.side !== t.side || Math.hypot(o.x - t.x, o.y - t.y) > C.HP.nurseAura) continue;
-      if (this.hpSystem) { const before = o.hp; o.hp = Math.max(o.hp, Math.min(o.maxHp, o.hp + Math.round(o.maxHp * C.HP.healSkill))); t.healed = (t.healed || 0) + (o.hp - before); }
+      const m = t.mods || {}, half = this.pve && this.pve.mods.includes('noheal') ? 0.5 : 1;
+      if (!o.alive || o.side !== t.side || Math.hypot(o.x - t.x, o.y - t.y) > C.HP.nurseAura * (1 + (m.healRange || 0))) continue;
+      if (this.hpSystem) { const before = o.hp; o.hp = Math.max(o.hp, Math.min(o.maxHp, o.hp + Math.round(o.maxHp * C.HP.healSkill * (1 + (m.healAmt || 0)) * half))); t.healed = (t.healed || 0) + (o.hp - before); }
       else { o.hp = Math.max(o.hp, o.maxHp || o.stats.hp); o.shield = Math.max(o.shield, Math.round(1.5 * C.TICK_RATE)); }
       o.hurtTick = Math.min(o.hurtTick || 0, this.tick);
       this.events.push(['heal', o.x, o.y]);
@@ -112,7 +114,9 @@ module.exports = function install(Round) {
     }
     const { cx, cy } = frontCell(t);
     if (!this._cellFree(cx, cy)) return false;
-    this._setTile(cy * this.size + cx, '#');
+    const idx = cy * this.size + cx;
+    if (t.mods && t.mods.steelWall) { this._setTile(idx, '@'); this.tempWalls.push({ idx, prev: '#', until: this.playTick + 10 * C.TICK_RATE }); }
+    else this._setTile(idx, '#');
     return true;
   };
 

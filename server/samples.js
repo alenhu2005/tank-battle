@@ -196,11 +196,58 @@ function decide(view, memory) {
 }
 ` + HELPERS;
 
+const PVE = `// 打怪專用：躲預警區、先打治療者與召喚師、照顧目標（核心、救援、發電機），抽卡依稀有度選
+function inHazard(me, h) {
+  if (h.kind === 'circle' || h.kind === 'poison') return Math.hypot(me.x - h.x, me.y - h.y) <= h.r + 0.6;
+  if (h.kind === 'line') {
+    var dx = h.x2 - h.x, dy = h.y2 - h.y, L2 = dx * dx + dy * dy || 1;
+    var k = Math.max(0, Math.min(1, ((me.x - h.x) * dx + (me.y - h.y) * dy) / L2));
+    return Math.hypot(me.x - (h.x + dx * k), me.y - (h.y + dy * k)) <= (h.w || 0.5) / 2 + 0.6;
+  }
+  if (h.kind === 'map') return !(h.islands || []).some(function (i) { return Math.hypot(me.x - i.x, me.y - i.y) <= i.r - 0.3; });
+  return false;
+}
+function decide(view, memory) {
+  var me = view.me, o = view.objective || {};
+  var act = { move: null, fire: false };
+  // 抽卡：傳說 > 稀有 > 普通；有人陣亡就買復活，核心血少就修
+  if (o.phase === 'draft') {
+    if (o.draft) { var best = 0; o.draft.forEach(function (c, i) { if (c.rarity > o.draft[best].rarity) best = i; }); act.pick = best; }
+    if (o.core && o.core.hp < o.core.maxHp * 0.5 && o.parts >= o.shop.repair) act.buy = 'repair';
+  }
+  // 1. 預警區：往遠離中心的方向跑
+  var hz = (o.hazards || []).filter(function (h) { return (h.firesIn < 25 || h.dps > 0) && inHazard(me, h); });
+  if (hz.length) {
+    var h = hz[0], cx = h.kind === 'line' ? (h.x + h.x2) / 2 : h.x, cy = h.kind === 'line' ? (h.y + h.y2) / 2 : h.y;
+    if (h.kind === 'line') { var a = Math.atan2(h.x2 - h.x, -(h.y2 - h.y)) * 180 / Math.PI; act.move = (a + 90 + 360) % 360; }
+    else if (h.kind === 'map') { var isl = h.islands[0]; act.move = (Math.atan2(isl.x - me.x, -(isl.y - me.y)) * 180 / Math.PI + 360) % 360; }
+    else act.move = (Math.atan2(me.x - cx, -(me.y - cy)) * 180 / Math.PI + 360) % 360;
+    return act;
+  }
+  // 2. 目標排序：治療者、召喚師優先；Boss 無敵時不打
+  var rank = { healer: 0, summoner: 1, bomber: 2, sniper: 3 };
+  var foes = view.enemies.filter(function (e) { return !e.invulnerable; }).sort(function (a, b) {
+    return ((rank[a.kind] ?? 5) - (rank[b.kind] ?? 5)) || (dist(a, me) - dist(b, me));
+  });
+  var shot = shootAny(me, foes, view);
+  if (shot) { act.move = shot.move; act.fire = shot.fire; return act; }
+  // 3. 照顧目標
+  var goal = null;
+  if (o.generators) o.generators.forEach(function (g) { if (g.active) goal = g; });
+  if (o.npc && o.npc.alive && dist(me, o.npc) > 2.5) goal = o.npc;
+  if (o.core && dist(me, o.core) > 4) goal = o.core;
+  if (!goal && foes.length) goal = foes[0];
+  if (goal) { var w = walk(me, stepToward(me, [goal], view), view); act.move = w.move; act.fire = w.fire; }
+  return act;
+}
+` + HELPERS;
+
 const C = require('./constants');
 const tag = code => `// spec v${C.SPEC_VERSION}\n` + code;
 module.exports = {
   standard:  { name: '標準',   desc: '會尋路，找最近的敵人或敵方基地，對齊就開火，打掉擋路的磚牆', code: tag(CLASSIC) },
   guard:     { name: '守門員', desc: '守在基地或你旁邊，敵人靠近才出手；會用職業技能', code: tag(GUARD) },
   assassin:  { name: '刺客',   desc: '專挑敵方玩家、先打命少血少的，走草叢接近；會用職業技能', code: tag(ASSASSIN) },
+  pve:       { name: '打怪專用', desc: '躲預警區、優先擊殺治療者與召喚師、照顧關卡目標；自動選強化卡', code: tag(PVE) },
   bodyguard: { name: '保鑣',   desc: '緊跟著你，把朝你飛來的子彈打掉；會用職業技能（護士會幫你補血）', code: tag(BODYGUARD) },
 };

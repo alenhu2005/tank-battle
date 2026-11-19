@@ -16,5 +16,7 @@ module.exports = function codeHints(code, settings = {}) {
   if (!has(/\bskill\b/)) hints.push({ key: 'skill', text: '未使用職業技能（skill）' });
   if (settings.zone && !has(/\bzone\b/)) hints.push({ key: 'zone', text: '未處理縮圈（view.zone）：可能停留圈外' });
   if (settings.terrain && has(/tiles/) && !has(/['"][HPO]['"]/)) hints.push({ key: 'terrain', text: '未處理特殊地形（O 油桶、H 補血站、P 傳送門）：尋路可能出錯' });
+  if (settings.objective === 'pve' && !has(/hazards/)) hints.push({ key: 'pve', text: '未處理打怪預警區（objective.hazards）：無法閃避 Boss 招式' });
+  if (settings.objective === 'pve' && !has(/\bpick\b/)) hints.push({ key: 'pick', text: '未選強化卡（回傳 pick）：抽卡時會隨機選' });
   return hints;
 };

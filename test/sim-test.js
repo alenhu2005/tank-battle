@@ -276,7 +276,7 @@ console.log('ALL OK');
     // 打怪：一隊玩家（2 個 AI 玩家）
     const sides = [{ key: 'players', name: '玩家隊', color: '#3ddc84', members: [0, 1].map(i => ({ playerId: 'p' + i, name: 'P' + i, code: D, aiPilot: true, cls: 'heavy' })) }];
     const r = new Round({ mode: 'ffa', baseMode: k % 2 === 0, timeLimit: 0, sides, objective: 'pve' });
-    let maxWave = 0, guard = 0; while (!r.over && guard++ < 30 * 60 * 8) { r.step(); maxWave = Math.max(maxWave, r.pveWave); }
+    let maxWave = 0, guard = 0; while (!r.over && guard++ < 30 * 60 * 8) { r.step(); maxWave = Math.max(maxWave, r.pve.wave); }
     if (!r.over) { r.forceEnd(); r.step(); }
     reasons.pve.push(r.result.reason + '@wave' + maxWave);
     r.dispose();
@@ -284,7 +284,7 @@ console.log('ALL OK');
   console.log('objective results:', JSON.stringify(reasons));
   assert(reasons.koth.some(x => x === 'koth'), 'koth wins by holding the hill');
   assert(captures > 0 && reasons.ctf.every(x => x === 'ctf' || x === 'time' || x === 'timeDraw'), 'ctf: flags get captured, games end by captures or time');
-  assert(reasons.pve.every(x => /^pve(Win|Lose)@wave[1-5]$/.test(x)), 'pve ends by waves');
+  assert(reasons.pve.every(x => /^pve(Win|Lose|Time|Core|Npc)@wave\d+$/.test(x) || /^forced/.test(x)), 'pve ends');
   console.log('objectives OK');
 }
 
@@ -647,4 +647,79 @@ console.log('ALL OK');
     assert(keys('function think(v){ var t = v.map.tiles; return null; }').includes('terrain'));
   }
   console.log('terrain + zone + stats + hints OK');
+}
+
+
+// 打怪改版：關卡、怪物、Boss、預警區、強化卡、商店、目標
+{
+  const { Round } = require('../server/game');
+  const PD = require('../server/pve/data');
+  const D = require('../server/bots/classic');
+  const mk = (pve, extra = {}) => {
+    const sides = [{ key: 'players', name: 'P', color: '#fff', members: [0, 1].map(i => ({ playerId: 'p' + i, name: 'p' + i, code: D, aiPilot: true, cls: ['heavy', 'nurse'][i] })) }];
+    return new Round({ mode: 'ffa', objective: 'pve', timeLimit: 300, sides, pve, size: 25, ...extra });
+  };
+  // 每關都跑得完、會分出勝負
+  for (const level of Object.keys(PD.LEVELS)) {
+    const r = mk({ mode: 'campaign', level, difficulty: 'easy' });
+    assert(r.hpSystem, 'pve forces hp system');
+    while (!r.over) r.step();
+    assert(/^pve(Win|Lose|Time|Core|Npc)$/.test(r.result.reason), level + ' ends: ' + r.result.reason);
+    assert.strictEqual(r.result.pve.level, level);
+    r.dispose();
+  }
+  // 無盡：第 5 波是 Boss
+  { const r = mk({ mode: 'endless' });
+    assert.strictEqual(r._pveIsBossWave(5), 'fortress'); assert.strictEqual(r._pveIsBossWave(10), 'queen'); assert.strictEqual(r._pveIsBossWave(4), null);
+    r.dispose(); }
+  // 每週挑戰：同一週內容固定
+  { const W = require('../server/pve').weeklySpec;
+    const a = W('2026-W40'), b = W('2026-W40');
+    assert.deepStrictEqual(a, b); assert(PD.LEVELS[a.level] && a.mods.length === 2 && a.mods[0] !== a.mods[1]); }
+  // 出怪：難度縮放、精英詞綴、Boss 與附屬單位
+  { const r = mk({ mode: 'campaign', level: '1-1', difficulty: 'hard' });
+    const m = r._pveSpawn('crawler', 5.5, 5.5, { noElite: true });
+    assert.strictEqual(m.maxHp, Math.round(PD.MONSTERS.crawler.hp * 1.5));
+    const e = r._pveSpawn('shield', 7.5, 5.5, { affixes: ['tough'] });
+    assert.strictEqual(e.maxHp, Math.round(PD.MONSTERS.shield.hp * 1.5 * 2)); assert(e.frontShield > 0);
+    // 正面護盾擋子彈、背後打得到
+    e.angle = 0; e.shield = 0;
+    const front = { vx: 0, vy: 1, x: e.x, y: e.y - 0.4, side: 'players', owner: r.tanks[0].id };
+    assert(r._pveBlockBullet(front, e) && front.dead, 'front shield blocks');
+    const back = { vx: 0, vy: -1, x: e.x, y: e.y + 0.4, side: 'players', owner: r.tanks[0].id };
+    assert(!r._pveBlockBullet(back, e), 'back is open');
+    r._pveSpawnBoss('fortress');
+    const boss = r.tankById.get(r.pve.bossId);
+    assert(boss.boss && boss.size > 2 && boss.ai.turrets.length === 4);
+    boss.shield = 0;
+    r._damage(boss, r.tanks[0], boss.x, boss.y, 'shot', 1e9);
+    assert(!boss.alive && r.tanks.filter(t => t.monster && t.alive && t.kind === 'fturret').length === 0, 'turrets go with the boss');
+    r.dispose(); }
+  // 預警區：時間到才傷害，範圍外沒事
+  { const r = mk({ mode: 'campaign', level: '1-1' });
+    const me = r.tanks.find(t => !t.isBot && t.cls === 'nurse'), far = r.tanks.find(t => t.isBot && t.side === 'players');
+    for (const t of [me, far]) t.shield = 0;
+    far.x = me.x + 6; far.y = me.y;
+    const hp = me.hp;
+    r._pveHazard({ kind: 'circle', x: me.x, y: me.y, r: 1, fireAt: r.tick + 2, endAt: r.tick + 4, dmg: 30 });
+    r.tick++; r._pveHazardsTick(); assert.strictEqual(me.hp, hp, 'not yet');
+    r.tick++; r._pveHazardsTick(); assert.strictEqual(me.hp, hp - 30, 'fires'); assert.strictEqual(far.hp, far.maxHp);
+    r.dispose(); }
+  // 強化卡與商店
+  { const r = mk({ mode: 'campaign', level: '1-1' });
+    const me = r.tanks.find(t => !t.isBot && t.side === 'players');
+    r.pve.phase = 'draft'; me.draft = ['hp1', 'fire1', 'pierce']; me.draftPicked = false;
+    const maxHp = me.maxHp, cd = me.stats.cooldown;
+    r.pvePick('p0', 0); assert.strictEqual(me.maxHp, Math.round(maxHp * 1.2)); assert(me.cards.includes('hp1'));
+    r.pvePick('p0', 1); assert.strictEqual(me.stats.cooldown, cd, 'only one pick per draft');
+    me.draftPicked = false; me.draft = ['fire1']; r.pvePick('p0', 0); assert(me.stats.cooldown < cd);
+    r.pve.parts = 20; const lives = me.lives;
+    assert(r.pveShop('p0', 'life')); assert.strictEqual(me.lives, lives + 1); assert.strictEqual(r.pve.parts, 5);
+    assert(!r.pveShop('p0', 'life'), 'not enough parts');
+    r.dispose(); }
+  // 規格與範例
+  { const spec = require('../server/spec');
+    assert(spec.includes('## 打怪模式') && spec.includes('hazards'));
+    const S = require('../server/samples'); assert(S.pve && S.pve.code.includes('hazards')); }
+  console.log('pve overhaul OK');
 }

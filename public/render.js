@@ -82,7 +82,13 @@
     applySnapshot(s, now) {
       const tickMs = 1000 / this.meta.tickRate;
       const tanks = new Map();
-      for (const a of s.T) tanks.set(a[0], { x: a[1] / 100, y: a[2] / 100, dir: a[3], shield: a[4], hp: a[5], buffs: a[6] || 0, ack: a[7] || 0, skillCd: a[8] || 0 });
+      const kinds = this.meta.pve ? this.meta.pve.kinds : null;
+      for (const a of s.T) {
+        const st = { x: a[1] / 100, y: a[2] / 100, dir: a[3], shield: a[4], hp: a[5], buffs: a[6] || 0, ack: a[7] || 0, skillCd: a[8] || 0 };
+        if (a.length > 9) { st.kind = a[9]; st.kindName = kinds ? kinds[a[9]] : null; st.maxHp = a[10]; st.elite = a[11]; st.flags = a[12]; st.size = a[13] / 100; }
+        tanks.set(a[0], st);
+      }
+      if (this.meta.pve) { this.draft = s.D || null; if (s.V) this.pveLive = s.V; }
       const bullets = new Map();
       for (const a of s.B) bullets.set(a[0], { x: a[1] / 100, y: a[2] / 100, dir: a[3], kind: a[4] });
       const last = this.buf[this.buf.length - 1];
@@ -90,7 +96,7 @@
       // 最新狀態（不延遲）：給自己坦克的預測用
       if (s.M) for (const [idx, ch] of s.M) this.liveTiles[idx] = ch;
       this.latest = { k: s.k, tanks, c: s.c };
-      const snap = { k: s.k, tanks, bullets, M: s.M, L: s.L, S: s.S, E: s.E, K: s.K, X: s.X, I: s.I, P: s.P, O: s.O, OE: s.OE, W: s.W, Z: s.Z, N: s.N };
+      const snap = { k: s.k, tanks, bullets, M: s.M, L: s.L, S: s.S, E: s.E, K: s.K, X: s.X, I: s.I, P: s.P, O: s.O, OE: s.OE, W: s.W, Z: s.Z, N: s.N, H: s.H, V: s.V };
       this.buf.push(snap);
       // 死亡重播用：保留最近約 6 秒
       this.hist.push(snap);
@@ -133,6 +139,8 @@
         if (snap.O) this.obj = snap.O;
         if (snap.Z) this.smokes = snap.Z.map(a => ({ x: a[0] / 100, y: a[1] / 100, r: a[2] / 100, left: a[3], k: snap.k }));
         if (snap.N) this.mines = snap.N.map(a => ({ id: a[0], x: a[1] / 100, y: a[2] / 100, armed: a[3] }));
+        if (snap.H) this.hazards = snap.H;
+        if (snap.V) { this.pveState = snap.V; if (snap.V.zone !== undefined) this.meta.zone = snap.V.zone; }
         if (snap.OE && this.onObjEvent) for (const e of snap.OE) this.onObjEvent(e);
         if (snap.X && this.onBaseKill) for (const [sideKey, shooter] of snap.X) this.onBaseKill(sideKey, shooter);
         if (snap.K) for (const [v, k, cause] of snap.K) {
@@ -385,6 +393,11 @@
         else if (rt < startTicks) cam = full;
         else cam = mix(full, normal, ease((rt - startTicks) / 20));
       }
+      if (this.focus && now < this.focus.until) {   // Boss 登場：鏡頭拉到 Boss
+        const k = Math.min(1, (now - this.focus.t0) / 300, (this.focus.until - now) / 300);
+        const f = { x: this.focus.x, y: this.focus.y, tile: Math.max(cam.tile, Math.min(area.w, area.h) / 12) };
+        cam = { x: cam.x + (f.x - cam.x) * k, y: cam.y + (f.y - cam.y) * k, tile: cam.tile + (f.tile - cam.tile) * k };
+      }
       const tp = cam.tile;
       const ox = Math.round(area.x + area.w / 2 - cam.x * tp);
       const oy = Math.round(area.y + area.h / 2 - cam.y * tp);
@@ -489,6 +502,12 @@
         if (m.armed && Math.floor(now / 400) % 2) { ctx.fillStyle = '#ff3b3b'; ctx.beginPath(); ctx.arc(m.x * tp, m.y * tp, tp * 0.08, 0, 7); ctx.fill(); }
       }
 
+      // 打怪：地圖物件與預警區
+      if (this.meta.pve && window.PveDraw) {
+        window.PveDraw.drawFeatures(ctx, this.meta.pve, this.pveState, tp, now);
+        for (const h of this.hazards || []) window.PveDraw.drawHazard(ctx, h, tp, rt, now, mapW);
+      }
+
       // 子彈
       for (const [id, b] of A.bullets) {
         const [x, y] = pos(id, A.bullets, B.bullets);
@@ -514,10 +533,17 @@
           const latestMe = this.latest && this.latest.tanks.get(id);
           t = Object.assign({}, latestMe || t, { dir: this.pred.angle });
         }
-        drawn.push([id, x, y, t.hp]);
+        drawn.push([id, x, y, t.hp, t.maxHp, t.size]);
+        if (m.cls === 'monster' && window.PveDraw) {
+          if (t.flags & 32) ctx.globalAlpha = this.myTank && (this.myTank.grassSight || (this.myBuffs() & 16)) ? 0.5 : 0.13;   // 潛伏者：殘影
+          window.PveDraw.drawMonster(ctx, x * tp, y * tp, t.dir, t, tp, now);
+          ctx.globalAlpha = 1;
+          continue;
+        }
+        if (m.kind === 'core' && window.PveDraw) { window.PveDraw.drawCore(ctx, x * tp, y * tp, (m.size || 1.6) * tp, t.hp / (t.maxHp || m.maxHp), now); continue; }
         const ghost = t.buffs & (8 | 128);       // 隱形或穿牆：半透明
         if (ghost) ctx.globalAlpha = t.buffs & 8 ? 0.35 : 0.6;
-        this._drawTank(ctx, x * tp, y * tp, t.dir, this.sideMeta.get(m.side).color, m, tp * this.meta.tankSize, t, now);
+        this._drawTank(ctx, x * tp, y * tp, t.dir, m.kind === 'npc' ? '#4fd1ff' : this.sideMeta.get(m.side).color, m, tp * this.meta.tankSize, t, now);
         ctx.globalAlpha = 1;
         if (t.buffs & 2048) {                     // 衝刺：殘影
           ctx.fillStyle = 'rgba(255,255,255,.18)';
@@ -575,11 +601,14 @@
       // 血條（血量系統）
       const hpOn = this.meta.hpSystem;
       if (hpOn && tp >= 7) {
-        for (const [id, x, y, hp] of drawn) {
+        const bossId = this.pveState && this.pveState.boss ? this.pveState.boss.id : null;
+        for (const [id, x, y, hp, stMax, stSize] of drawn) {
           const m = this.tankMeta.get(id);
-          if (!m || !m.maxHp) continue;
-          const w = 0.86 * tp, h = Math.max(3, 0.11 * tp), bx = x * tp - w / 2, by = (y - 0.62) * tp - h;
-          const f = Math.max(0, Math.min(1, hp / m.maxHp)), over = Math.max(0, Math.min(0.5, hp / m.maxHp - 1));
+          const maxHp = stMax || (m && m.maxHp);
+          if (!m || !maxHp || id === bossId || (m.cls === 'monster' && maxHp <= 1)) continue;   // Boss 用上方大血條
+          const sz = Math.max(0.84, stSize || m.size || 0.84);
+          const w = 0.86 * tp * Math.min(2, sz / 0.84), h = Math.max(3, 0.11 * tp), bx = x * tp - w / 2, by = (y - sz * 0.5 - 0.2) * tp - h;
+          const f = Math.max(0, Math.min(1, hp / maxHp)), over = Math.max(0, Math.min(0.5, hp / maxHp - 1));
           ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(bx - 1, by - 1, w + 2, h + 2);
           ctx.fillStyle = f > 0.6 ? '#5ee07a' : f > 0.3 ? '#ffd23f' : '#ff5a4f';
           ctx.fillRect(bx, by, w * f, h);
@@ -867,6 +896,16 @@
       else if (cls === 'assault') poly([[-hullW, 0.42], [-hullW, -0.3], [-hullW + 0.1, -0.42], [hullW - 0.1, -0.42], [hullW, -0.3], [hullW, 0.42]]);   // 切角
       else R(-hullW, -0.42, hullW * 2, 0.84);
       if (m.isBot) { ctx.fillStyle = color; R(-hullW, -0.1, hullW * 2, 0.12); }      // 電腦：車身條紋
+      // 塗裝（打怪解鎖）
+      if (m.skin && m.skin !== 'default' && !m.isBot) {
+        ctx.save(); ctx.beginPath(); ctx.rect(-hullW * s, -0.42 * s, hullW * 2 * s, 0.84 * s); ctx.clip();
+        if (m.skin === 'camo') { ctx.fillStyle = 'rgba(30, 50, 25, .45)'; for (const [cx, cy, r] of [[-0.15, -0.2, 0.12], [0.12, 0.05, 0.14], [-0.1, 0.25, 0.1], [0.2, -0.3, 0.08]]) { ctx.beginPath(); ctx.arc(cx * s, cy * s, r * s, 0, 7); ctx.fill(); } }
+        else if (m.skin === 'stripes') { ctx.fillStyle = 'rgba(255,255,255,.35)'; for (let i = -3; i < 4; i++) { ctx.beginPath(); ctx.moveTo((i * 0.2) * s, -0.45 * s); ctx.lineTo((i * 0.2 + 0.08) * s, -0.45 * s); ctx.lineTo((i * 0.2 + 0.33) * s, 0.45 * s); ctx.lineTo((i * 0.2 + 0.25) * s, 0.45 * s); ctx.fill(); } }
+        else if (m.skin === 'carbon') { ctx.fillStyle = 'rgba(15,15,20,.55)'; ctx.fillRect(-hullW * s, -0.42 * s, hullW * 2 * s, 0.84 * s); ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 1; for (let i = -6; i < 6; i++) { ctx.beginPath(); ctx.moveTo(i * 0.1 * s, -0.5 * s); ctx.lineTo((i * 0.1 + 0.5) * s, 0.5 * s); ctx.stroke(); } }
+        else if (m.skin === 'gold') { ctx.fillStyle = 'rgba(255, 200, 60, .55)'; ctx.fillRect(-hullW * s, -0.42 * s, hullW * 2 * s, 0.84 * s); ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(-hullW * s, -0.42 * s, hullW * 0.6 * s, 0.84 * s); }
+        ctx.restore();
+        if (m.skin === 'neon') { ctx.strokeStyle = `hsl(${(now / 10) % 360}, 100%, 65%)`; ctx.lineWidth = Math.max(1.5, s * 0.06); ctx.strokeRect(-hullW * s, -0.42 * s, hullW * 2 * s, 0.84 * s); }
+      }
       // 車身細節
       if (cls === 'assault') { ctx.fillStyle = light; poly([[-0.14, 0.3], [0, 0.2], [0.14, 0.3], [0.14, 0.36], [0, 0.26], [-0.14, 0.36]]); }
       else if (cls === 'scout') { ctx.fillStyle = darker; R(-hullW + 0.03, 0.3, 0.06, 0.16); R(hullW - 0.09, 0.3, 0.06, 0.16); }   // 尾翼

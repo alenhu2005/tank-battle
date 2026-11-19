@@ -177,12 +177,15 @@ class BotSandbox {
     }
     let move = r.move;
     if (move === undefined || move === '' || move === 'none' || move === 'stop') move = null;
-    if (typeof move === 'number' && Number.isFinite(move)) return { move: ((move % 360) + 360) % 360, fire: !!r.fire, skill: !!r.skill };
+    const extra = {};   // 打怪模式的抽卡與商店
+    if (Number.isInteger(r.pick)) extra.pick = r.pick;
+    if (typeof r.buy === 'string') extra.buy = r.buy;
+    if (typeof move === 'number' && Number.isFinite(move)) return { move: ((move % 360) + 360) % 360, fire: !!r.fire, skill: !!r.skill, ...extra };
     if (move !== null && !C.DIRS.includes(move)) {
       this._error(`move 的值 ${JSON.stringify(move)} 無效：可以是角度（數字，0 = 上、90 = 右，順時針）、${C.DIRS.map(d => '"' + d + '"').join(' ')} 或 null`);
       move = null;
     }
-    return { move, fire: !!r.fire, skill: !!r.skill };
+    return { move, fire: !!r.fire, skill: !!r.skill, ...extra };
   }
 
   report() {

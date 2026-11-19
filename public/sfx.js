@@ -62,6 +62,7 @@
     armor:     v => tone({ type: 'square', from: 300, to: 200, dur: 0.12, gain: 0.15 * v }),
     heal:      v => { tone({ type: 'sine', from: 600, to: 1200, dur: 0.2, gain: 0.1 * v }); },
     portal:    v => { tone({ type: 'sine', from: 300, to: 1500, dur: 0.25, gain: 0.1 * v }); },
+    laser:     v => { tone({ type: 'sawtooth', from: 1800, to: 200, dur: 0.35, gain: 0.14 * v }); noise({ dur: 0.3, gain: 0.25 * v, freq: 1200 }); },
     spawn:     v => tone({ type: 'sine', from: 400, to: 900, dur: 0.25, gain: 0.12 * v }),
     pickup:    v => { tone({ type: 'square', from: 660, dur: 0.08, gain: 0.12 * v }); tone({ type: 'square', from: 990, dur: 0.12, gain: 0.12 * v, delay: 0.08 }); },
     itemSpawn: v => tone({ type: 'triangle', from: 1200, to: 1600, dur: 0.15, gain: 0.07 * v }),

@@ -10,13 +10,14 @@ const SCENARIOS = [
   { mode: 'ffa', baseMode: true, fog: false, opponents: 2, ticks: 240, items: true, ricochet: true },
   { mode: 'team', baseMode: false, fog: true, opponents: 1, ticks: 90 },
   { mode: 'ffa', baseMode: true, fog: false, opponents: 2, ticks: 60, hard: true, codeOnly: true },
+  { mode: 'ffa', pve: '2-1', opponents: 0, ticks: 200 },   // 打怪：核心、怪物、view.objective 的 pve 欄位
 ];
 
 function validateCode(code) {
   const result = { ok: false, errors: [], warnings: [], logs: [], stats: null };
   let timeouts = 0;
   // 偶爾超時多半是伺服器忙碌（例如雲端主機剛開機），不算代碼寫錯；超過這個次數才判定失敗
-  const TIMEOUT_TOLERANCE = 3;
+  const TIMEOUT_TOLERANCE = SCENARIOS.length;   // 平均每場測試容許 1 次
   let calls = 0, totalMs = 0, maxMs = 0;
 
   for (const sc of SCENARIOS) {
@@ -27,7 +28,8 @@ function validateCode(code) {
 
     let round;
     try {
-      round = new Round({ mode: sc.mode, baseMode: sc.baseMode, fog: sc.fog, breakableWalls: !sc.hard, codeOnly: !!sc.codeOnly, hpSystem: !!sc.items, specialTerrain: !!sc.items, zone: !!sc.items, items: !!sc.items, ricochet: !!sc.ricochet, timeLimit: 0, sides, size: 21 });
+      if (sc.pve) sides[0].key = 'players';
+      round = sc.pve ? new Round({ mode: 'ffa', objective: 'pve', pve: { mode: 'campaign', level: sc.pve, difficulty: 'normal' }, items: true, timeLimit: 0, sides, size: 25 }) : new Round({ mode: sc.mode, baseMode: sc.baseMode, fog: sc.fog, breakableWalls: !sc.hard, codeOnly: !!sc.codeOnly, hpSystem: !!sc.items, specialTerrain: !!sc.items, zone: !!sc.items, items: !!sc.items, ricochet: !!sc.ricochet, timeLimit: 0, sides, size: 21 });
     } catch (e) {
       result.errors.push('測試環境建立失敗：' + e.message);
       return result;

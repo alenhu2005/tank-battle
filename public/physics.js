@@ -29,8 +29,8 @@
 
   // world = { size, tiles: 陣列或字串, tankSize, alignRate }
   // t = { x, y, dir, phase }（phase > 0 表示穿牆中）；others = 其他「活著」的坦克 [{x,y}]
-  function tileBlocked(world, x, y, phase) {
-    var half = world.tankSize / 2, solid = phase ? PHASE_SOLID : TANK_SOLID;
+  function tileBlocked(world, x, y, phase, size) {
+    var half = (size || world.tankSize) / 2, solid = phase ? PHASE_SOLID : TANK_SOLID;
     var x0 = Math.floor(x - half + 1e-6), x1 = Math.floor(x + half - 1e-6);
     var y0 = Math.floor(y - half + 1e-6), y1 = Math.floor(y + half - 1e-6);
     if (x0 < 0 || y0 < 0 || x1 >= world.size || y1 >= world.size) return true;
@@ -41,12 +41,12 @@
   }
 
   function blocked(world, t, x, y, others) {
-    var phase = t.phase > 0, S = world.tankSize - 1e-6;
+    var phase = t.phase > 0, mine = t.size || world.tankSize;
     // 穿牆結束時如果還卡在牆裡，允許移動直到出來
-    if (tileBlocked(world, x, y, phase) && !tileBlocked(world, t.x, t.y, phase)) return true;
+    if (tileBlocked(world, x, y, phase, mine) && !tileBlocked(world, t.x, t.y, phase, mine)) return true;
     // 已經重疊的坦克（例如剛重生）允許彼此分開，不允許新的重疊
     for (var i = 0; i < others.length; i++) {
-      var o = others[i];
+      var o = others[i], S = (mine + (o.size || world.tankSize)) / 2 - 1e-6;
       if (Math.abs(o.x - x) >= S || Math.abs(o.y - y) >= S) continue;
       var overlapOld = Math.abs(o.x - t.x) < S && Math.abs(o.y - t.y) < S;
       if (!overlapOld) return true;
