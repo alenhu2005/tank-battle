@@ -24,8 +24,8 @@
   // 從坦克中心沿角度射到坦克方框邊緣的點（砲口位置）
   function muzzle(x, y, deg, half) { var u = vec(deg), k = half / Math.max(Math.abs(u[0]), Math.abs(u[1])); return [x + u[0] * k, y + u[1] * k]; }
   var OPPOSITE = { up: 'down', down: 'up', left: 'right', right: 'left', upleft: 'downright', downright: 'upleft', upright: 'downleft', downleft: 'upright' };
-  var TANK_SOLID = { '#': 1, '@': 1, '~': 1, B: 1 };
-  var PHASE_SOLID = { '@': 1, B: 1 };
+  var TANK_SOLID = { '#': 1, '@': 1, '~': 1, B: 1, O: 1 };   // O = 油桶
+  var PHASE_SOLID = { '@': 1, B: 1, O: 1 };
 
   // world = { size, tiles: 陣列或字串, tankSize, alignRate }
   // t = { x, y, dir, phase }（phase > 0 表示穿牆中）；others = 其他「活著」的坦克 [{x,y}]
@@ -105,6 +105,7 @@
       if (c === '@') return 'steel';
       if (c === '#') return breakable ? 'brick' : 'steel';
       if (c === 'B') return 'base';
+      if (c === 'O') return 'brick';
       return null;
     }
     while (len < maxLen) {

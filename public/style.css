@@ -567,3 +567,19 @@ body.room-practice #shareBtn { display: none; }
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .table-scroll th:first-child, .table-scroll td:first-child { position: sticky; left: 0; background: var(--panel); z-index: 1; }
 @media (max-width: 400px) { .table-scroll table { font-size: 13px; } .table-scroll td, .table-scroll th { padding: 6px 3px; } }
+.hints { margin-top: 8px; background: rgba(242, 201, 76, .08); border: 1px solid rgba(242, 201, 76, .35); border-radius: 10px; padding: 8px 10px; font-size: 13px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.hints ul { padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
+
+/* 殘血警示 */
+.low-hp { position: absolute; inset: 0; pointer-events: none; z-index: 3; opacity: 0; transition: opacity .3s;
+  box-shadow: inset 0 0 min(18vw, 120px) rgba(255, 40, 40, .55); }
+.low-hp.show { opacity: 1; animation: low-hp-pulse 1s ease-in-out infinite; }
+@keyframes low-hp-pulse { 50% { box-shadow: inset 0 0 min(10vw, 70px) rgba(255, 40, 40, .35); } }
+/* 觀戰切換 */
+.watch-btn { display: block; margin: 8px auto 0; pointer-events: auto; background: var(--accent); color: var(--accent-ink);
+  font-weight: 800; font-size: 13px; padding: 6px 12px; border-radius: 10px; }
+.spectate.watching { top: auto; bottom: calc(var(--ctrl-h, 0px) + 16px); transform: translate(-50%, 0); }
+@media (orientation: landscape) { .spectate.watching { bottom: 16px; } }
+.spectate { z-index: 6; }
+.tag.tap { outline: 1px dashed rgba(255,255,255,.35); cursor: pointer; }
+.hud-obj .zone-warn { background: rgba(220, 40, 40, .85); color: #fff; animation: low-hp-pulse 1s infinite; }

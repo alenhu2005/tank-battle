@@ -143,7 +143,7 @@ wss.on('connection', (ws) => {
           room.addAI(); room.addAI();
         } else if (kind === 'tutorial') {
           // 新手教學：一隊不會開火的練習靶
-          Object.assign(room.settings, { mode: 'ffa', baseMode: false, codeOnly: false, items: true, ricochet: false, fog: false, rounds: 1, timeLimit: 0 });
+          Object.assign(room.settings, { mode: 'ffa', baseMode: false, codeOnly: false, items: true, ricochet: false, fog: false, rounds: 1, timeLimit: 0, hpSystem: true, terrain: true, zone: false, closeCam: false });
           room.addAI(TARGET_BOT, '練習靶');
         }
       } else if (msg.t === 'join') {

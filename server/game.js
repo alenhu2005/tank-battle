@@ -12,6 +12,7 @@ const { BotSandbox } = require('./botRunner');
 const Physics = require('../public/physics');
 const installObjectives = require('./objectives');
 const installSkills = require('./skills');
+const installTerrain = require('./terrain');
 
 const DIR_IDX = Object.fromEntries(C.DIRS.map((d, i) => [d, i]));
 // 單位向量（斜向為 1/√2）
@@ -62,6 +63,7 @@ class Round {
     this.breakableWalls = opts.breakableWalls !== false;
     this.codeOnly = !!opts.codeOnly;
     this.hpSystem = !!opts.hpSystem;     // 血量系統：每條命有血量，子彈依職業扣血
+    this.closeCam = !!opts.closeCam;      // 近距離鏡頭：玩家畫面只看得到自己周圍（純畫面效果）
     this.regenOn = !!opts.regen;         // 自動回血（血量系統的子選項，預設關閉；偵察不管有沒有開都會回血）
     this.tankSize = C.TANK_SIZE;          // 給共用物理用
     this.alignRate = C.ALIGN_RATE;
@@ -112,6 +114,7 @@ class Round {
       breakableWalls: this.breakableWalls,
       style: opts.mapStyle,
       custom: opts.customMap || null,
+      specials: !!opts.specialTerrain,
     });
     this.size = size;
     this.tiles = map.tiles;
@@ -151,6 +154,7 @@ class Round {
             respawnTimer: 0, shield: 0, cooldown: 0,
             input: { move: null, fire: false },
             kills: 0, deaths: 0, baseKills: 0, shots: 0, hits: 0, dodges: 0, itemsPicked: 0, captures: 0,
+            dmgDealt: 0, assists: 0, healed: 0,
             sandbox: null,
           };
           // 命數：電腦和玩家分開設定，0 = 無限重生；玩家可以有讓分（多／少幾條命）
@@ -172,6 +176,7 @@ class Round {
     for (const t of this.tanks) if (t.lives > 0) this._spawn(t, true);
     this._initObjective();
     this._initSkills();
+    this._initTerrain(opts);
     this._reinforceBaseWalls();
     this.rowsCache = null;
   }
@@ -189,7 +194,8 @@ class Round {
 
   // MVP 分數：擊殺最重要，拆基地、搶旗也很重要；命中、閃避、撿道具加一點；陣亡扣分
   static mvpScore(t) {
-    return t.kills * 100 + t.baseKills * 150 + t.captures * 150 + t.hits * 10 + t.dodges * 5 + t.itemsPicked * 10 - t.deaths * 40;
+    return Math.round(t.kills * 100 + t.baseKills * 150 + t.captures * 150 + t.hits * 10 + t.dodges * 5 + t.itemsPicked * 10 - t.deaths * 40
+      + (t.assists || 0) * 50 + (t.healed || 0) * 0.8 + ((t.dmgDealt || 0) > 5 ? t.dmgDealt * 0.3 : 0));
   }
 
   get playTick() { return Math.max(0, this.tick - this.startTicks); }
@@ -203,7 +209,7 @@ class Round {
       mode: this.mode, baseMode: this.baseMode, fog: this.fog && !this.codeOnly, breakableWalls: this.breakableWalls,
       codeOnly: this.codeOnly, timeLimitTicks: this.timeLimitTicks, startTicks: this.startTicks, blastRadius: C.BLAST_RADIUS,
       ricochet: this.ricochet, items: this.itemsOn, itemTypes: C.ITEM_TYPES, objective: this.objective,
-      angles: true, hpSystem: this.hpSystem, spreadAngle: C.SPREAD_ANGLE, escortPath: this.cart ? this.cart.path : null,
+      angles: true, hpSystem: this.hpSystem, zone: this.zone, closeCam: !!this.closeCam, spreadAngle: C.SPREAD_ANGLE, escortPath: this.cart ? this.cart.path : null,
       wallHp: [...this.wallHp], baseWallHp: C.BASE_WALL_HP, baseWallShieldTicks: C.BASE_WALL_SHIELD_TICKS, skills: C.SKILLS,   // 快照裡的方向是角度（度），不是八方向編號
       alignRate: C.ALIGN_RATE, speedBuff: C.SPEED_BUFF, bulletBounces: C.BULLET_BOUNCES, bounceBuff: C.BOUNCE_BUFF,
       tickRate: C.TICK_RATE, tankSize: C.TANK_SIZE,
@@ -257,6 +263,7 @@ class Round {
       if (t.input.skill || t.skillQueued) { this._useSkill(t); t.skillQueued = false; }
     }
     this._updateSkills();
+    this._updateTerrain();
     this._regen();
     for (const t of this.tanks) if (!t.isBot) t.ackSeq = t.inputSeq || 0;
     this._recordHistory();
@@ -594,6 +601,9 @@ class Round {
       b.dead = true;
       if (b.blast) this._blast(b, b.x, b.y, null);
       else this.events.push(['spark', b.x, b.y]);
+    } else if (c === 'O') {        // 油桶：打到就爆炸
+      b.dead = true;
+      this._explodeBarrel(tx, ty, b);
     } else if (c === 'B') {
       b.dead = true;
       const side = this.sides.find(s => s.base && s.base.alive && s.base.x === tx && s.base.y === ty);
@@ -644,6 +654,11 @@ class Round {
       const cx = Math.floor(x), cy = Math.floor(y);
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) this._breakTile(cx + dx, cy + dy);
     }
+    { const cx = Math.floor(x), cy = Math.floor(y);
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const tx = cx + dx, ty = cy + dy;
+        if (tx >= 0 && ty >= 0 && tx < this.size && ty < this.size && this.tiles[ty * this.size + tx] === 'O') this._explodeBarrel(tx, ty, b);
+      } }
     const shooter = this.tankById.get(b.owner);
     for (const t of this.tanks) {
       if (!t.alive || t === directHit || t.side === b.side) continue;
@@ -714,9 +729,22 @@ class Round {
     }
     t.hurtTick = this.tick; t.regenAcc = 0;
     if (this.hpSystem) this.events.push(['dmg', t.x, t.y, dmg]);
+    if (shooter && shooter.side !== t.side) {
+      shooter.dmgDealt = (shooter.dmgDealt || 0) + Math.min(dmg, t.hp);
+      (t.hurtBy || (t.hurtBy = new Map())).set(shooter.id, this.tick);
+    }
     if (t.hp > dmg) { t.hp -= dmg; this.events.push(['armor', t.x, t.y]); return; }
     t.hp = 0;
     if (shooter) shooter.kills++;
+    // 助攻：10 秒內也打過這台的其他敵人
+    if (t.hurtBy) {
+      for (const [id, tick] of t.hurtBy) {
+        if (shooter && id === shooter.id) continue;
+        const o = this.tankById.get(id);
+        if (o && this.tick - tick <= 10 * C.TICK_RATE) o.assists = (o.assists || 0) + 1;
+      }
+      t.hurtBy.clear();
+    }
     if (t.ana) this._recordDeath(t, shooter, cause);
     t.alive = false;
     t.deaths++;
@@ -785,10 +813,15 @@ class Round {
       const delay = (scout ? C.HP.scoutRegenDelay : C.HP.regenDelay) * C.TICK_RATE;
       let rate = 0;
       if ((this.regenOn || scout) && this.tick - (t.hurtTick || 0) >= delay) rate += C.HP.regenPerSec * (scout && this.regenOn ? C.HP.scoutRegenMult : 1);
-      if (nurses.some(n => n.side === t.side && Math.hypot(n.x - t.x, n.y - t.y) <= C.HP.nurseAura)) rate += C.HP.nurseAuraPerSec;   // 護士光環
+      const medic = nurses.find(n => n.side === t.side && Math.hypot(n.x - t.x, n.y - t.y) <= C.HP.nurseAura);
+      if (medic) rate += C.HP.nurseAuraPerSec;   // 護士光環
       if (!rate) continue;
       t.regenAcc = (t.regenAcc || 0) + t.maxHp * rate / C.TICK_RATE;
-      if (t.regenAcc >= 1) { const n = Math.floor(t.regenAcc); t.regenAcc -= n; t.hp = Math.min(t.maxHp, t.hp + n); }
+      if (t.regenAcc >= 1) {
+        const n = Math.floor(t.regenAcc), before = t.hp;
+        t.regenAcc -= n; t.hp = Math.min(t.maxHp, t.hp + n);
+        if (medic) medic.healed = (medic.healed || 0) + (t.hp - before) * (C.HP.nurseAuraPerSec / rate);
+      }
     }
   }
 
@@ -854,13 +887,14 @@ class Round {
       winner: winner ? winner.key : null,
       reason,
       ticks: this.playTick,
-      objective: this.objective,
+      objective: this.objective, hpSystem: this.hpSystem,
       objScore: this.objScore || null,
       pveWave: this.pveWave || 0,
       tanks: this.tanks.filter(t => !t.monster).map(t => ({
         id: t.id, side: t.side, owner: t.owner, name: t.ownerName, isBot: t.isBot, cls: t.cls,
         kills: t.kills, deaths: t.deaths, lives: t.lives, baseKills: t.baseKills,
         shots: t.shots, hits: t.hits, dodges: t.dodges, items: t.itemsPicked, captures: t.captures,
+        dmg: Math.round(t.dmgDealt || 0), assists: t.assists || 0, healed: Math.round(t.healed || 0),
         score: Round.mvpScore(t),
       })),
     };
@@ -926,6 +960,7 @@ class Round {
       bullets: this.bullets.map(b => ({ x: b.x, y: b.y, dir: b.dir, angle: Math.round(b.angle * 10) / 10, vx: b.vx * b.speed, vy: b.vy * b.speed, speed: b.speed, ally: b.side === me.side, blast: b.blast, pierce: b.pierce, freeze: b.freeze, confuse: b.confuse, bounces: b.bounces })),
       objective: this.objectiveView(me),
       ...this._skillView(me),
+      ...this._terrainView(),
       items: this.items.map(it => ({ x: it.x, y: it.y, type: C.ITEM_TYPES[it.type].key, ticksLeft: it.until - this.playTick })),
       bases: this.baseMode ? this.sides.filter(s => s.base).map(s => ({ x: s.base.x + 0.5, y: s.base.y + 0.5, ally: s.key === me.side, alive: s.base.alive })) : [],
       map: {
@@ -935,6 +970,7 @@ class Round {
       rules: {
         tickRate: C.TICK_RATE, tankSize: C.TANK_SIZE, blastRadius: C.BLAST_RADIUS,
         mode: this.mode, baseMode: this.baseMode, fog: this.fog, breakableWalls: this.breakableWalls,
+        specVersion: C.SPEC_VERSION,
         codeOnly: this.codeOnly, classes: this.classTable, hpSystem: this.hpSystem, regen: this.hpSystem && this.regenOn,
         playerHp: this.rules.playerHp, botHp: this.rules.botHp,
         botClasses: this.botClassesOn,
@@ -1082,5 +1118,6 @@ class Round {
 
 installObjectives(Round);
 installSkills(Round);
+installTerrain(Round);
 
 module.exports = { Round, mapSizeFor };

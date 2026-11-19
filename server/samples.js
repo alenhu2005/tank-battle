@@ -28,7 +28,7 @@ function lineTo(me, t, view) {
     x += v[0]; y += v[1];
     if (x === tx && y === ty) return dir;
     var c = tileAt(view.map, x, y);
-    if (c === '@' || c === 'B' || (c === '#' && !view.rules.breakableWalls)) return null;
+    if (c === '@' || c === 'B' || c === 'O' || (c === '#' && !view.rules.breakableWalls)) return null;
   }
   return null;
 }
@@ -52,7 +52,7 @@ function stepToward(me, goals, view, cost) {
       for (var k in STEP4) {
         var nx = cx + STEP4[k][0], ny = cy + STEP4[k][1];
         var c = tileAt(map, nx, ny);
-        var extra = cost ? cost(c) : (c === '.' || c === '*' ? 0 : c === '#' && view.rules.breakableWalls ? 3 : Infinity);
+        var extra = cost ? cost(c) : (c === '.' || c === '*' || c === 'H' || c === 'P' ? 0 : c === '#' && view.rules.breakableWalls ? 3 : Infinity);
         if (extra === Infinity) continue;
         var id = ny * W + nx, nd = d + 1 + extra;
         if (dist[id] !== undefined && dist[id] <= nd) continue;
@@ -150,7 +150,7 @@ function decide(view, memory) {
   // 草叢代價比較低 → 盡量走草叢接近
   var dir = stepToward(me, [prey[0]], view, function (c) {
     if (c === '*') return 0;
-    if (c === '.') return 1;
+    if (c === '.' || c === 'H' || c === 'P') return 1;
     if (c === '#' && view.rules.breakableWalls) return 4;
     return Infinity;
   });
@@ -196,9 +196,11 @@ function decide(view, memory) {
 }
 ` + HELPERS;
 
+const C = require('./constants');
+const tag = code => `// spec v${C.SPEC_VERSION}\n` + code;
 module.exports = {
-  standard:  { name: '標準',   desc: '會尋路，找最近的敵人或敵方基地，對齊就開火，打掉擋路的磚牆', code: CLASSIC },
-  guard:     { name: '守門員', desc: '守在基地或你旁邊，敵人靠近才出手；會用職業技能', code: GUARD },
-  assassin:  { name: '刺客',   desc: '專挑敵方玩家、先打命少血少的，走草叢接近；會用職業技能', code: ASSASSIN },
-  bodyguard: { name: '保鑣',   desc: '緊跟著你，把朝你飛來的子彈打掉；會用職業技能（護士會幫你補血）', code: BODYGUARD },
+  standard:  { name: '標準',   desc: '會尋路，找最近的敵人或敵方基地，對齊就開火，打掉擋路的磚牆', code: tag(CLASSIC) },
+  guard:     { name: '守門員', desc: '守在基地或你旁邊，敵人靠近才出手；會用職業技能', code: tag(GUARD) },
+  assassin:  { name: '刺客',   desc: '專挑敵方玩家、先打命少血少的，走草叢接近；會用職業技能', code: tag(ASSASSIN) },
+  bodyguard: { name: '保鑣',   desc: '緊跟著你，把朝你飛來的子彈打掉；會用職業技能（護士會幫你補血）', code: tag(BODYGUARD) },
 };

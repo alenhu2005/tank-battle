@@ -104,7 +104,7 @@ function nextStep(me, targets, map, breakable) {
     for (var k in DIRS) {
       var nx = cx + DIRS[k][0], ny = cy + DIRS[k][1];
       var c = tileAt(map, nx, ny);
-      if (c !== '.' && c !== '*' && !(c === '#' && breakable)) continue;
+      if (c !== '.' && c !== '*' && c !== 'H' && c !== 'P' && !(c === '#' && breakable)) continue;
       var id = ny * W + nx;
       if (seen[id]) continue;
       seen[id] = 1;

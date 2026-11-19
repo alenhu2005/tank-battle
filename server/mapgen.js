@@ -1,7 +1,7 @@
 'use strict';
 
 // 隨機地圖產生器。
-// 地形：. 空地  # 磚牆  @ 鋼牆  ~ 水  * 草叢  B 基地
+// 地形：. 空地  # 磚牆  @ 鋼牆  ~ 水  * 草叢  B 基地  O 油桶  H 補血站  P 傳送門
 
 function anchorPositions(count, size) {
   const c = (size - 1) / 2;
@@ -101,7 +101,33 @@ function carvePath(g, a, b) {
   for (let y = Math.min(a.y, b.y); y <= Math.max(a.y, b.y); y++) open(b.x, y);
 }
 
-function generateMap({ anchors: anchorCount, spawnsPerAnchor, size, baseMode, breakableWalls = true, style = 'random', custom = null }) {
+// 特殊地形：油桶、補血站、傳送門（對稱擺放，避開出生區和地圖正中央）
+function placeSpecials(g, anchors, symmetry) {
+  const size = g.length, m = size - 1, c = m / 2;
+  const sym = Math.max(2, symmetry);
+  const okCell = (x, y) => x > 0 && y > 0 && x < m && y < m && g[y][x] === '.'
+    && anchors.every(a => Math.max(Math.abs(a.x - x), Math.abs(a.y - y)) > 4) && Math.max(Math.abs(x - c), Math.abs(y - c)) > 2;
+  const place = (ch, groups) => {
+    for (let n = 0, tries = 0; n < groups && tries < 200; tries++) {
+      const x = 1 + Math.floor(Math.random() * (m - 1)), y = 1 + Math.floor(Math.random() * (m - 1));
+      const cells = orbit(x, y, size, sym);
+      if (!cells.every(([px, py]) => okCell(px, py))) continue;
+      for (const [px, py] of cells) g[py][px] = ch;
+      n++;
+    }
+  };
+  place('O', Math.max(2, Math.round(size / 9)));
+  place('H', 1);
+  // 傳送門：一對，彼此點對稱（伺服器會把點對稱的兩個傳送門配成一對）
+  for (let tries = 0; tries < 200; tries++) {
+    const x = 1 + Math.floor(Math.random() * (m - 1)), y = 1 + Math.floor(Math.random() * (m - 1));
+    if (!okCell(x, y) || !okCell(m - x, m - y) || Math.abs(x - (m - x)) + Math.abs(y - (m - y)) < size * 0.6) continue;
+    g[y][x] = 'P'; g[m - y][m - x] = 'P';
+    break;
+  }
+}
+
+function generateMap({ anchors: anchorCount, spawnsPerAnchor, size, baseMode, breakableWalls = true, style = 'random', custom = null, specials = false }) {
   if (custom) size = custom.size;
   const symmetry = custom ? 1 : anchorCount === 2 ? 2 : anchorCount === 4 ? 4 : 1;
   const anchors = anchorPositions(anchorCount, size);
@@ -109,7 +135,7 @@ function generateMap({ anchors: anchorCount, spawnsPerAnchor, size, baseMode, br
 
   for (let attempt = 0; attempt < 60; attempt++) {
     const raw = custom
-      ? Array.from({ length: size }, (_, y) => custom.tiles.slice(y * size, (y + 1) * size).split('').map(c => '.#@~*'.includes(c) ? c : '.'))
+      ? Array.from({ length: size }, (_, y) => custom.tiles.slice(y * size, (y + 1) * size).split('').map(c => '.#@~*OHP'.includes(c) ? c : '.'))
       : randomTerrain(size, style);
     if (custom && attempt > 0) for (let i = 1; i < anchors.length; i++) carvePath(raw, anchors[0], anchors[i]);
     const g = Array.from({ length: size }, () => Array(size).fill('.'));
@@ -146,6 +172,8 @@ function generateMap({ anchors: anchorCount, spawnsPerAnchor, size, baseMode, br
       }
     }
 
+    if (specials && !custom) placeSpecials(g, anchors, symmetry);
+
     // 出生點：距離基地 2 格的一圈，靠近地圖中央的優先
     const spawns = anchors.map((a, i) => {
       const ring = [];
@@ -162,7 +190,7 @@ function generateMap({ anchors: anchorCount, spawnsPerAnchor, size, baseMode, br
     }
 
     // 連通性：確認所有出生點互相到得了（磚牆打得破時視為可通過）
-    const open = breakableWalls ? '.*#' : '.*';
+    const open = breakableWalls ? '.*#OHP' : '.*OHP';
     const passable = (x, y) => x >= 0 && y >= 0 && x < size && y < size && open.includes(g[y][x]);
     const seen = new Uint8Array(size * size);
     const q = [[spawns[0][0].x, spawns[0][0].y]];

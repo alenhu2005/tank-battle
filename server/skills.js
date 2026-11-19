@@ -89,7 +89,7 @@ module.exports = function install(Round) {
   P._skill_heal = function (t) {
     for (const o of this.tanks) {
       if (!o.alive || o.side !== t.side || Math.hypot(o.x - t.x, o.y - t.y) > C.HP.nurseAura) continue;
-      if (this.hpSystem) o.hp = Math.max(o.hp, Math.min(o.maxHp, o.hp + Math.round(o.maxHp * C.HP.healSkill)));
+      if (this.hpSystem) { const before = o.hp; o.hp = Math.max(o.hp, Math.min(o.maxHp, o.hp + Math.round(o.maxHp * C.HP.healSkill))); t.healed = (t.healed || 0) + (o.hp - before); }
       else { o.hp = Math.max(o.hp, o.maxHp || o.stats.hp); o.shield = Math.max(o.shield, Math.round(1.5 * C.TICK_RATE)); }
       o.hurtTick = Math.min(o.hurtTick || 0, this.tick);
       this.events.push(['heal', o.x, o.y]);

@@ -11,7 +11,8 @@
 <meta name="format-detection" content="telephone=no">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <title>坦克對戰</title>
 <link rel="stylesheet" href="/style.css">
 </head>
@@ -31,6 +32,7 @@
       <button id="tutorialBtn" class="btn">🎓 新手教學</button>
       <button id="practiceBtn" class="btn">🧪 代碼練習場</button>
       <button id="leagueBtn" class="btn span2">🏆 代碼擂台（每週排行榜）</button>
+      <button id="installBtn" class="btn span2 hidden">📲 安裝成 App（全螢幕、開得更快）</button>
     </div>
     <label class="link-btn file-link">📂 開啟重播檔<input id="replayFile" type="file" accept=".json,application/json"></label>
     <div class="or"><span>或輸入房號加入</span></div>
@@ -101,7 +103,7 @@
     <button id="readyBtn" class="btn">準備</button>
     <button id="startBtn" class="btn primary host-only">開始</button>
   </footer>
-  <p id="practiceHint" class="start-error practice-only">代碼練習場：先按「我的電腦代碼」交出代碼，再按「開始」，看你的電腦和內建 AI 對戰。遊戲中右上角可以快轉。</p>
+  <p id="practiceHint" class="start-error practice-only">代碼練習場：先按「我的電腦代碼」交出代碼，再按「開始」。點對手的 🧠 標籤可以換對手打法（也能選「我的上一版」自己打自己），對戰設定裡可以開血量、地形、縮圈；遊戲中右上角可以快轉。</p>
   <p id="startError" class="start-error"></p>
 </section>
 
@@ -127,6 +129,7 @@
     </div>
   </div>
   <div id="spectate" class="spectate"></div>
+  <div id="lowHp" class="low-hp"></div>
   <div id="killFeed" class="kill-feed"></div>
   <div id="waveBanner" class="wave-banner"></div>
   <div id="tutorial" class="tutorial hidden" role="status" aria-live="polite">
@@ -282,6 +285,9 @@
         <button data-tile="@"><i style="background:#9aa5af"></i>鋼</button>
         <button data-tile="~"><i style="background:#2a63b0"></i>水</button>
         <button data-tile="*"><i style="background:#3f9a44"></i>草</button>
+        <button data-tile="O"><i style="background:#d6452f"></i>油桶</button>
+        <button data-tile="H"><i style="background:#4ee08a"></i>補血</button>
+        <button data-tile="P"><i style="background:#7c4dff"></i>傳送</button>
       </div>
       <div class="map-row">
         <select id="mapSize" aria-label="地圖大小"><option value="21">21×21</option><option value="25">25×25</option><option value="29">29×29</option></select>

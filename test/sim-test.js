@@ -569,3 +569,82 @@ console.log('ALL OK');
     r.dispose(); }
   console.log('hp system OK');
 }
+
+// 特殊地形（油桶、補血站、傳送門）、縮圈、助攻／傷害／治療統計、代碼相容性提醒
+{
+  const { Round } = require('../server/game');
+  const C = require('../server/constants');
+  const idle = 'function think(){ return null; }';
+  const mk = (extra = {}) => {
+    const sides = [0, 1].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: idle, cls: 'assault' }] }));
+    const r = new Round({ mode: 'ffa', baseMode: false, timeLimit: 100, sides, size: 21, hpSystem: true, ...extra });
+    r.startTicks = 0;
+    for (let i = 0; i < r.tiles.length; i++) r.tiles[i] = '.';
+    for (const t of r.tanks) t.shield = 0;
+    return r;
+  };
+  // 地圖產生：開了特殊地形才有，連通、傳送門成對
+  for (let k = 0; k < 10; k++) {
+    const sides = Array.from({ length: [2, 3, 4][k % 3] }, (_, i) => ({ key: 's' + i, name: 's', color: '#fff', members: [{ playerId: 'p' + i, name: 'p', code: idle, cls: 'assault' }] }));
+    const r = new Round({ mode: 'ffa', baseMode: true, timeLimit: 60, sides, specialTerrain: true, mapStyle: ['random', 'maze', 'open', 'forest', 'river'][k % 5] });
+    const portals = r.tiles.filter(c => c === 'P').length;
+    assert(portals % 2 === 0 && r.portalPair.size === portals, 'portals paired');
+    r.dispose();
+    const r2 = new Round({ mode: 'ffa', baseMode: true, timeLimit: 60, sides });
+    assert(!r2.tiles.some(c => 'OHP'.includes(c)), 'no specials when off');
+    r2.dispose();
+  }
+  // 油桶：打到就爆炸，傷到射手的敵人、不傷隊友，炸掉旁邊磚牆、連鎖
+  { const r = mk(); const [a, abot, b] = r.tanks; const S = r.size;
+    r.tiles[10 * S + 10] = 'O'; r.tiles[10 * S + 11] = 'O'; r.tiles[11 * S + 10] = '#';
+    b.x = 10.5; b.y = 9.3; abot.x = 9.4; abot.y = 10.5; a.x = 3.5; a.y = 3.5;
+    r._explodeBarrel(10, 10, { owner: a.id, side: a.side });
+    assert.strictEqual(r.tiles[10 * S + 10], '.'); assert.strictEqual(r.tiles[10 * S + 11], '.', 'chain');
+    assert.strictEqual(r.tiles[11 * S + 10], '.', 'breaks bricks');
+    assert(b.hp < b.maxHp, 'enemy hurt'); assert.strictEqual(abot.hp, abot.maxHp, 'ally safe');
+    // 子彈打到油桶也會爆
+    r.tiles[5 * S + 15] = 'O';
+    r._bulletHitWorld({ x: 15.5, y: 5.5, side: a.side, owner: a.id, bounces: 0 });
+    assert.strictEqual(r.tiles[5 * S + 15], '.', 'bullet detonates');
+    r.dispose(); }
+  // 補血站、傳送門
+  { const r = mk(); const [a] = r.tanks; const S = r.size;
+    r.tiles[5 * S + 5] = 'H'; a.x = 5.5; a.y = 5.5; a.hp = 20;
+    for (let i = 0; i < 30; i++) r._updateTerrain();
+    assert(a.hp >= 20 + Math.floor(a.maxHp * C.HEAL_PAD_PER_SEC) - 1, 'heal pad heals');
+    r.tiles[3 * S + 3] = 'P'; r.tiles[17 * S + 17] = 'P'; r._initTerrain({});
+    a.x = 3.5; a.y = 3.5; a.portalCd = 0;
+    r._updateTerrain();
+    assert.strictEqual(a.x, 17.5); assert.strictEqual(a.y, 17.5);
+    r._updateTerrain(); assert.strictEqual(a.x, 17.5, 'cooldown prevents bouncing back');
+    r.dispose(); }
+  // 縮圈：只在生存／佔點；圈外扣血；view 有範圍
+  { const r = mk({ zone: true }); const [a] = r.tanks;
+    assert(r.zone, 'zone on');
+    const z = r.zone; r.tick = r.startTicks + z.end + 1;
+    assert(Math.abs(r._zoneHalf() - z.minHalf) < 1e-9);
+    a.x = 1.5; a.y = 1.5; const hp = a.hp;
+    for (let i = 0; i < 30; i++) r._updateTerrain();
+    assert(a.hp < hp, 'zone damage');
+    const v = JSON.parse(r._viewFor(a)).zone;
+    assert(v && v.x1 - v.x0 === z.minHalf * 2, 'zone view');
+    r.dispose();
+    const sides = [0, 1].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: idle, cls: 'assault' }] }));
+    const r3 = new Round({ mode: 'ffa', timeLimit: 60, sides, zone: true, objective: 'ctf' });
+    assert(!r3.zone, 'no zone in ctf'); r3.dispose(); }
+  // 助攻：10 秒內打過的人算助攻
+  { const r = mk(); const [a, abot, b] = r.tanks;
+    r._damage(b, abot, b.x, b.y, 'shot', 30);
+    r._damage(b, a, b.x, b.y, 'shot', 200);
+    assert(!b.alive); assert.strictEqual(abot.assists, 1); assert.strictEqual(a.kills, 1);
+    assert.strictEqual(abot.dmgDealt, 30); assert(a.dmgDealt === b.maxHp - 30);
+    r.dispose(); }
+  // 代碼相容性提醒
+  { const hints = require('../server/codeHints');
+    const keys = c => hints(c, { hpSystem: true, zone: true, terrain: true }).map(h => h.key).sort().join(',');
+    assert.strictEqual(keys('// spec v2\nfunction think(view){ return null; }'), 'hp,skill,version,zone');
+    assert.strictEqual(keys(`// spec v${C.SPEC_VERSION}\nfunction think(view){ var z = view.zone, h = view.me.hp; return { skill: true }; }`), '');
+    assert(keys('function think(v){ var t = v.map.tiles; return null; }').includes('terrain'));
+  }
+  console.log('terrain + zone + stats + hints OK');
+}

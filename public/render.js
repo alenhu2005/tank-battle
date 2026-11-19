@@ -23,6 +23,7 @@
     return `rgb(${r},${g},${b})`;
   }
 
+  const CLOSE_VIEW = 11;   // 近距離鏡頭：畫面短邊看得到幾格
   class Renderer {
     constructor(canvas) {
       this.canvas = canvas;
@@ -171,7 +172,7 @@
         return;
       }
       if (type === 'heal') { this.particles.push({ type: 'float', x, y: y - 0.3, t0: now, dur: 900, text: '✚', color: '120, 240, 140', bits: [] }); }
-      const dur = { skill: 400, wallHit: 250, capture: 900, waveStart: 1200, boom: 650, blast: 500, baseBoom: 1200, brick: 380, spark: 180, armor: 300, spawn: 500, emp: 600, timestop: 900, freezeHit: 400, confuseHit: 400, itemSpawn: 600 }[type] || 300;
+      const dur = { skill: 400, wallHit: 250, capture: 900, waveStart: 1200, boom: 650, blast: 500, baseBoom: 1200, brick: 380, spark: 180, armor: 300, spawn: 500, emp: 600, timestop: 900, freezeHit: 400, confuseHit: 400, itemSpawn: 600, portal: 500 }[type] || 300;
       const p = { type, x, y, t0: now, dur, bits: [] };
       if (type === 'brick' || type === 'boom' || type === 'baseBoom' || type === 'blast') {
         const n = type === 'brick' ? 6 : type === 'baseBoom' ? 24 : 12;
@@ -200,6 +201,10 @@
       const spectator = !this.myTank;
       let tile = fit, follow = false;
       if (!spectator && fit < MIN_TILE_PX) { tile = MIN_TILE_PX; follow = true; }
+      // 近距離鏡頭（房間設定）：只看得到自己周圍約 11 格；觀戰別人時也拉近
+      const closeTile = Math.min(area.w, area.h) / CLOSE_VIEW;
+      if (!spectator && this.meta.closeCam && closeTile > tile) { tile = closeTile; follow = true; }
+      if (this.watchId != null && closeTile * 0.85 > tile) { tile = closeTile * 0.85; follow = true; }
       tile = Math.max(4, tile);
       if (tile !== this.tilePx) this.dirtyTerrain = true;
       this.tilePx = tile; this.fitTile = fit; this.follow = follow; this.area = area;
@@ -280,6 +285,25 @@
           g.quadraticCurveTo(x + tp * 0.7, y + tp * (fy + 0.12), x + tp * 0.9, y + tp * fy);
           g.stroke();
         }
+      } else if (c === 'O') {      // 油桶
+        const cx = x + tp / 2, cy = y + tp / 2;
+        g.fillStyle = '#2a1a12'; g.beginPath(); g.ellipse(cx, cy + tp * 0.06, tp * 0.36, tp * 0.36, 0, 0, 7); g.fill();
+        g.fillStyle = '#d6452f'; g.beginPath(); g.arc(cx, cy, tp * 0.34, 0, 7); g.fill();
+        g.strokeStyle = '#7a1e10'; g.lineWidth = Math.max(1, tp / 14);
+        g.beginPath(); g.arc(cx, cy, tp * 0.24, 0, 7); g.stroke();
+        g.fillStyle = '#ffd23f';      // 警示三角形
+        g.beginPath(); g.moveTo(cx, cy - tp * 0.15); g.lineTo(cx + tp * 0.14, cy + tp * 0.1); g.lineTo(cx - tp * 0.14, cy + tp * 0.1); g.closePath(); g.fill();
+        g.fillStyle = '#2a1a12'; g.fillRect(cx - tp * 0.02, cy - tp * 0.07, tp * 0.04, tp * 0.09); g.fillRect(cx - tp * 0.02, cy + tp * 0.04, tp * 0.04, tp * 0.03);
+      } else if (c === 'H') {      // 補血站
+        g.fillStyle = '#123b24'; g.fillRect(x + tp * 0.06, y + tp * 0.06, tp * 0.88, tp * 0.88);
+        g.strokeStyle = '#4ee08a'; g.lineWidth = Math.max(1, tp / 12); g.strokeRect(x + tp * 0.1, y + tp * 0.1, tp * 0.8, tp * 0.8);
+        g.fillStyle = '#4ee08a';
+        g.fillRect(x + tp * 0.42, y + tp * 0.22, tp * 0.16, tp * 0.56); g.fillRect(x + tp * 0.22, y + tp * 0.42, tp * 0.56, tp * 0.16);
+      } else if (c === 'P') {      // 傳送門
+        const cx = x + tp / 2, cy = y + tp / 2;
+        for (const [r, col] of [[0.42, '#3b1d6e'], [0.32, '#7c4dff'], [0.2, '#b39dff'], [0.09, '#f3eaff']]) {
+          g.fillStyle = col; g.beginPath(); g.arc(cx, cy, tp * r, 0, 7); g.fill();
+        }
       } else if (c === '*') {
         gr.fillStyle = '#2e7d32';
         gr.fillRect(x, y, tp, tp);
@@ -326,8 +350,12 @@
       const predPos = this.pred ? [this.pred.x + this.predOff.x, this.pred.y + this.predOff.y] : null;
       const myPos = predPos || (this.myTank && A.tanks.has(this.myTank.id) ? pos(this.myTank.id, A.tanks, B.tanks) : null);
       const sm = this.myTank ? this.sideMeta.get(this.mySide) : null;
-      const homeX = myPos ? myPos[0] : sm ? sm.anchor.x + 0.5 : S / 2;
-      const homeY = myPos ? myPos[1] : sm ? sm.anchor.y + 0.5 : S / 2;
+      let homeX = myPos ? myPos[0] : sm ? sm.anchor.x + 0.5 : S / 2;
+      let homeY = myPos ? myPos[1] : sm ? sm.anchor.y + 0.5 : S / 2;
+      // 觀戰：鏡頭跟著選定的隊友
+      if (this.watchId != null) {
+        if (A.tanks.has(this.watchId)) [homeX, homeY] = pos(this.watchId, A.tanks, B.tanks);
+      }
 
       // ---------- 鏡頭 ----------
       const area = this.area;
@@ -351,7 +379,8 @@
         const p = rt / startTicks;
         const ease = t => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
         const mix = (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, tile: Math.exp(Math.log(a.tile) + (Math.log(b.tile) - Math.log(a.tile)) * t) });
-        if (p < 0.3) cam = close;
+        if (this.meta.closeCam && this.myTank) cam = rt < startTicks ? close : mix(close, normal, ease((rt - startTicks) / 20));   // 近距離鏡頭：不給看全圖
+        else if (p < 0.3) cam = close;
         else if (p < 0.75) cam = mix(close, full, ease((p - 0.3) / 0.45));
         else if (rt < startTicks) cam = full;
         else cam = mix(full, normal, ease((rt - startTicks) / 20));
@@ -575,6 +604,29 @@
         }
       }
 
+      // 縮圈：安全區外塗紅，縮圈開始前 10 秒先用虛線預告最後的範圍
+      const Z = this.meta.zone;
+      if (Z) {
+        const pt = rt - startTicks;
+        const k = Math.max(0, Math.min(1, (pt - Z.start) / (Z.end - Z.start)));
+        const half = Z.full - (Z.full - Z.minHalf) * k, c = S / 2;
+        if (k > 0) {
+          ctx.fillStyle = 'rgba(220, 40, 40, .2)';
+          ctx.beginPath();
+          ctx.rect(0, 0, mapW, mapW);
+          ctx.rect((c - half) * tp, (c - half) * tp, half * 2 * tp, half * 2 * tp);
+          ctx.fill('evenodd');
+          ctx.strokeStyle = `rgba(255, 90, 80, ${0.7 + 0.3 * Math.sin(now / 150)})`; ctx.lineWidth = Math.max(2, tp * 0.1);
+          ctx.strokeRect((c - half) * tp, (c - half) * tp, half * 2 * tp, half * 2 * tp);
+        }
+        if (pt > Z.start - 10 * 30 && k < 1) {
+          ctx.save(); ctx.setLineDash([tp * 0.3, tp * 0.25]);
+          ctx.strokeStyle = 'rgba(255, 255, 255, .45)'; ctx.lineWidth = Math.max(1.5, tp * 0.06);
+          ctx.strokeRect((c - Z.minHalf) * tp, (c - Z.minHalf) * tp, Z.minHalf * 2 * tp, Z.minHalf * 2 * tp);
+          ctx.restore();
+        }
+      }
+
       // 特效
       this.particles = this.particles.filter(p => now - p.t0 < p.dur);
       for (const p of this.particles) this._drawEffect(ctx, p, (now - p.t0) / p.dur, tp);
@@ -656,6 +708,15 @@
         ctx.fill();
       }
       ctx.restore();
+      // 近距離鏡頭：視野邊緣漸暗，只看得清楚自己周圍
+      if (this.meta.closeCam && this.myTank && rt >= startTicks) {
+        const fx = ox + homeX * tp, fy = oy + homeY * tp, R = Math.min(area.w, area.h) * 0.5;
+        const gr = ctx.createRadialGradient(fx, fy, R * 0.45, fx, fy, R * 1.0);
+        gr.addColorStop(0, 'rgba(7, 9, 12, 0)'); gr.addColorStop(0.6, 'rgba(7, 9, 12, .55)'); gr.addColorStop(1, 'rgba(7, 9, 12, .98)');
+        ctx.save(); ctx.beginPath(); ctx.rect(area.x, area.y, area.w, area.h); ctx.clip();
+        ctx.fillStyle = gr; ctx.fillRect(area.x, area.y, area.w, area.h);
+        ctx.restore();
+      }
     }
 
     // ---------- 死亡重播 ----------
@@ -884,6 +945,9 @@
       } else if (p.type === 'spark' || p.type === 'wallHit') {
         ctx.fillStyle = `rgba(255, 255, 220, ${1 - k})`;
         ctx.beginPath(); ctx.arc(x, y, tp * 0.25 * (1 - k * 0.5), 0, 7); ctx.fill();
+      } else if (p.type === 'portal') {
+        ctx.strokeStyle = `rgba(179, 157, 255, ${1 - k})`; ctx.lineWidth = Math.max(2, tp * 0.1);
+        ctx.beginPath(); ctx.arc(x, y, tp * (0.2 + 0.7 * ease), 0, 7); ctx.stroke();
       } else if (p.type === 'armor') {
         ctx.strokeStyle = `rgba(200, 230, 255, ${1 - k})`; ctx.lineWidth = Math.max(1, tp * 0.08);
         ctx.beginPath(); ctx.arc(x, y, tp * (0.4 + 0.4 * ease), 0, 7); ctx.stroke();

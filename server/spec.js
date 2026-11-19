@@ -7,8 +7,15 @@ const classLines = Object.entries(C.CLASSES).map(([k, c]) =>
 ).join('\n');
 const B = C.BOT_CLASS;
 
+const { SPEC_VERSION, CHANGELOG } = C;
+
 // 給玩家（和他們的 AI 助手）看的電腦代碼規格。只寫必要的事實，策略留給玩家自己設計。
-module.exports = `# 坦克對戰：電腦隊友代碼規格
+const text = `# 坦克對戰：電腦隊友代碼規格（版本 v${SPEC_VERSION}）
+
+請在代碼第一行寫上註解 // spec v${SPEC_VERSION}（遊戲會用它提醒玩家代碼是不是照舊版規格寫的）。
+
+## 最近更新
+${CHANGELOG.slice(0, 3).map(([v, s]) => `- v${v}：${s}`).join('\n')}
 
 用 JavaScript 定義一個函式 think(view, memory)。遊戲每秒呼叫它 ${C.TICK_RATE} 次（每個 tick 一次），回傳你的電腦坦克在這個 tick 的動作。
 
@@ -53,13 +60,14 @@ module.exports = `# 坦克對戰：電腦隊友代碼規格
   objective: { type, ... },             // 遊戲目標，見下方「遊戲目標」
   items:   [ { x, y, type, ticksLeft } ],  // 場上的道具（格子中心座標）；沒開道具時是空陣列
   map:     { width, height, tiles },     // tiles[r][c] 是第 r 列第 c 欄的地形字元
-  rules:   { tickRate, tankSize, blastRadius, mode, baseMode, fog, breakableWalls, codeOnly, hpSystem, regen, classes, botClasses, playerHp, botHp, ricochet, bulletBounces, items }
+  zone:    { ... } | null,             // 縮圈的安全區，見下方「縮圈」
+  rules:   { specVersion, tickRate, tankSize, blastRadius, mode, baseMode, fog, breakableWalls, codeOnly, hpSystem, regen, classes, botClasses, playerHp, botHp, playerLives, botLives, ricochet, bulletBounces, items }
 }
 坦克 = { id, x, y, dir, isBot, owner, cls, lives, hp, maxHp, shield, carrying, buffs }
 - angle：精確角度（度，0 = 上，順時針）；dir：最接近的八方向名稱（給簡單的代碼用）
 - owner：這台坦克所屬玩家的 id。你的玩家是 allies 裡 isBot === false 且 owner === me.owner 的那台（他死掉等重生時不會出現在 allies）。
 - cls：職業，"bot" 表示沒有職業的電腦坦克，其他見下方職業表（開了「電腦也有職業」時電腦也會是這些職業）。各職業的數值也在 rules.classes[cls] 裡。
-- hp：這條命還能挨幾發；shield：剩餘無敵的 tick 數。
+- hp／maxHp：這條命目前和最多的血量（見「血量系統」；經典模式是還能挨幾發）；shield：剩餘無敵的 tick 數。
 - buffs：道具效果 { speed, rapid, spread, bounce, swift, cloak, phase, radar, frozen, confused, blastShots, pierceShots, freezeShots, confuseShots }。
   前面幾個是剩餘 tick 數（0 = 沒有），…Shots 是還剩幾發。frozen > 0 時不能動也不能射；confused > 0 時移動方向會被顛倒。
 - 隱形（cloak）中的敵人不會出現在 enemies 裡。
@@ -77,7 +85,17 @@ ${Object.entries(C.SKILLS).map(([cls, s]) => `- ${C.CLASSES[cls].name}（${cls}�
 ~  水：擋坦克，子彈可以飛過
 *  草叢：坦克和子彈都可以通過
 B  基地：擋坦克和子彈，被敵方子彈打中就會毀掉
-地圖外圍不能通過。
+O  油桶：擋坦克和子彈。被子彈或爆炸打到就爆炸，對 ${C.BARREL_RADIUS} 格內（直線距離）射手的敵人造成 ${C.BARREL_DMG} 傷害（經典模式算 1 下），炸掉旁邊 3×3 的磚牆，並引爆相鄰的油桶。
+H  補血站：可以通過。坦克中心站在上面時每秒回 ${C.HEAL_PAD_PER_SEC * 100}% 最大血量（經典模式：連續站 3 秒補滿耐久）。
+P  傳送門：可以通過，成對出現（通常是彼此點對稱的位置）。坦克中心開到門中央 0.3 格內就傳送到另一個門的中央，之後 ${C.PORTAL_CD / C.TICK_RATE} 秒內不會再被傳送；目的地有坦克時不會傳送。子彈不會被傳送。
+地圖外圍不能通過。房主可以關掉特殊地形（O、H、P 就不會出現）。
+
+## 縮圈（view.zone，沒開時是 null）
+{ x0, y0, x1, y1, finalX0, finalY0, finalX1, finalY1, startsIn, endsIn }
+- 安全區是以地圖中心為中心的正方形，目前範圍是 x0～x1、y0～y1（座標和坦克相同）。
+- 從 startsIn 個 tick 後開始縮，endsIn 個 tick 後縮到 final 範圍為止，中間線性縮小。
+- 坦克中心在安全區外時持續受傷：血量系統每秒 ${C.ZONE.dmgPerSec * 100}% 最大血量；經典模式在圈外每待 ${C.ZONE.classicSeconds} 秒扣 1。
+- 只在生存和佔點模式出現。
 
 ## 職業（速度：格/秒，冷卻：tick）
   bot     電腦（沒有職業時）  移速 ${B.speed}  冷卻 ${B.cooldown}  彈速 ${B.bulletSpeed}  同時子彈 ${B.maxBullets}  每命耐久 ${B.hp}
@@ -116,9 +134,11 @@ ${C.ITEM_TYPES.map(t => `- ${t.key}（${t.name}）：${t.desc}`).join('\n')}
 ## 規則
 - 沒有友軍傷害：我方子彈會穿過我方坦克。但所有坦克之間都有碰撞，彼此會擋住。
 - 敵我雙方的子彈相撞會互相抵消。
-- 每被敵方子彈打中一次 hp 減 1，hp 歸零就失去一條命。玩家坦克有 ${C.PLAYER_LIVES} 條命，死後 ${C.RESPAWN_DELAY / C.TICK_RATE} 秒在出生點重生，重生後有 ${C.SHIELD_TICKS / C.TICK_RATE} 秒無敵。電腦坦克只有 ${C.BOT_LIVES} 條命。
+- 被打中就扣 hp（見「血量系統」），hp 歸零就失去一條命。命數由房主設定（預設玩家 ${C.PLAYER_LIVES} 條、電腦 ${C.BOT_LIVES} 條；rules.playerLives／botLives，0 = 無限），死後在出生點重生（預設 ${C.RESPAWN_DELAY / C.TICK_RATE} 秒），重生後有 ${C.SHIELD_TICKS / C.TICK_RATE} 秒無敵。
 - 一隊只要還有坦克活著，或玩家還有命可以重生，就算存活。基地模式下，基地被毀整隊立刻出局。
 - 最後存活的隊伍獲勝。時間到時，剩餘總命數最多的隊伍獲勝；命數相同時比擊殺數。
 - mode："ffa" 大亂鬥（每位玩家和他的電腦一隊）、"faction" 陣營戰（紅藍兩隊）、"team" 組隊（玩家自由分隊）。
 - rules.codeOnly 為 true 時是純代碼對戰：沒有玩家坦克，每位玩家只有一台電腦坦克。
 `;
+
+module.exports = text;

@@ -115,6 +115,21 @@ const C = module.exports = {
     armor: 0.5,              // 裝甲：加最大血量一半的額外血量（最多到 1.5 倍）
     armorCap: 1.5,
   },
+  // 規格版本：每次規格有新東西就 +1，並在 CHANGELOG 最前面加一行（玩家拿舊代碼給 AI 改時，AI 才知道要補什麼）
+  SPEC_VERSION: 4,
+  CHANGELOG: [
+    [4, '新地形 O 油桶、H 補血站、P 傳送門；縮圈 view.zone；坦克多了 maxHp'],
+    [3, '血量系統（rules.hpSystem、hp／maxHp、各職業傷害）、自動回血 rules.regen、護士職業與 heal 技能、電腦也能有職業（rules.botClasses）'],
+    [2, '職業技能 skill、工兵職業、護送模式、進階規則（命數、速度倍率）'],
+    [1, '無段落移動（move 可以是任意角度）'],
+  ],
+
+  // 特殊地形與縮圈
+  BARREL_RADIUS: 1.6,        // 油桶爆炸範圍（格，直線距離）
+  BARREL_DMG: 60,            // 油桶爆炸傷害（經典模式一律算 1 下）
+  HEAL_PAD_PER_SEC: 0.1,     // 補血站：每秒回最大血量的 1 成
+  PORTAL_CD: 2 * TICK_RATE,  // 傳送後多久不能再傳送
+  ZONE: { start: 0.4, end: 0.85, minHalf: 2.5, dmgPerSec: 0.08, classicSeconds: 4, defaultSeconds: 180 },
   BLAST_RADIUS: 1.1,        // 爆炸傷害：坦克中心與爆炸中心的直線距離
   HIT_MARGIN: 0.03,         // 子彈命中判定比坦克外框多出的距離（越小越不會「沒碰到就死」）
   COUNTDOWN_SECONDS: 5,

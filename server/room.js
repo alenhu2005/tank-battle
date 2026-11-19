@@ -7,6 +7,7 @@ const C = require('./constants');
 const { Round } = require('./game');
 const { validateAsync } = require('./validateWorker');
 const DEFAULT_BOT = require('./defaultBot');
+const codeHints = require('./codeHints');
 const SAMPLES = require('./samples');
 
 const DISCONNECT_GRACE_MS = 20000;          // 房主斷線多久後轉移房主
@@ -31,7 +32,7 @@ class Room {
     this.onClose = onClose;
     this.players = [];
     this.hostId = null;
-    this.settings = { mode: 'ffa', baseMode: true, fog: false, hardWalls: false, codeOnly: false, items: true, ricochet: false, rounds: 3, timeLimit: 180, botClasses: false, hpSystem: true, regen: false,
+    this.settings = { mode: 'ffa', baseMode: true, fog: false, hardWalls: false, codeOnly: false, items: true, ricochet: false, rounds: 3, timeLimit: 180, botClasses: false, hpSystem: true, regen: false, terrain: true, zone: false, closeCam: false,
       mapStyle: 'random', customMap: null, disabledItems: [], objective: 'survival',
       adv: Object.assign({}, C.ADV_DEFAULTS) };
     this.state = 'lobby'; // lobby | playing | intermission | finished
@@ -187,6 +188,7 @@ class Room {
         if (typeof msg.botClasses === 'boolean') s.botClasses = msg.botClasses;
         if (typeof msg.hpSystem === 'boolean') s.hpSystem = msg.hpSystem;
         if (typeof msg.regen === 'boolean') s.regen = msg.regen;
+        for (const k of ['terrain', 'zone', 'closeCam']) if (typeof msg[k] === 'boolean') s[k] = msg[k];
         if (typeof msg.items === 'boolean') s.items = msg.items;
         if (typeof msg.ricochet === 'boolean') s.ricochet = msg.ricochet;
         if (['random', 'open', 'forest', 'fortress', 'river', 'maze', 'custom'].includes(msg.mapStyle)) s.mapStyle = msg.mapStyle;
@@ -201,7 +203,7 @@ class Room {
         if (msg.customMap !== undefined) {
           const cm = msg.customMap;
           const ok = cm && Number.isInteger(cm.size) && cm.size >= 15 && cm.size <= 35 && typeof cm.tiles === 'string'
-            && cm.tiles.length === cm.size * cm.size && /^[.#@~*]+$/.test(cm.tiles);
+            && cm.tiles.length === cm.size * cm.size && /^[.#@~*OHP]+$/.test(cm.tiles);
           if (ok) { s.customMap = { size: cm.size, tiles: cm.tiles }; s.mapStyle = 'custom'; }
         }
         if (Array.isArray(msg.disabledItems)) {
@@ -240,6 +242,15 @@ class Room {
         if (C.CLASSES[msg.cls]) target.cls = msg.cls;
         return this.sendRoom();
       }
+      case 'aiCode': {   // 房主幫電腦隊伍換打法（練習場選對手用）
+        const target = this.get(msg.id);
+        if (!isHost || !target || !target.isAI || this.state === 'playing') return;
+        const code = msg.key === 'dumb' ? DEFAULT_BOT : SAMPLES[msg.key] ? SAMPLES[msg.key].code
+          : msg.key === 'mine' ? p.code : msg.key === 'prev' ? p.prevCode : null;
+        if (!code) return;
+        target.code = code; target.aiKey = msg.key;
+        return this.sendRoom();
+      }
       case 'botCls': {   // 電腦坦克的職業（房間設定「電腦也有職業」打開時才有作用）
         if (this.state === 'playing') return;
         const target = msg.id ? this.get(msg.id) : p;
@@ -267,7 +278,11 @@ class Room {
         send(p.ws, { t: 'codeChecking' });
         const res = await validateAsync(code);
         if (!this.players.includes(p)) return;
-        if (res.ok) { p.code = code; p.codeInfo = { ok: true, stats: res.stats, at: Date.now() }; }
+        if (res.ok) {
+          res.hints = msg.sample ? [] : codeHints(code, this.settings);
+          if (p.code && p.code !== code) p.prevCode = p.code;
+          p.code = code; p.codeInfo = { ok: true, stats: res.stats, at: Date.now(), hints: res.hints };
+        }
         send(p.ws, { t: 'codeResult', ...res });
         return this.sendRoom();
       }
@@ -351,7 +366,7 @@ class Room {
     if (this.state === 'lobby') { this.roundNo = 0; for (const p of this.players) { p.wins = 0; p.kills = 0; } }
     this.roundNo++;
     this.round = new Round({
-      mode: s.mode, baseMode: s.baseMode, fog: s.fog, breakableWalls: !s.hardWalls, codeOnly: s.codeOnly, hpSystem: s.hpSystem, regen: s.regen, items: s.items, ricochet: s.ricochet,
+      mode: s.mode, baseMode: s.baseMode, fog: s.fog, breakableWalls: !s.hardWalls, codeOnly: s.codeOnly, hpSystem: s.hpSystem, regen: s.regen, specialTerrain: s.terrain, zone: s.zone, closeCam: s.closeCam, items: s.items, ricochet: s.ricochet,
       rules: s.adv, objective: s.objective, attackerIndex: (this.roundNo - 1) % 2,   // 護送：每局交換攻守
       mapStyle: s.mapStyle, customMap: s.mapStyle === 'custom' ? s.customMap : null, disabledItems: s.disabledItems,
       timeLimit: s.timeLimit, sides: this._buildSides(), countdown: this.kind === 'tutorial' ? 3 : C.COUNTDOWN_SECONDS,
@@ -425,6 +440,7 @@ class Room {
     this.lastResult = {
       roundNo: this.roundNo, winner: sideWinner, winners, reason: res.reason,
       seconds: Math.round(res.ticks / C.TICK_RATE), sides: sideInfo, tanks: res.tanks,
+      objective: res.objective, hpSystem: !!res.hpSystem,
       reports: r.botReports(),
     };
     r.dispose();
@@ -462,9 +478,9 @@ class Room {
         players: this.players.map(x => ({
           id: x.id, name: x.name, isAI: x.isAI, connected: x.connected, faction: x.faction, team: x.team, cls: x.cls, botCls: x.botCls || 'assault', handicap: x.handicap || 0,
           ready: x.ready, wins: x.wins, kills: x.kills,
-          customCode: !!x.code && !x.isAI,
+          customCode: !!x.code && !x.isAI, aiKey: x.isAI ? (x.aiKey || 'dumb') : undefined,
         })),
-        myCode: { custom: !!p.code, info: p.codeInfo },
+        myCode: { custom: !!p.code, info: p.codeInfo, hasPrev: !!p.prevCode },
       });
     }
   }
