@@ -154,7 +154,7 @@
         $('#connBanner').classList.remove('show');
         intentionalClose = true; ws.close();
         show('home');
-        toast(m.roomExists ? '你太久沒回來，已經被移出房間了' : '房間已經不存在了');
+        toast(m.roomExists ? '閒置過久，已移出房間' : '房間已關閉');
         break;
       case 'error':
         toast(m.msg);
@@ -163,7 +163,7 @@
       case 'toast': toast(m.msg); break;
       case 'kicked':
         store.del('session'); intentionalClose = true; ws.close();
-        room = null; show('home'); toast('你已離開房間');
+        room = null; show('home'); toast('已離開房間');
         break;
       case 'room': onRoom(m); break;
       case 'myCode':
@@ -189,7 +189,7 @@
         break;
       }
       case 'codeChecking':
-        $('#codeStatus').innerHTML = '<span class="muted">測試中…（放進測試對戰實際跑一遍）</span>';
+        $('#codeStatus').innerHTML = '<span class="muted">測試中…</span>';
         $('#checkBtn').disabled = true;
         break;
       case 'codeResult': onCodeResult(m); break;
@@ -203,7 +203,7 @@
 
   function getName() {
     const n = $('#nameInput').value.trim();
-    if (!n) { toast('先輸入暱稱'); $('#nameInput').focus(); return null; }
+    if (!n) { toast('請輸入暱稱'); $('#nameInput').focus(); return null; }
     store.set('name', n);
     return n;
   }
@@ -225,13 +225,13 @@
       const r = await installEvt.userChoice.catch(() => null);
       if (r && r.outcome === 'accepted') $('#installBtn').classList.add('hidden');
       installEvt = null;
-    } else if (isIOS) toast('在 Safari 點下方的「分享」⬆️，再選「加入主畫面」');
+    } else if (isIOS) toast('Safari：分享 ⬆️ →「加入主畫面」');
   };
   window.addEventListener('appinstalled', () => $('#installBtn').classList.add('hidden'));
   $('#joinBtn').onclick = () => {
     const name = getName(); if (!name) return;
     const code = $('#codeInput').value.trim();
-    if (!/^\d{4}$/.test(code)) return toast('房號是 4 位數字');
+    if (!/^\d{4}$/.test(code)) return toast('房號為 4 位數字');
     connect({ t: 'join', code, name });
   };
   $('#codeInput').addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 4); });
@@ -274,7 +274,7 @@
   }
 
   // 電腦隊伍可選的打法（房主點玩家列表的 🧠 標籤切換）
-  const AI_KEYS = { dumb: '白痴', standard: '標準', guard: '守門員', assassin: '刺客', bodyguard: '保鑣', mine: '我的代碼', prev: '我的上一版' };
+  const AI_KEYS = { dumb: '入門', standard: '標準', guard: '守門員', assassin: '刺客', bodyguard: '保鑣', mine: '我的代碼', prev: '我的上一版' };
   let itemGuideOpen = false, advOpen = false;
   const ADV_DEF = { playerLives: 3, botLives: 1, speed: 1, bullet: 1, fire: 1, respawn: 5, itemSec: 10, playerHp: 100, botHp: 100 };
   const ADV_RANGE = { playerLives: [0, 9], botLives: [0, 9], speed: [0.5, 1.5], bullet: [0.5, 1.5], fire: [0.5, 2], respawn: [1, 15], itemSec: [4, 30], playerHp: [25, 500], botHp: [25, 500] };
@@ -295,7 +295,7 @@
     const host = isHost();
     $('#playerCount').textContent = `${room.players.length} / ${room.maxPlayers}`;
     $('#addAIBtn').disabled = room.players.length >= room.maxPlayers;
-    $('#hostHint').textContent = host ? '你是房主' : '由房主設定';
+    $('#hostHint').textContent = host ? '房主' : '由房主設定';
 
     // 玩家列表
     $('#playerList').innerHTML = room.players.map((p, i) => {
@@ -308,7 +308,7 @@
         + (s.botClasses && info.classes[p.botCls] ? `<span class="tag" ${p.isAI && host ? `data-act="aibotcls" data-id="${p.id}"` : ''}>🤖${info.classes[p.botCls].name}</span>` : '');
       const tags = [
         p.id === room.hostId ? '<span class="tag host">房主</span>' : '',
-        p.isAI ? `<span class="tag ${host ? 'tap' : ''}" ${host ? `data-act="aicode" data-id="${p.id}"` : ''}>🧠 ${AI_KEYS[p.aiKey] || '白痴'}</span>` : (p.customCode ? '<span class="tag ok">自訂代碼</span>' : '<span class="tag">範例代碼</span>'),
+        p.isAI ? `<span class="tag ${host ? 'tap' : ''}" ${host ? `data-act="aicode" data-id="${p.id}"` : ''}>🧠 ${AI_KEYS[p.aiKey] || '入門'}</span>` : (p.customCode ? '<span class="tag ok">自訂代碼</span>' : '<span class="tag">範例代碼</span>'),
         !p.connected ? '<span class="tag off">斷線</span>' : '',
         p.ready && !p.isAI ? '<span class="tag ok">已準備</span>' : '',
       ].join('');
@@ -325,33 +325,33 @@
     const sw = (key, val) => `<button class="switch ${val ? 'on' : ''}" data-set="${key}" data-val="${!val}" ${dis} aria-label="${key}"></button>`;
     $('#settings').innerHTML = `
       <div class="set-row"><span>模式</span>${seg('mode', [['ffa', '大亂鬥'], ['faction', '陣營戰'], ['team', '組隊']], s.mode)}</div>
-      <div class="set-desc">${{ ffa: '每位玩家和自己的電腦一隊，打到剩最後一隊', faction: '紅藍兩軍，在玩家列表點顏色換邊', team: '在玩家列表點「N隊」換隊，同號就是隊友' }[s.mode]}</div>
+      <div class="set-desc">${{ ffa: '玩家與自己的電腦一隊，最後存活者獲勝', faction: '紅藍兩隊；點玩家列表的顏色換隊', team: '點玩家列表的「N隊」換隊，同號為隊友' }[s.mode]}</div>
       <div class="set-row"><span>目標</span>${seg('objective', [['survival', '生存'], ['koth', '佔點'], ['ctf', '搶旗'], ['escort', '護送'], ['pve', '打怪']], s.objective || 'survival')}</div>
-      <div class="set-desc">${{ survival: '打到剩最後一隊', koth: '佔住中央區域累積 45 秒的隊伍獲勝（可以無限重生）', ctf: '把敵方旗子帶回自家旗子旁 3 次獲勝（可以無限重生，沒有基地）', escort: '進攻方把礦車推到敵方家門口，防守方撐到時間結束；每局交換攻守（需要剛好兩隊）', pve: '所有人同一隊，撐過 5 波怪物（不分隊伍）' }[s.objective || 'survival']}</div>
+      <div class="set-desc">${{ survival: '最後存活的隊伍獲勝', koth: '佔領中央區域累計 45 秒獲勝；無限重生', ctf: '奪取敵旗帶回己方旗位 3 次獲勝；無限重生、無基地', escort: '進攻方將礦車推至終點，防守方守到時間結束；每局交換攻守，限兩隊', pve: '全員同隊，撐過 5 波怪物' }[s.objective || 'survival']}</div>
       <div class="set-row"><span>純代碼對戰</span>${sw('codeOnly', s.codeOnly)}</div>
-      <div class="set-desc">玩家不下場，每人只派一台電腦坦克，大家一起看</div>
+      <div class="set-desc">玩家不上場，每人派出一台電腦坦克</div>
       <div class="set-row"><span>血量系統</span>${sw('hpSystem', s.hpSystem)}</div>
-      <div class="set-desc">${s.hpSystem ? '每條命有血條，子彈依職業扣血（血量可以在進階規則調整）' : '經典模式：被打中一發就少一條命（重裝兩發）'}</div>
+      <div class="set-desc">${s.hpSystem ? '每條命有血量，傷害依職業而定；血量於進階規則調整' : '經典：中彈一次扣一命（重裝兩次）'}</div>
       ${s.hpSystem ? `<div class="set-row"><span>自動回血</span>${sw('regen', s.regen)}</div>
-      <div class="set-desc">${s.regen ? '5 秒沒受傷就慢慢回血（偵察 3 秒、速度 2 倍）' : '不會自己回血，只能靠護士和醫療包（偵察例外）'}</div>` : ''}
+      <div class="set-desc">${s.regen ? '5 秒未受傷開始回血（偵察 3 秒、速度 2 倍）' : '僅能透過護士、醫療包、補血站回復（偵察除外）'}</div>` : ''}
       <div class="set-row"><span>特殊地形</span>${sw('terrain', s.terrain)}</div>
-      <div class="set-desc">地圖上出現 🛢️ 油桶（打到會爆炸）、✚ 補血站、🌀 傳送門</div>
+      <div class="set-desc">🛢️ 油桶（受擊爆炸）、✚ 補血站、🌀 傳送門</div>
       <div class="set-row"><span>縮圈</span>${sw('zone', s.zone)}</div>
-      <div class="set-desc">${['survival', 'koth'].includes(s.objective || 'survival') ? '時間過了 4 成後安全區往中央縮小，圈外會持續扣血' : '只有「生存」和「佔點」會縮圈'}</div>
+      <div class="set-desc">${['survival', 'koth'].includes(s.objective || 'survival') ? '40% 時間後安全區向中央收縮，圈外持續受傷' : '僅適用於生存、佔點'}</div>
       <div class="set-row"><span>近距離鏡頭</span>${sw('closeCam', s.closeCam)}</div>
-      <div class="set-desc">玩家畫面只看得到自己周圍，看不到全圖（搭配迷霧更刺激；電腦不受影響）</div>
+      <div class="set-desc">玩家視野限於周圍，無法查看全圖；不影響電腦</div>
       <div class="set-row"><span>電腦也有職業</span>${sw('botClasses', s.botClasses)}</div>
-      <div class="set-desc">${s.botClasses ? '每位玩家可以幫自己的電腦選職業，電腦也能用職業技能（代碼回傳 skill: true）' : '電腦都是標準規格、沒有技能'}</div>
+      <div class="set-desc">${s.botClasses ? '玩家可為電腦選擇職業，電腦可使用技能（skill: true）' : '電腦為標準規格，無技能'}</div>
       <div class="set-row"><span>基地模式</span>${sw('baseMode', s.baseMode)}</div>
-      <div class="set-desc">每隊有一座基地，被敵人打爆就整隊出局</div>
+      <div class="set-desc">每隊一座基地，被摧毀即全隊淘汰</div>
       <div class="set-row"><span>迷霧</span>${sw('fog', s.fog)}</div>
-      <div class="set-desc">玩家只看得到自己周圍；電腦不受影響</div>
+      <div class="set-desc">玩家視野受限；不影響電腦</div>
       <div class="set-row"><span>牆壁打不破</span>${sw('hardWalls', s.hardWalls)}</div>
       <div class="set-row"><span>場地道具</span>${sw('items', s.items)}</div>
-      <details class="item-guide ${host ? 'host' : ''}" ${itemGuideOpen ? 'open' : ''}><summary>每 10 秒刷新一個道具，開放 ${info.itemTypes.length - (s.disabledItems || []).length} / ${info.itemTypes.length} 種（點開看說明${host ? '，點道具可以關掉' : ''}）</summary>
+      <details class="item-guide ${host ? 'host' : ''}" ${itemGuideOpen ? 'open' : ''}><summary>每 ${(s.adv && s.adv.itemSec) || 10} 秒刷新・啟用 ${info.itemTypes.length - (s.disabledItems || []).length} / ${info.itemTypes.length} 種（展開查看${host ? '；點選可停用' : ''}）</summary>
         <ul>${info.itemTypes.map(t => `<li data-item="${t.key}" class="${(s.disabledItems || []).includes(t.key) ? 'off' : ''}"><span class="ic">${t.icon}</span><div><b>${esc(t.name)}</b>${esc(t.desc)}</div></li>`).join('')}</ul></details>
       <div class="set-row"><span>子彈反彈</span>${sw('ricochet', s.ricochet)}</div>
-      <div class="set-desc">子彈撞到鋼牆和邊界會反彈，最多 2 次</div>
+      <div class="set-desc">子彈遇鋼牆與邊界反彈，最多 2 次</div>
       <div class="set-row"><span>地圖</span><div style="display:flex;gap:6px;align-items:center">
         ${s.mapStyle === 'custom' && host ? '<button class="btn small" id="editMapBtn">✏️ 編輯</button>' : ''}
         <select id="mapStyleSel" ${dis}>${[['random', '隨機'], ['maze', '迷宮'], ['open', '開闊'], ['river', '河流'], ['forest', '森林'], ['fortress', '堡壘'], ['custom', '自訂']].map(([v, l]) => `<option value="${v}" ${s.mapStyle === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
@@ -369,7 +369,7 @@
         ${advRow('respawn', '重生時間', s.adv.respawn, 1, v => v + ' 秒')}
         ${advRow('itemSec', '道具刷新', s.adv.itemSec, 1, v => '每 ' + v + ' 秒')}
         ${host && room.state === 'lobby' ? '<button class="btn small ghost" data-adv-reset="1">恢復預設</button>' : ''}
-        <div class="set-desc">命數設成「無限」時，打到時間結束比剩餘戰力；在玩家列表點「命±」可以幫個別玩家讓分。</div>
+        <div class="set-desc">命數為「無限」時，以時間結束時的戰力判定；點玩家列表「命±」可個別讓分。</div>
       </details>`;
 
     // 我的代碼
@@ -395,7 +395,7 @@
     const el = $(sel); if (!el || !info) return;
     const mp = myPlayer();
     if (field === 'botCls' && !room.settings.botClasses) { el.innerHTML = ''; return; }
-    if (field === 'cls' && room.settings.codeOnly) { el.innerHTML = '<p class="muted small-text">純代碼對戰不需要選職業。</p>'; return; }
+    if (field === 'cls' && room.settings.codeOnly) { el.innerHTML = '<p class="muted small-text">純代碼對戰不需選擇職業。</p>'; return; }
     const all = Object.values(info.classes);
     const hpOn = room.settings.hpSystem;
     const max = k => Math.max(...all.map(c => k(c)));
@@ -435,7 +435,7 @@
       const keys = Object.keys(AI_KEYS).filter(k => (k !== 'mine' || room.myCode.custom) && (k !== 'prev' || room.myCode.hasPrev));
       const next = keys[(keys.indexOf(p.aiKey || 'dumb') + 1) % keys.length];
       send({ t: 'aiCode', id, key: next });
-      toast(`${p.name} 改用「${AI_KEYS[next]}」打法`);
+      toast(`${p.name}：${AI_KEYS[next]}`);
     }
     if (b.dataset.act === 'aibotcls') {
       const keys = Object.keys(info.classes);
@@ -457,7 +457,7 @@
     if (li && isHost() && room.state === 'lobby') {
       const off = new Set(room.settings.disabledItems || []);
       if (off.has(li.dataset.item)) off.delete(li.dataset.item); else off.add(li.dataset.item);
-      if (!info.itemTypes.some(t => !off.has(t.key) && (room.settings.hpSystem || !t.hpOnly))) return toast('至少要留一種用得到的道具（或直接關掉場地道具）');
+      if (!info.itemTypes.some(t => !off.has(t.key) && (room.settings.hpSystem || !t.hpOnly))) return toast('至少保留一種可用道具');
       return send({ t: 'settings', disabledItems: [...off] });
     }
     const b = e.target.closest('[data-set]'); if (!b || !isHost()) return;
@@ -470,7 +470,7 @@
   $('#leaveBtn').onclick = () => { if (confirm('確定要離開房間？')) leaveRoom(); };
   $('#shareBtn').onclick = async () => {
     const url = `${location.origin}/?room=${room.code}`;
-    if (navigator.share) { try { await navigator.share({ title: '坦克對戰', text: `來玩坦克對戰！房號 ${room.code}`, url }); return; } catch { /* 取消 */ } }
+    if (navigator.share) { try { await navigator.share({ title: '坦克對戰', text: `坦克對戰邀請・房號 ${room.code}`, url }); return; } catch { /* 取消 */ } }
     toast((await copyText(url)) ? '已複製邀請連結' : url);
   };
   const toggleReady = () => { const mp = myPlayer(); send({ t: 'ready', ready: !(mp && mp.ready) }); };
@@ -478,7 +478,7 @@
   $('#readyBtn2').onclick = toggleReady;
   $('#startBtn').onclick = () => { send({ t: 'start' }); tryFullscreen(); };
   $('#nextBtn').onclick = () => { send({ t: 'start' }); tryFullscreen(); };
-  $('#endMatchBtn').onclick = () => { if (confirm('提前結束整場比賽？')) send({ t: 'endMatch' }); };
+  $('#endMatchBtn').onclick = () => { if (confirm('結束整場比賽？')) send({ t: 'endMatch' }); };
   $('#toLobbyBtn').onclick = () => send({ t: 'toLobby' });
 
   // ---------- 地圖編輯器 ----------
@@ -550,10 +550,10 @@
   function renderCodeNow() {
     const mc = room && room.myCode;
     const el = $('#codeNow');
-    if (!mc || !mc.custom) { el.innerHTML = '目前使用：<b>內建 AI</b>（還沒交過自己的代碼）'; return; }
+    if (!mc || !mc.custom) { el.innerHTML = '目前：<b>內建 AI</b>'; return; }
     const at = mc.info && mc.info.at ? new Date(mc.info.at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }) : '';
     const lines = (store.get('botCode', '') || '').split('\n').length;
-    el.innerHTML = `目前使用：<b>你的自訂代碼</b>${lines > 1 ? `（${lines} 行）` : ''}${at ? `・${at} 啟用` : ''}`;
+    el.innerHTML = `目前：<b>自訂代碼</b>${lines > 1 ? `（${lines} 行）` : ''}${at ? `・${at} 啟用` : ''}`;
   }
   function openEditor() {
     renderCodeNow();
@@ -574,7 +574,7 @@
     }
     if (cp) {
       const s = samples.find(x => x.key === cp.dataset.copySample);
-      toast((await copyText(aiPrompt(s))) ? `已複製（以「${s.name}」為範本），貼給 AI 再說你想怎麼改` : '複製失敗');
+      toast((await copyText(aiPrompt(s))) ? `已複製（範本：${s.name}）` : '複製失敗');
     }
   });
 
@@ -593,8 +593,8 @@ ${sample.code}\`\`\`
 `;
   }
   $('#copyPromptBtn').onclick = async () => {
-    if (!specText) return toast('還在載入，請稍等一下再按');
-    toast((await copyText(aiPrompt())) ? '已複製！貼給你的 AI，再補一句你想要的隊友' : '複製失敗，請再試一次');
+    if (!specText) return toast('載入中，請稍候');
+    toast((await copyText(aiPrompt())) ? '已複製 AI 指令' : '複製失敗');
   };
 
   // AI 回覆常常包在 ``` 裡，或前後有說明文字：自動取出代碼區塊
@@ -605,10 +605,10 @@ ${sample.code}\`\`\`
   }
   function submitCode(raw, source) {
     const code = extractCode(raw).trim();
-    if (!code) return toast('沒有讀到代碼');
+    if (!code) return toast('未讀取到代碼');
     if (new Blob([code]).size > 100 * 1024) return toast('代碼超過 100KB');
     if (!/think/.test(code)) {
-      $('#codeStatus').innerHTML = '<span class="bad">❌ 這看起來不是電腦代碼（找不到 think）</span><div class="muted small-text">請確認複製的是 AI 給的整段代碼。</div>';
+      $('#codeStatus').innerHTML = '<span class="bad">❌ 找不到 think 函式</span><div class="muted small-text">請確認貼上完整代碼。</div>';
       return;
     }
     store.set('pendingCode', code);
@@ -618,11 +618,11 @@ ${sample.code}\`\`\`
   $('#pasteBtn').onclick = async () => {
     try {
       const t = await navigator.clipboard.readText();
-      if (!t || !t.trim()) return toast('剪貼簿是空的，先去 AI 那邊複製代碼');
+      if (!t || !t.trim()) return toast('剪貼簿為空');
       submitCode(t, '剪貼簿的代碼');
     } catch {
       $('#manualBox').classList.remove('hidden');
-      toast('瀏覽器不讓讀剪貼簿，請在下方框框長按貼上');
+      toast('無法讀取剪貼簿，請於下方手動貼上');
       $('#codeArea').focus();
     }
   };
@@ -630,7 +630,7 @@ ${sample.code}\`\`\`
     const f = e.target.files && e.target.files[0];
     e.target.value = '';
     if (!f) return;
-    if (f.size > 300 * 1024) return toast('檔案太大了');
+    if (f.size > 300 * 1024) return toast('檔案過大');
     const reader = new FileReader();
     reader.onload = () => submitCode(String(reader.result), `檔案「${f.name}」`);
     reader.onerror = () => toast('讀取檔案失敗');
@@ -648,21 +648,21 @@ ${sample.code}\`\`\`
       store.set('botCode', store.get('pendingCode', ''));
       $('#codeArea').value = '';
       $('#manualBox').classList.add('hidden');
-      st.innerHTML = `<span class="ok">✅ 測試通過！下一局就會使用這份代碼</span>
-        <div class="muted small-text">測試對戰中跑了 ${m.stats.calls} 次，平均 ${m.stats.avgMs}ms</div>
+      st.innerHTML = `<span class="ok">✅ 測試通過，下一局生效</span>
+        <div class="muted small-text">呼叫 ${m.stats.calls} 次・平均 ${m.stats.avgMs}ms</div>
         ${m.warnings && m.warnings.length ? `<div class="small-text" style="color:var(--accent)">⚠️ ${esc(m.warnings.join(' '))}</div>` : ''}
-        ${m.hints && m.hints.length ? `<div class="hints"><b>💡 這份代碼可能沒用到的新功能</b><ul>${m.hints.map(h => `<li>${esc(h.text)}</li>`).join('')}</ul>
-          <button class="btn small" id="copyHintBtn">📋 複製「請 AI 更新」的指令</button></div>` : ''}`;
+        ${m.hints && m.hints.length ? `<div class="hints"><b>💡 可能未支援的功能</b><ul>${m.hints.map(h => `<li>${esc(h.text)}</li>`).join('')}</ul>
+          <button class="btn small" id="copyHintBtn">📋 複製更新指令</button></div>` : ''}`;
       if (m.hints && m.hints.length) $('#copyHintBtn').onclick = async () => {
         const text = aiPrompt() + '請幫我把下面這份舊代碼更新到最新規格，保留原本的打法，補上這些地方：\n' + m.hints.map(h => '- ' + h.text).join('\n') + '\n\n舊代碼：\n```javascript\n' + (store.get('pendingCode', '') || '') + '\n```\n';
-        toast((await copyText(text)) ? '已複製，貼給 AI 就會幫你更新' : '複製失敗');
+        toast((await copyText(text)) ? '已複製更新指令' : '複製失敗');
       };
       toast('代碼已啟用');
     } else {
-      st.innerHTML = `<span class="bad">❌ 測試沒通過，先繼續用${room && room.myCode.custom ? '上一份能用的代碼' : '內建 AI'}</span>
+      st.innerHTML = `<span class="bad">❌ 測試未通過，沿用${room && room.myCode.custom ? '上一份能用的代碼' : '內建 AI'}</span>
         <div class="logbox err selectable">${esc(m.errors.join('\n'))}</div>
-        <button class="btn small primary" id="copyErrBtn" style="margin-top:6px">📋 複製錯誤，貼回給 AI 修</button>`;
-      $('#copyErrBtn').onclick = async () => toast((await copyText('你寫的坦克代碼在遊戲測試時出錯了，請修正後給我完整的新代碼。錯誤訊息：\n' + m.errors.join('\n'))) ? '已複製，貼給 AI 就好' : '複製失敗');
+        <button class="btn small primary" id="copyErrBtn" style="margin-top:6px">📋 複製錯誤訊息</button>`;
+      $('#copyErrBtn').onclick = async () => toast((await copyText('你寫的坦克代碼在遊戲測試時出錯了，請修正後給我完整的新代碼。錯誤訊息：\n' + m.errors.join('\n'))) ? '已複製' : '複製失敗');
     }
     renderCodeNow();
   }
@@ -730,7 +730,7 @@ ${sample.code}\`\`\`
     if (renderer.myTank && victim === renderer.myTank.id) {
       lastDeath = { killer, cause, at: performance.now() };
       buzz([60, 40, 60]); window.Sfx.play('die');
-      $('#replayCause').textContent = cause === 'zone' ? '待在圈外' : cause === 'barrel' ? '被油桶炸到' : cause === 'blast' ? `被 ${tankName(killer)} 炸到` : `被 ${tankName(killer)} 擊中`;
+      $('#replayCause').textContent = cause === 'zone' ? '圈外傷害' : cause === 'barrel' ? '油桶爆炸' : cause === 'blast' ? `${tankName(killer)} 的爆炸` : `${tankName(killer)} 擊殺`;
     }
     hudDirty = true;
   };
@@ -763,7 +763,7 @@ ${sample.code}\`\`\`
     const side = renderer.sideMeta.get(b);
     el.innerHTML = type === 'steal'
       ? `<span style="color:${tankColor(a)}">${esc(tankName(a))}</span> 🚩 搶走了 <span style="color:${side.color}">${esc(side.name)}</span> 的旗子`
-      : `<span style="color:${tankColor(a)}">${esc(tankName(a))}</span> 🏁 得分！`;
+      : `<span style="color:${tankColor(a)}">${esc(tankName(a))}</span> 🏁 得分`;
     feed.prepend(el);
     while (feed.children.length > 4) feed.lastChild.remove();
     setTimeout(() => el.remove(), 4500);
@@ -780,14 +780,14 @@ ${sample.code}\`\`\`
 
   // ---------- 新手教學 ----------
   const TUT_STEPS = [
-    '推動左下的搖桿移動坦克（往任何方向都可以）',
-    '把搖桿往斜的方向推：推到哪個角度，坦克就朝那個角度走、朝那個角度射',
-    '按住右下的「開火」射擊。虛線是子彈會飛的路線',
-    '打掉一塊磚牆（橘色的牆打得破，灰色鋼牆打不破）',
-    '地圖上發亮的小方塊是道具，開過去撿一個',
-    '擊中那台不會還手的「練習靶」：頭上的綠色條是血量，打到沒血它才會爆炸',
-    '按開火鍵旁邊的技能按鈕（鍵盤 K）用一次職業技能，每個職業的技能都不一樣',
-    '紅色油桶被打到會爆炸、綠色十字是補血站、紫色漩渦是傳送門。開進傳送門試試看',
+    '以左下搖桿移動',
+    '斜推搖桿：坦克朝該角度移動與射擊',
+    '按住「開火」射擊；虛線為彈道',
+    '擊毀一塊磚牆（橘色可破壞，灰色鋼牆不可）',
+    '拾取一個道具（發光方塊）',
+    '擊毀練習靶（頭上綠條為血量）',
+    '使用一次職業技能（開火鍵旁按鈕／鍵盤 K）',
+    '紅色油桶受擊爆炸、綠色十字為補血站、紫色漩渦為傳送門。進入一次傳送門',
   ];
   const tut = { on: false, step: 0, start: null, diagTicks: 0 };
   function tutShow() {
@@ -797,7 +797,7 @@ ${sample.code}\`\`\`
     const done = tut.step >= TUT_STEPS.length;
     $('#tutStep').textContent = done ? '教學完成' : `第 ${tut.step + 1} / ${TUT_STEPS.length} 步`;
     $('#tutText').textContent = done
-      ? '🎉 完成！血量低時畫面會泛紅，記得找護士、醫療包或補血站。有條紋的坦克是你的電腦隊友，它的行動由代碼決定：在大廳按「我的電腦代碼」，就能和你的 AI 一起設計它。'
+      ? '🎉 教學完成。血量過低時畫面泛紅。有條紋的坦克是電腦隊友，由代碼控制，可在大廳「我的電腦代碼」設定。'
       : TUT_STEPS[tut.step];
     $('#tutDone').classList.toggle('hidden', !done);
     $('#tutSkip').classList.toggle('hidden', done);
@@ -829,9 +829,9 @@ ${sample.code}\`\`\`
   let forceArmed = 0;
   $('#forceEndBtn').addEventListener('pointerdown', (e) => {
     e.stopPropagation();
-    if (Date.now() - forceArmed < 3000) { send({ t: 'forceEnd' }); forceArmed = 0; toast('已強制結束這一局'); return; }
+    if (Date.now() - forceArmed < 3000) { send({ t: 'forceEnd' }); forceArmed = 0; toast('已強制結束本局'); return; }
     forceArmed = Date.now();
-    toast('再按一次 ⏹ 強制結束這一局（算平手）');
+    toast('再按一次 ⏹ 強制結束（平手）');
   });
 
   // 撿到道具：飄字
@@ -846,7 +846,7 @@ ${sample.code}\`\`\`
     if (!mine && !isMyBot) return;
     if (mine) { buzz(25); window.Sfx.play('pickup'); tutAdvance(4); }
     const el = $('#pickupBanner');
-    el.innerHTML = `<div class="ic">${it.icon}</div><div><b>${mine ? '' : '你的電腦撿到 '}${esc(it.name)}</b><span>${esc(it.desc)}</span></div>`;
+    el.innerHTML = `<div class="ic">${it.icon}</div><div><b>${mine ? '' : '電腦拾取 '}${esc(it.name)}</b><span>${esc(it.desc)}</span></div>`;
     el.classList.add('show');
     clearTimeout(bannerTimer);
     bannerTimer = setTimeout(() => el.classList.remove('show'), mine ? 2800 : 1800);
@@ -923,7 +923,7 @@ ${sample.code}\`\`\`
       } else if (shownCount !== null) {
         shownCount = null; goUntil = now + 700;
         window.Sfx.play('go');
-        cd.textContent = '開始！'; cd.className = 'countdown go';
+        cd.textContent = '開始'; cd.className = 'countdown go';
         void cd.offsetWidth; cd.classList.add('show');
       } else if (goUntil && now > goUntil) { goUntil = 0; cd.classList.remove('show'); }
       // 死亡重播（子母畫面）
@@ -962,13 +962,13 @@ ${sample.code}\`\`\`
       const sm = r.sideMeta.get(o.att), pct = Math.round((o.i - o.start) / (o.end - o.start) * 100);
       const mine = r.myTank ? (r.myTank.side === o.att ? '進攻' : '防守') : '';
       const stTxt = { push: '前進中', back: '後退中', contested: '爭奪中', idle: '停住' }[o.st] || '';
-      objHtml = `<span>${mine ? `你在${mine}・` : ''}礦車 <i class="bar"><i style="width:${pct}%;background:${sm.color}"></i></i> ${pct}%・${stTxt}</span>`;
+      objHtml = `<span>${mine ? `${mine}・` : ''}礦車 <i class="bar"><i style="width:${pct}%;background:${sm.color}"></i></i> ${pct}%・${stTxt}</span>`;
     } else if (o && o.type === 'pve') {
       objHtml = `<span>第 ${o.wave}/${o.waves} 波・剩 ${o.left} 隻</span>`;
     }
     if (r.meta.baseMode && r.wallShieldTicks && r.wallHp.size) {
       const left = Math.ceil((r.wallShieldTicks - Math.max(0, played)) / r.meta.tickRate);
-      if (left > 0) objHtml += `<span>🛡️ 基地圍牆無敵 ${left}s</span>`;
+      if (left > 0) objHtml += `<span>🛡️ 圍牆無敵 ${left}s</span>`;
     }
     const Z = r.meta.zone;
     if (Z) {
@@ -977,7 +977,7 @@ ${sample.code}\`\`\`
       const me = r.pred || (r.myTank && r.latest && r.latest.tanks.get(r.myTank.id));
       const half = Z.full - (Z.full - Z.minHalf) * k, c = r.size / 2;
       const outside = me && k > 0 && (Math.abs(me.x - c) > half || Math.abs(me.y - c) > half);
-      if (outside) objHtml += '<span class="zone-warn">⚠️ 你在圈外！往中間走</span>';
+      if (outside) objHtml += '<span class="zone-warn">⚠️ 位於圈外</span>';
       else if (toStart > 0 && toStart <= 15) objHtml += `<span>⭕ ${toStart} 秒後縮圈</span>`;
       else if (k > 0 && k < 1) objHtml += '<span>⭕ 縮圈中</span>';
     }
@@ -1000,7 +1000,7 @@ ${sample.code}\`\`\`
       })() : '';
       $('#hudLives').innerHTML = `${buffIcons ? `<span class="buffs">${buffIcons}</span>` : ''}${hpChip}<span class="hearts">${hearts}</span> <span class="bot-l">電腦</span><span class="bot-s">🤖</span>${bot && bot.alive ? '✓' : '✕'}`;
       const sideOut = (r.sideState.get(r.myTank.side) || {}).out;
-      const why = !lastDeath ? '' : lastDeath.cause === 'base' ? '基地被摧毀' : lastDeath.cause === 'zone' ? '在圈外撐不住了' : lastDeath.cause === 'barrel' ? (lastDeath.killer ? `被 ${tankName(lastDeath.killer)} 引爆的油桶炸到` : '被油桶炸到') : lastDeath.cause === 'blast' ? `被 ${tankName(lastDeath.killer)} 的爆炸波及` : `被 ${tankName(lastDeath.killer)} 擊中`;
+      const why = !lastDeath ? '' : lastDeath.cause === 'base' ? '基地被摧毀' : lastDeath.cause === 'zone' ? '圈外傷害' : lastDeath.cause === 'barrel' ? (lastDeath.killer ? `${tankName(lastDeath.killer)} 引爆油桶` : '油桶爆炸') : lastDeath.cause === 'blast' ? `${tankName(lastDeath.killer)} 的爆炸` : `被 ${tankName(lastDeath.killer)} 擊殺`;
       // 殘血警示：畫面四周泛紅，剛掉到 30% 以下時震動一下
       const lowNow = !!(r.meta.hpSystem && mine.alive && myLive && r.myTank.maxHp && myLive.hp / r.myTank.maxHp <= 0.3);
       if (lowNow && !lowHpOn) buzz([40, 60, 40]);
@@ -1011,10 +1011,10 @@ ${sample.code}\`\`\`
       const watchable = mine.alive ? [] : r.meta.tanks.filter(t => t.side === r.myTank.side && t.id !== r.myTank.id && r.latest && r.latest.tanks.has(t.id));
       if (r.watchId != null && !watchable.some(t => t.id === r.watchId)) { r.watchId = null; r.resize(); }
       const watching = r.watchId != null ? r.meta.tanks.find(t => t.id === r.watchId) : null;
-      const watchBtn = watchable.length ? `<button class="watch-btn" data-watch="1">👁 ${watching ? `正在看 ${esc(watching.name)}${watching.isBot ? '的電腦' : ''}・換人` : '看隊友'}</button>` : '';
-      if (sideOut) { spect.innerHTML = `${lastDeath && lastDeath.cause === 'base' ? '基地被摧毀，' : ''}你的隊伍已出局<br><small>觀戰中</small>`; spect.classList.add('show'); }
+      const watchBtn = watchable.length ? `<button class="watch-btn" data-watch="1">👁 ${watching ? `觀看：${esc(watching.name)}${watching.isBot ? '的電腦' : ''}・切換` : '觀看隊友'}</button>` : '';
+      if (sideOut) { spect.innerHTML = `${lastDeath && lastDeath.cause === 'base' ? '基地被摧毀，' : ''}隊伍已淘汰<br><small>觀戰中</small>`; spect.classList.add('show'); }
       else if (!mine.alive && mine.lives > 0) { spect.innerHTML = `${esc(why)}<br><small>重生中…</small>${watchBtn}`; spect.classList.add('show'); }
-      else if (!mine.alive && r.countdownLeft() === null) { spect.innerHTML = `${esc(why)}<br><small>沒有命了，看你的電腦表現吧</small>${watchBtn}`; spect.classList.add('show'); }
+      else if (!mine.alive && r.countdownLeft() === null) { spect.innerHTML = `${esc(why)}<br><small>已無剩餘命數</small>${watchBtn}`; spect.classList.add('show'); }
       else spect.classList.remove('show');
       spect.classList.toggle('watching', !!watching);
     } else {
@@ -1188,8 +1188,8 @@ ${sample.code}\`\`\`
     else if (document.documentElement.requestFullscreen) {
       document.documentElement.requestFullscreen({ navigationUI: 'hide' }).then(() => {
         if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {});
-      }).catch(() => toast('這個瀏覽器不支援全螢幕，可以用「加入主畫面」'));
-    } else toast('iPhone 請用 Safari 的「分享 → 加入主畫面」來全螢幕遊玩');
+      }).catch(() => toast('此瀏覽器不支援全螢幕，請改用「加入主畫面」'));
+    } else toast('iPhone：Safari「分享 → 加入主畫面」以全螢幕遊玩');
   };
   async function requestWakeLock() {
     try { if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch { /* ignore */ }
@@ -1236,24 +1236,24 @@ ${sample.code}\`\`\`
     b.disabled = true;
     try {
       const res = await fetch('/api/league/replay/' + b.dataset.leagueReplay);
-      if (!res.ok) { toast('這場重播已經不存在了'); return; }
+      if (!res.ok) { toast('重播已失效'); return; }
       const data = await res.json();
       rp.returnTo = 'league';
       openReplay(data, null);
-      $('#rpTitle').textContent = `${data.title}（${{ win: '你贏了', loss: '你輸了', draw: '平手' }[data.result] || ''}）`;
+      $('#rpTitle').textContent = `${data.title}（${{ win: '勝', loss: '敗', draw: '平手' }[data.result] || ''}）`;
     } catch { toast('讀取重播失敗'); } finally { b.disabled = false; }
   });
   function leagueTable(data) {
     $('#leagueWeek').textContent = data.week || '';
     $('#leagueCount').textContent = data.total ? `${data.total} 人參賽` : '';
-    if (!data.entries || !data.entries.length) { $('#leagueTable').innerHTML = '<p class="muted small-text">本週還沒有人參賽，搶頭香！</p>'; return; }
+    if (!data.entries || !data.entries.length) { $('#leagueTable').innerHTML = '<p class="muted small-text">本週尚無參賽者</p>'; return; }
     const rows = data.entries.map(e => `<tr class="${e.me ? 'me' : ''}"><td>${e.rank === 1 ? '🥇' : e.rank === 2 ? '🥈' : e.rank === 3 ? '🥉' : e.rank}</td><td>${esc(e.name)}${e.me ? '（你）' : ''}</td><td class="num">${e.rating}</td><td class="num">${e.wins}/${e.losses}/${e.draws}</td></tr>`).join('');
     const mine = data.mine && !data.entries.some(e => e.me) ? `<tr class="me"><td>${data.mine.rank}</td><td>${esc(data.mine.name)}（你）</td><td class="num">${data.mine.rating}</td><td class="num">${data.mine.wins}/${data.mine.losses}/${data.mine.draws}</td></tr>` : '';
     const my = data.mine;
     $('#leagueMine').innerHTML = my && my.matches && my.matches.length
-      ? `<div class="muted small-text">你最近一次參賽的對戰（點開看重播）</div><div class="league-res">${my.matches.map(r => `<div><span>vs ${esc(r.opponent)}</span><span>${r.wins} 勝 ${r.losses} 敗 ${r.draws} 和</span>${replayBtns(r.replays)}</div>`).join('')}</div>` : '';
+      ? `<div class="muted small-text">最近一次參賽（點選觀看重播）</div><div class="league-res">${my.matches.map(r => `<div><span>vs ${esc(r.opponent)}</span><span>${r.wins} 勝 ${r.losses} 敗 ${r.draws} 和</span>${replayBtns(r.replays)}</div>`).join('')}</div>` : '';
     $('#leagueTable').innerHTML = `<table><tr><th>#</th><th>玩家</th><th class="num">分數</th><th class="num">勝/敗/和</th></tr>${rows}${mine}</table>`
-      + (data.storage === 'memory' ? '<p class="muted small-text">（目前排行榜存在伺服器記憶體，伺服器重開時會清空）</p>' : '');
+      + (data.storage === 'memory' ? '<p class="muted small-text">（排行榜暫存於記憶體，伺服器重啟後清空）</p>' : '');
   }
   async function openLeague() {
     show('league');
@@ -1261,7 +1261,7 @@ ${sample.code}\`\`\`
     if (store.get('botCode', '')) opts.push(['mine', '我的自訂代碼']);
     for (const s of samples) opts.push(['sample:' + s.key, `範例・${s.name}`]);
     $('#leagueCodeSel').innerHTML = opts.map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join('');
-    $('#leagueResult').innerHTML = store.get('botCode', '') ? '' : '<span class="muted">你還沒有自訂代碼：可以先用範例參賽，或在房間裡交出自己的代碼後再來。</span>';
+    $('#leagueResult').innerHTML = store.get('botCode', '') ? '' : '<span class="muted">尚無自訂代碼，可先以範例參賽。</span>';
     try { leagueTable(await (await fetch('/api/league?key=' + leagueKey())).json()); }
     catch { $('#leagueTable').innerHTML = '<p class="muted">讀取排行榜失敗</p>'; }
   }
@@ -1270,25 +1270,25 @@ ${sample.code}\`\`\`
   $('#leagueSubmit').onclick = async () => {
     const sel = $('#leagueCodeSel').value;
     const code = sel === 'mine' ? store.get('botCode', '') : (samples.find(s => 'sample:' + s.key === sel) || {}).code;
-    if (!code) return toast('沒有可以參賽的代碼');
+    if (!code) return toast('沒有可參賽的代碼');
     const btn = $('#leagueSubmit');
     btn.disabled = true; btn.textContent = '對戰中…（約 10～30 秒）';
     $('#leagueResult').innerHTML = '';
     try {
       const res = await (await fetch('/api/league/submit', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: leagueKey(), name: $('#nameInput').value.trim() || store.get('name', '') || '無名氏', code }),
+        body: JSON.stringify({ key: leagueKey(), name: $('#nameInput').value.trim() || store.get('name', '') || '匿名', code }),
       })).json();
       if (!res.ok) {
         $('#leagueResult').innerHTML = `<span class="bad">❌ ${esc(res.error || '參賽失敗')}</span>${res.errors ? `<div class="logbox err selectable">${esc(res.errors.join('\n'))}</div>` : ''}`;
       } else {
         const total = res.results.reduce((a, r) => a + r.delta, 0);
-        $('#leagueResult').innerHTML = `<span class="ok">✅ 打完了！分數 ${res.rating}（${total >= 0 ? '+' : ''}${total}）</span>
+        $('#leagueResult').innerHTML = `<span class="ok">✅ 完成・分數 ${res.rating}（${total >= 0 ? '+' : ''}${total}）</span>
           <div class="league-res">${res.results.map(r => `<div><span>vs ${esc(r.opponent)}</span><span>${r.wins} 勝 ${r.losses} 敗 ${r.draws} 和 <b class="${r.delta >= 0 ? 'up' : 'down'}">${r.delta >= 0 ? '+' : ''}${r.delta}</b></span>${replayBtns(r.replays)}</div>`).join('')}</div>`;
         leagueTable(res.standings);
         window.Sfx.play(total >= 0 ? 'win' : 'lose');
       }
-    } catch { $('#leagueResult').innerHTML = '<span class="bad">連線失敗，請再試一次</span>'; }
+    } catch { $('#leagueResult').innerHTML = '<span class="bad">連線失敗</span>'; }
     btn.disabled = false; btn.textContent = '⚔️ 參賽';
   };
 
@@ -1363,7 +1363,7 @@ ${sample.code}\`\`\`
   async function shareReplay(id) {
     const url = replayUrl(id);
     if (navigator.share) { try { await navigator.share({ title: '坦克對戰重播', url }); return; } catch { /* 取消 */ } }
-    toast((await copyText(url)) ? '已複製重播連結（房間關閉後會失效）' : url);
+    toast((await copyText(url)) ? '已複製重播連結（房間關閉後失效）' : url);
   }
   function downloadReplay(id) {
     const [code, round] = id.split('-');
@@ -1376,14 +1376,14 @@ ${sample.code}\`\`\`
     const [code, round] = String(id).split('-');
     try {
       const res = await fetch(`/replay/${code}/${round}`);
-      if (!res.ok) return toast('重播已經不存在了（房間關閉後重播會消失）');
+      if (!res.ok) return toast('重播已失效（房間已關閉）');
       openReplay(await res.json(), id);
     } catch { toast('讀取重播失敗'); }
   }
   $('#rpShare').onclick = () => rp.id && shareReplay(rp.id);
   $('#rpDownload').onclick = () => {
     if (rp.id) return downloadReplay(rp.id);
-    toast('這份重播是從檔案開啟的，已經在你的手機裡了');
+    toast('此重播已是本機檔案');
   };
   $('#watchReplayBtn').onclick = () => lastResult && lastResult.replay && loadReplay(lastResult.replay);
   $('#shareReplayBtn').onclick = () => lastResult && lastResult.replay && shareReplay(lastResult.replay);
@@ -1392,14 +1392,14 @@ ${sample.code}\`\`\`
     const f = e.target.files && e.target.files[0]; e.target.value = '';
     if (!f) return;
     const reader = new FileReader();
-    reader.onload = () => { try { openReplay(JSON.parse(String(reader.result))); } catch { toast('這不是重播檔'); } };
+    reader.onload = () => { try { openReplay(JSON.parse(String(reader.result))); } catch { toast('不是有效的重播檔'); } };
     reader.readAsText(f);
   };
   const urlReplay = new URLSearchParams(location.search).get('replay');
   if (urlReplay && /^\d{4}-\d+$/.test(urlReplay)) loadReplay(urlReplay);
 
   // ---------- 局後結果 ----------
-  const REASONS = { last: '最後存活', draw: '同歸於盡', time: '時間到，剩餘命數較多', timeDraw: '時間到，平手', forced: '房主強制結束', escortWin: '礦車推到終點', escortDefend: '守住了礦車', koth: '佔點時間先達標', ctf: '搶旗次數先達標', pveWin: '撐過所有怪物', pveLose: '被怪物打倒了', pveTime: '時間到，怪物沒清完' };
+  const REASONS = { last: '最後存活', draw: '同歸於盡', time: '時間到・戰力較高', timeDraw: '時間到・平手', forced: '房主強制結束', escortWin: '礦車抵達終點', escortDefend: '防守成功', koth: '佔點達標', ctf: '搶旗達標', pveWin: '擊退所有怪物', pveLose: '全員陣亡', pveTime: '時間到・未清除怪物' };
 
   function renderResult() {
     if (!lastResult || !room) return;
@@ -1428,7 +1428,7 @@ ${sample.code}\`\`\`
 
     const rep = r.myReport && r.myReport.bot;
     const diag = rep && rep.analysis ? diagnose(rep.analysis) : [];
-    if (!rep) $('#botReport').innerHTML = '<p class="muted">沒有資料</p>';
+    if (!rep) $('#botReport').innerHTML = '<p class="muted">無資料</p>';
     else {
       $('#botReport').innerHTML = `
         ${rep.initError ? `<div class="logbox err selectable">${esc(rep.initError)}</div>` : ''}
@@ -1437,7 +1437,7 @@ ${sample.code}\`\`\`
           <span>錯誤 <b>${rep.errorCount}</b></span><span>逾時 <b>${rep.timeoutCount}</b></span><span>log <b>${rep.logCount}</b> 行</span>
         </div>
         ${diag.length ? `<div class="muted small-text">表現分析</div><ul class="diag">${diag.map(d => `<li class="${d.level}">${esc(d.text)}</li>`).join('')}</ul>` : ''}
-        ${rep.errors.length ? `<div class="muted small-text">最近的錯誤</div><div class="logbox err selectable">${esc(rep.errors.join('\n'))}</div>` : ''}
+        ${rep.errors.length ? `<div class="muted small-text">錯誤</div><div class="logbox err selectable">${esc(rep.errors.join('\n'))}</div>` : ''}
         ${rep.logs.length ? `<div class="muted small-text">console.log（最後 ${rep.logs.length} 行）</div><div class="logbox selectable">${esc(rep.logs.join('\n'))}</div>` : ''}
         <button class="btn small primary" id="copyReportBtn">📋 複製分析給 AI，討論怎麼改進</button>`;
       const btn = $('#copyReportBtn');
@@ -1463,21 +1463,21 @@ ${sample.code}\`\`\`
     const pct = (x, y) => y ? Math.round(x / y * 100) : 0;
     if (a.aliveSec > 5 && a.idleSec / a.aliveSec > 0.25) {
       const worst = a.idleRuns[0];
-      out.push({ level: 'warn', text: `有 ${pct(a.idleSec, a.aliveSec)}% 的時間在發呆（沒移動也沒開火）${worst ? `，最長一段是第 ${worst[0]}～${worst[1]} 秒` : ''}。可能是找不到目標，或判斷條件太嚴格。` });
+      out.push({ level: 'warn', text: `閒置 ${pct(a.idleSec, a.aliveSec)}% 時間（未移動也未開火）${worst ? `，最長於第 ${worst[0]}～${worst[1]} 秒` : ''}。可能未找到目標或條件過嚴。` });
     }
     if (a.stuckCount > 0) {
       const w = a.stuckRuns[0];
-      out.push({ level: 'warn', text: `卡住了 ${a.stuckCount} 次（想走卻走不動）${w ? `，例如第 ${w[0]}～${w[1]} 秒` : ''}。可能被牆或其他坦克擋住，建議加上「卡住就換方向」的判斷。` });
+      out.push({ level: 'warn', text: `卡住 ${a.stuckCount} 次${w ? `（如第 ${w[0]}～${w[1]} 秒）` : ''}。建議加入卡住時改變方向的判斷。` });
     }
     const dodgeable = (a.deaths || []).filter(d => d.dodgeable);
-    if (dodgeable.length) out.push({ level: 'bad', text: `陣亡 ${a.deaths.length} 次，其中 ${dodgeable.length} 次子彈飛了超過 0.5 秒才打到，其實來得及閃。建議預測子彈路線、往垂直方向閃開。` });
+    if (dodgeable.length) out.push({ level: 'bad', text: `陣亡 ${a.deaths.length} 次，其中 ${dodgeable.length} 次子彈飛行超過 0.5 秒，可閃避。建議預測彈道並垂直閃避。` });
     const pointBlank = (a.deaths || []).filter(d => d.flightSec !== null && d.flightSec < 0.3);
-    if (pointBlank.length) out.push({ level: 'warn', text: `${pointBlank.length} 次是被近距離射殺（子彈不到 0.3 秒就打到）。建議和敵人保持距離，或先下手為強。` });
-    if (a.shots === 0 && a.aliveSec > 10) out.push({ level: 'bad', text: '整局都沒有開火。檢查開火條件是不是永遠不成立。' });
-    else if (a.shots >= 10 && pct(a.hits, a.shots) < 15) out.push({ level: 'warn', text: `命中率只有 ${pct(a.hits, a.shots)}%（${a.hits}/${a.shots}）。建議瞄準時預判敵人的移動方向，或等對準再開火。` });
-    if (a.dodges >= 3) out.push({ level: 'good', text: `閃過了 ${a.dodges} 發擦身而過的子彈，閃避不錯。` });
-    if (a.kills >= 2) out.push({ level: 'good', text: `擊殺 ${a.kills} 台，攻擊力不錯。` });
-    if (!out.length) out.push({ level: 'good', text: '這局沒有發現明顯的問題。' });
+    if (pointBlank.length) out.push({ level: 'warn', text: `${pointBlank.length} 次為近距離被擊殺（< 0.3 秒）。建議保持距離或先手攻擊。` });
+    if (a.shots === 0 && a.aliveSec > 10) out.push({ level: 'bad', text: '全場未開火，請檢查開火條件。' });
+    else if (a.shots >= 10 && pct(a.hits, a.shots) < 15) out.push({ level: 'warn', text: `命中率 ${pct(a.hits, a.shots)}%（${a.hits}/${a.shots}）偏低，建議預判敵人移動。` });
+    if (a.dodges >= 3) out.push({ level: 'good', text: `閃避 ${a.dodges} 發子彈。` });
+    if (a.kills >= 2) out.push({ level: 'good', text: `擊殺 ${a.kills} 台。` });
+    if (!out.length) out.push({ level: 'good', text: '未發現明顯問題。' });
     return out;
   }
 
@@ -1498,7 +1498,7 @@ ${sample.code}\`\`\`
     $('#readyBtn2').classList.toggle('on', !!(mp && mp.ready));
     const humans = room.players.filter(p => !p.isAI);
     const readyN = humans.filter(p => p.ready).length;
-    $('#readyList').textContent = inter ? `已準備 ${readyN}/${humans.length}${host ? (readyN === humans.length ? '，可以開始下一局' : '，房主也可以直接開始') : '，等待房主開始下一局'}`
+    $('#readyList').textContent = inter ? `已準備 ${readyN}/${humans.length}${host ? (readyN === humans.length ? '，可開始下一局' : '，房主可直接開始') : '，等待房主開始'}`
       : finished ? (host ? '' : '等待房主回到大廳') : '';
   }
 })();

@@ -55,7 +55,7 @@ function validateCode(code) {
       round.dispose();
     }
   }
-  if (timeouts > 0) result.warnings.push(`測試中有 ${timeouts} 次超過時間上限（可能是伺服器剛好忙碌），實戰中那幾個 tick 會不動。如果常常發生，請讓代碼算快一點。`);
+  if (timeouts > 0) result.warnings.push(`測試中 ${timeouts} 次超過時間上限，該 tick 不會動作。若經常發生，請優化運算量。`);
   result.ok = true;
   result.stats = { calls, avgMs: calls ? +(totalMs / calls).toFixed(3) : 0, maxMs: +maxMs.toFixed(2) };
   result.logs = result.logs.slice(-15);

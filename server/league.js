@@ -108,15 +108,15 @@ function submit({ key, name, code }) {
 
 async function doSubmit({ key, name, code }) {
   key = String(key || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 32);
-  name = String(name || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 12) || '無名氏';
+  name = String(name || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 12) || '匿名';
   code = String(code || '');
   if (key.length < 8) return { ok: false, error: '缺少玩家識別碼' };
   const now = Date.now();
-  if (now - (lastSubmit.get(key) || 0) < SUBMIT_COOLDOWN_MS) return { ok: false, error: '提交太頻繁了，30 秒後再試' };
+  if (now - (lastSubmit.get(key) || 0) < SUBMIT_COOLDOWN_MS) return { ok: false, error: '提交過於頻繁，請 30 秒後再試' };
   lastSubmit.set(key, now);
 
   const v = await validateAsync(code);
-  if (!v.ok) return { ok: false, error: '代碼測試沒通過', errors: v.errors };
+  if (!v.ok) return { ok: false, error: '代碼測試未通過', errors: v.errors };
 
   const week = weekId();
   return withStore(async (st) => {

@@ -22,7 +22,7 @@
 <section id="home" class="screen active">
   <div class="home-card">
     <h1 class="logo">坦克對戰</h1>
-    <p class="sub">帶著你寫的電腦隊友上戰場</p>
+    <p class="sub">線上坦克對戰・代碼控制的 AI 隊友</p>
     <label class="field">
       <span>暱稱</span>
       <input id="nameInput" maxlength="12" autocomplete="off" placeholder="輸入暱稱">
@@ -32,7 +32,7 @@
       <button id="tutorialBtn" class="btn">🎓 新手教學</button>
       <button id="practiceBtn" class="btn">🧪 代碼練習場</button>
       <button id="leagueBtn" class="btn span2">🏆 代碼擂台（每週排行榜）</button>
-      <button id="installBtn" class="btn span2 hidden">📲 安裝成 App（全螢幕、開得更快）</button>
+      <button id="installBtn" class="btn span2 hidden">📲 安裝 App</button>
     </div>
     <label class="link-btn file-link">📂 開啟重播檔<input id="replayFile" type="file" accept=".json,application/json"></label>
     <div class="or"><span>或輸入房號加入</span></div>
@@ -53,7 +53,7 @@
   <div class="lobby-body">
     <div class="panel">
       <div class="panel-title"><span>參賽</span></div>
-      <p class="small-text muted">提交電腦代碼後，它會馬上和本週其他參賽者各打兩場（純代碼 1 對 1），依勝負計算分數排名。每週一重新開始；重新提交會更新你的代碼並再打一輪。</p>
+      <p class="small-text muted">提交代碼後與本週其他參賽者各對戰兩場（純代碼 1v1），以 Elo 計分排名。每週一重置；重新提交將覆蓋舊代碼並重賽。</p>
       <div class="set-row"><span>參賽代碼</span><select id="leagueCodeSel" aria-label="參賽代碼"></select></div>
       <button id="leagueSubmit" class="btn primary">⚔️ 參賽</button>
       <div id="leagueResult" class="code-status"></div>
@@ -103,7 +103,7 @@
     <button id="readyBtn" class="btn">準備</button>
     <button id="startBtn" class="btn primary host-only">開始</button>
   </footer>
-  <p id="practiceHint" class="start-error practice-only">代碼練習場：先按「我的電腦代碼」交出代碼，再按「開始」。點對手的 🧠 標籤可以換對手打法（也能選「我的上一版」自己打自己），對戰設定裡可以開血量、地形、縮圈；遊戲中右上角可以快轉。</p>
+  <p id="practiceHint" class="start-error practice-only">練習場：提交代碼後開始。點對手的 🧠 標籤切換打法（含「上一版」自我對戰）；遊戲中可於右上角快轉。</p>
   <p id="startError" class="start-error"></p>
 </section>
 
@@ -171,7 +171,7 @@
         <button id="shareReplayBtn" class="btn small">🔗 分享連結</button>
         <button id="downloadReplayBtn" class="btn small">⬇️ 下載重播檔</button>
       </div>
-      <p class="muted small-text">分享連結在房間關閉後就會失效；想保存的話請下載重播檔，之後在首頁「開啟重播檔」觀看。</p>
+      <p class="muted small-text">分享連結於房間關閉後失效，如需保存請下載重播檔。</p>
     </div>
     <div class="panel">
       <div class="panel-title"><span>總積分</span><span id="matchProgress" class="muted"></span></div>
@@ -186,7 +186,7 @@
       <div id="botClassPicker2" class="cls-grid"></div>
     </div>
     <div class="panel">
-      <div class="panel-title"><span>我的電腦這局表現</span></div>
+      <div class="panel-title"><span>電腦表現</span></div>
       <div id="botReport"></div>
     </div>
     <div id="readyList" class="muted center small-text"></div>
@@ -223,7 +223,7 @@
 <div id="editor" class="modal">
   <div class="modal-card">
     <header class="modal-head">
-      <b class="modal-title">我的電腦隊友</b>
+      <b class="modal-title">電腦代碼</b>
       <button id="editorClose" class="btn ghost small">關閉</button>
     </header>
     <div class="editor-body">
@@ -232,29 +232,29 @@
       <ol class="steps">
         <li>
           <div class="step-title">複製「AI 指令」</div>
-          <p class="muted small-text">裡面是遊戲規則和寫法說明，你不用看懂。</p>
+          <p class="muted small-text">內含遊戲規則與代碼規格。</p>
           <button id="copyPromptBtn" class="btn primary">📋 複製 AI 指令</button>
         </li>
         <li>
-          <div class="step-title">貼給你的 AI，說你想要什麼隊友</div>
-          <p class="muted small-text">打開 ChatGPT、Claude、Gemini 等任何 AI，貼上後在最後補一句，例如：</p>
+          <div class="step-title">貼給 AI 並描述打法</div>
+          <p class="muted small-text">適用 ChatGPT、Claude、Gemini 等，貼上後補充需求，例如：</p>
           <ul class="examples">
-            <li>「跟在我旁邊，幫我擋子彈」</li>
-            <li>「直接衝去炸敵人基地」</li>
-            <li>「躲在草叢裡，有人經過就偷襲」</li>
-            <li>「看到子彈飛過來要閃開」</li>
+            <li>「緊跟玩家，攔截子彈」</li>
+            <li>「直攻敵方基地」</li>
+            <li>「埋伏草叢伺機偷襲」</li>
+            <li>「預判並閃避子彈」</li>
           </ul>
         </li>
         <li>
-          <div class="step-title">把 AI 寫好的代碼交給遊戲</div>
-          <p class="muted small-text">複製 AI 給的代碼按「貼上」，或存成 .txt / .js 檔後上傳。會自動測試，通過就會在下一局使用。</p>
+          <div class="step-title">提交代碼</div>
+          <p class="muted small-text">貼上或上傳 .txt / .js 檔。系統自動測試，通過後下一局生效。</p>
           <div class="editor-actions">
             <button id="pasteBtn" class="btn">📥 貼上代碼</button>
             <label class="btn file-btn">📄 上傳檔案<input id="fileInput" type="file" accept=".txt,.js,.mjs,.md,text/plain,text/javascript,application/javascript"></label>
           </div>
-          <button id="manualToggle" class="link-btn">沒辦法貼上？點這裡手動貼</button>
+          <button id="manualToggle" class="link-btn">無法貼上？改為手動輸入</button>
           <div id="manualBox" class="manual hidden">
-            <textarea id="codeArea" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="長按這裡貼上 AI 給你的代碼"></textarea>
+            <textarea id="codeArea" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="在此貼上代碼"></textarea>
             <button id="checkBtn" class="btn small primary">送出測試</button>
           </div>
         </li>
@@ -263,7 +263,7 @@
       <div id="codeStatus" class="code-status"></div>
 
       <details class="samples">
-        <summary>沒有 AI 助手？直接選一種現成的打法</summary>
+        <summary>範例打法</summary>
         <ul id="sampleList"></ul>
       </details>
       <button id="useDefaultBtn" class="link-btn">改回內建 AI</button>
@@ -297,7 +297,7 @@
       </div>
     </div>
     <div class="map-canvas-wrap"><canvas id="mapCanvas"></canvas></div>
-    <p class="muted small-text">用手指畫上地形。出生點和基地會自動放在地圖四周（黃色虛線框），附近 3 格會被清空；如果有地方走不到，遊戲會自動挖出通道。</p>
+    <p class="muted small-text">出生點與基地固定於黃色虛線框，周圍 3 格自動清空；無法通行處會自動開通。</p>
     <button id="mapApply" class="btn primary">使用這張地圖</button>
   </div>
 </div>
@@ -318,14 +318,14 @@
       <div class="set-row"><span>音效</span><button class="switch" data-pref-toggle="sound" aria-label="音效"></button></div>
       <div class="set-row"><span>音量</span><input type="range" id="prefVolume" min="0" max="1" step="0.05"></div>
       <div class="set-row"><span>震動</span><button class="switch" data-pref-toggle="vibrate" aria-label="震動"></button></div>
-      <div class="set-row"><span>顯示我的電腦在想什麼</span><button class="switch" data-pref-toggle="botDebug" aria-label="電腦除錯畫面"></button></div>
-      <div class="set-desc">電腦代碼用 debug.line / debug.circle / debug.text 畫的東西會顯示在畫面上（只有你看得到）。</div>
+      <div class="set-row"><span>顯示電腦除錯繪圖</span><button class="switch" data-pref-toggle="botDebug" aria-label="電腦除錯畫面"></button></div>
+      <div class="set-desc">顯示代碼以 debug.line／circle／text 繪製的內容，僅自己可見。</div>
     </div>
   </div>
 </div>
 
 <div id="toast" class="toast"></div>
-<div id="connBanner" class="conn-banner">連線中斷，正在重新連線…</div>
+<div id="connBanner" class="conn-banner">連線中斷，重新連線中…</div>
 
 <script src="/physics.js"></script>
 <script src="/sfx.js"></script>

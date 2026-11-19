@@ -53,8 +53,8 @@ class Room {
   get(id) { return this.players.find(p => p.id === id); }
 
   canJoin() {
-    if (this.kind !== 'normal') return '這是單人練習房，不能加入';
-    if (this.state === 'playing') return '遊戲進行中，請等這一局結束再加入';
+    if (this.kind !== 'normal') return '單人練習房無法加入';
+    if (this.state === 'playing') return '遊戲進行中，請於本局結束後加入';
     if (this.players.length >= C.MAX_PLAYERS) return `房間已滿（最多 ${C.MAX_PLAYERS} 人）`;
     return null;
   }
@@ -268,7 +268,7 @@ class Room {
         p.ready = !!msg.ready;
         return this.sendRoom();
       case 'code': {
-        if (this.state === 'playing') return send(p.ws, { t: 'codeResult', ok: false, errors: ['遊戲進行中不能換代碼，請在局間調整'] });
+        if (this.state === 'playing') return send(p.ws, { t: 'codeResult', ok: false, errors: ['遊戲進行中無法更換代碼'] });
         const code = msg.sample && SAMPLES[msg.sample] ? SAMPLES[msg.sample].code : String(msg.code || '');
         if (msg.useDefault) {
           p.code = null; p.codeInfo = null;
@@ -355,12 +355,12 @@ class Room {
   startError() {
     const sides = this._buildSides();
     if (this.settings.objective === 'pve') return null;
-    if (this.settings.objective === 'escort' && sides.length !== 2) return '護送模式需要剛好兩隊（陣營戰最方便，或組隊分成兩隊）';
+    if (this.settings.objective === 'escort' && sides.length !== 2) return '護送模式需剛好兩隊';
     if (this.settings.mode === 'faction') {
-      if (sides.some(s => s.members.length === 0)) return '陣營戰需要紅藍兩邊都有人（可以加入電腦隊伍）';
+      if (sides.some(s => s.members.length === 0)) return '陣營戰需紅藍兩隊皆有成員';
     } else if (this.settings.mode === 'team') {
-      if (sides.length < 2) return '組隊模式至少要有兩個不同的隊伍';
-    } else if (sides.length < 2) return '至少要兩隊才能開始（可以加入電腦隊伍來練習）';
+      if (sides.length < 2) return '組隊模式至少需兩隊';
+    } else if (sides.length < 2) return '至少需兩隊（可加入電腦隊伍）';
     return null;
   }
 

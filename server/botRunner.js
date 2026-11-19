@@ -147,7 +147,7 @@ class BotSandbox {
     } catch (e) {
       if (this.isolate.isDisposed) {
         this.dead = true;
-        this._error('記憶體超過上限，沙盒已停止，這台電腦本局之後不會再動');
+        this._error('記憶體超過上限，沙盒已停止，本局不再動作');
         return null;
       }
       const msg = cleanError(e);

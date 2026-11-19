@@ -60,7 +60,7 @@ const server = http.createServer((req, res) => {
   if (rm) {
     const r = rooms.get(rm[1]);
     const gz = r && r.replays.get(Number(rm[2]));
-    if (!gz) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('重播已經不存在（房間關閉後重播會消失）'); }
+    if (!gz) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('重播已失效（房間已關閉）'); }
     const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Content-Encoding': 'gzip', 'Cache-Control': 'no-cache' };
     if (url.searchParams.get('download')) headers['Content-Disposition'] = `attachment; filename="tank-replay-${rm[1]}-${rm[2]}.json"`;
     res.writeHead(200, headers);
@@ -148,7 +148,7 @@ wss.on('connection', (ws) => {
         }
       } else if (msg.t === 'join') {
         const r = rooms.get(String(msg.code || '').trim());
-        if (!r) return send(ws, { t: 'error', msg: '找不到這個房號' });
+        if (!r) return send(ws, { t: 'error', msg: '找不到此房號' });
         const err = r.canJoin();
         if (err) return send(ws, { t: 'error', msg: err });
         room = r;
