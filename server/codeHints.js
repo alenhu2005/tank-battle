@@ -12,6 +12,7 @@ module.exports = function codeHints(code, settings = {}) {
     hints.push({ key: 'version', text: `依舊版規格 v${ver} 撰寫；後續新增：${missed.join('；')}` });
   } else if (ver === null) hints.push({ key: 'version', text: '缺少「// spec v版本」標記，無法判斷規格版本' });
   const has = re => re.test(code);
+  if (has(/\bfire\b/) && !has(/\baim\b/)) hints.push({ key: 'aim', text: '開火未指定 aim，砲塔會跟著車身；可用 aim 邊移動邊朝其他方向射擊' });
   if (settings.hpSystem && !has(/\b(hp|maxHp)\b/)) hints.push({ key: 'hp', text: '未讀取血量（hp／maxHp）：無法判斷殘血與優先目標' });
   if (!has(/\bskill\b/)) hints.push({ key: 'skill', text: '未使用職業技能（skill）' });
   if (settings.zone && !has(/\bzone\b/)) hints.push({ key: 'zone', text: '未處理縮圈（view.zone）：可能停留圈外' });

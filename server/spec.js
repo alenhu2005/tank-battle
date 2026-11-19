@@ -21,11 +21,12 @@ ${CHANGELOG.slice(0, 3).map(([v, s]) => `- v${v}：${s}`).join('\n')}
 用 JavaScript 定義一個函式 think(view, memory)。遊戲每秒呼叫它 ${C.TICK_RATE} 次（每個 tick 一次），回傳你的電腦坦克在這個 tick 的動作。
 
 ## 回傳格式
-{ move: 角度 | 方向 | null, fire: true | false, skill: true | false }
+{ move: 角度 | 方向 | null, aim: 角度 | 方向 | null, fire: true | false, skill: true | false }
 角度 = 0～360 的數字（度）：0 = 上、90 = 右、180 = 下、270 = 左，順時針，可以有小數（無段落，任何角度都可以）
 方向 = "up" | "down" | "left" | "right" | "upleft" | "upright" | "downleft" | "downright"（等於 0、180、270、90、315、45、225、135 度）
-- move：往該角度移動，車身和砲管也會轉向該角度；null 表示停住（保持原本的角度）。被擋住時只會轉向。
-- 離正上下左右 ${require('../public/physics').SNAP} 度以內時，移動會當作直走並自動靠向格子中心（方便鑽 1 格寬的通道），但砲管仍朝實際角度。
+- move：往該角度移動並轉動車身；null 表示停住（保持原本的車身角度）。被擋住時只會轉動車身。
+- 離正上下左右 ${require('../public/physics').SNAP} 度以內時，移動會當作直走並自動靠向格子中心（方便鑽 1 格寬的通道）。
+- aim：指定這個 tick 的砲塔角度。省略或設為 null 時，砲塔跟著車身。{ move: 90, aim: 225.5, fire: true } 會往右移動、同時朝左下方射擊。
 - fire：true 表示朝砲管角度開火。冷卻中或自己的子彈數已達上限時會被忽略。
 - skill：true 表示使用職業技能（me.skill 是你的技能，null 表示沒有）。冷卻中會被忽略。
   電腦坦克預設 cls 是 "bot"、沒有技能；房主打開「電腦也有職業」時（rules.botClasses 為 true），電腦會有玩家選的職業和那個職業的技能。
@@ -64,8 +65,8 @@ ${CHANGELOG.slice(0, 3).map(([v, s]) => `- v${v}：${s}`).join('\n')}
   zone:    { ... } | null,             // 縮圈的安全區，見下方「縮圈」
   rules:   { specVersion, tickRate, tankSize, blastRadius, mode, baseMode, fog, breakableWalls, codeOnly, hpSystem, regen, classes, botClasses, playerHp, botHp, playerLives, botLives, respawnTicks, baseWallShieldLeft, ricochet, bulletBounces, items }
 }
-坦克 = { id, x, y, angle, dir, isBot, owner, cls, lives, hp, maxHp, shield, carrying, buffs }
-- angle：精確角度（度，0 = 上，順時針）；dir：最接近的八方向名稱（給簡單的代碼用）
+坦克 = { id, x, y, angle, aim, dir, isBot, owner, cls, lives, hp, maxHp, shield, carrying, buffs }
+- angle：車身角度；aim：當前砲塔角度。兩者都是度數（0 = 上，順時針）。dir 是最接近車身角度的八方向名稱。
 - owner：這台坦克所屬玩家的 id。你的玩家是 allies 裡 isBot === false 且 owner === me.owner 的那台（他死掉等重生時不會出現在 allies）。
 - cls：職業，"bot" 表示沒有職業的電腦坦克，其他見下方職業表（開了「電腦也有職業」時電腦也會是這些職業）。各職業的數值也在 rules.classes[cls] 裡。
 - hp／maxHp：這條命目前和最多的血量（見「血量系統」；經典模式是還能挨幾發）；shield：剩餘無敵的 tick 數。

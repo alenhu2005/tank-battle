@@ -4,34 +4,11 @@
 // 每份都是完整、可以單獨執行的代碼（共用的輔助函式會接在後面）。
 
 const CLASSIC = require('./bots/classic');
+const AIM_HELPERS = require('./bots/aim');
 
 const HELPERS = `
 // ---- 共用輔助函式 ----
-var AIM = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0],
-  upleft: [-1, -1], upright: [1, -1], downleft: [-1, 1], downright: [1, 1] };
 var STEP4 = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
-
-function tileAt(map, x, y) {
-  if (x < 0 || y < 0 || x >= map.width || y >= map.height) return '@';
-  return map.tiles[y][x];
-}
-
-// 和目標在同一直線／斜線、中間沒有擋住 → 回傳要面向的方向
-function lineTo(me, t, view) {
-  var dx = t.x - me.x, dy = t.y - me.y, dir = null;
-  if (Math.abs(dx) < 0.4) dir = dy < 0 ? 'up' : 'down';
-  else if (Math.abs(dy) < 0.4) dir = dx < 0 ? 'left' : 'right';
-  else if (Math.abs(Math.abs(dx) - Math.abs(dy)) < 0.35) dir = (dy < 0 ? 'up' : 'down') + (dx < 0 ? 'left' : 'right');
-  if (!dir) return null;
-  var v = AIM[dir], x = Math.floor(me.x), y = Math.floor(me.y), tx = Math.floor(t.x), ty = Math.floor(t.y);
-  for (var n = 0; n < 40; n++) {
-    x += v[0]; y += v[1];
-    if (x === tx && y === ty) return dir;
-    var c = tileAt(view.map, x, y);
-    if (c === '@' || c === 'B' || c === 'O' || (c === '#' && !view.rules.breakableWalls)) return null;
-  }
-  return null;
-}
 
 // BFS：回傳往 goals（[{x,y}]）中最近一個的下一步方向；cost(c) 回傳通過該格的額外代價（Infinity = 不能走）
 function stepToward(me, goals, view, cost) {
@@ -68,14 +45,14 @@ function stepToward(me, goals, view, cost) {
 function walk(me, dir, view) {
   if (!dir) return { move: null, fire: false };
   var v = STEP4[dir], c = tileAt(view.map, Math.floor(me.x) + v[0], Math.floor(me.y) + v[1]);
-  return { move: dir, fire: c === '#' && view.rules.breakableWalls && me.dir === dir };
+  return { move: dir, aim: dir, fire: c === '#' && view.rules.breakableWalls };
 }
 
-// 對任何一個目標有射線就開火（必要時先轉向）
+// 對第一個有射線的目標開火，移動方向由各打法決定
 function shootAny(me, list, view) {
   for (var i = 0; i < list.length; i++) {
-    var d = lineTo(me, list[i], view);
-    if (d) return { move: d === me.dir ? null : d, fire: d === me.dir };
+    var aim = clearAim(me, list[i], view.map);
+    if (aim !== null) return { aim: aim, fire: true };
   }
   return null;
 }
@@ -111,7 +88,7 @@ function myPlayer(view) {
   for (var i = 0; i < view.allies.length; i++) { var a = view.allies[i]; if (!a.isBot && a.owner === view.me.owner) return a; }
   return null;
 }
-`;
+` + AIM_HELPERS;
 
 const GUARD = `// 守門員：守在自己基地（沒有基地就守在自己的玩家）旁邊，敵人靠近才出手
 function decide(view, memory) {
@@ -125,7 +102,10 @@ function decide(view, memory) {
   var threats = view.enemies.filter(function (e) { return dist(e, home) < 7; })
     .sort(function (a, b) { return dist(a, home) - dist(b, home); });
   var shot = shootAny(me, threats.length ? threats : view.enemies.filter(function (e) { return dist(e, me) < 6; }), view);
-  if (shot) return shot;
+  if (shot) {
+    shot.move = dist(me, home) > 3 ? stepToward(me, [home], view) : null;
+    return shot;
+  }
   if (threats.length) return walk(me, stepToward(me, [threats[0]], view), view);
 
   // 沒事時待在守護點 2～3 格內
@@ -166,33 +146,31 @@ function decide(view, memory) {
     if (s0) return s0;
     return view.enemies.length ? walk(me, stepToward(me, [view.enemies[0]], view), view) : { move: null, fire: false };
   }
+  var spacing = dist(me, boss);
+  var move = spacing > 3 ? stepToward(me, [boss], view) : spacing < 1.2 ? (me.x < boss.x ? 'left' : 'right') : null;
 
   // 1. 有敵方子彈朝老闆飛來：朝它開火抵消
   for (var i = 0; i < view.bullets.length; i++) {
     var b = view.bullets[i];
     if (b.ally) continue;
-    var v = AIM[b.dir], n = Math.hypot(v[0], v[1]);
+    var n = Math.hypot(b.vx, b.vy);
+    if (!n) continue;
     var tx = boss.x - b.x, ty = boss.y - b.y;
-    var along = (tx * v[0] + ty * v[1]) / n;
+    var along = (tx * b.vx + ty * b.vy) / n;
     if (along <= 0 || along > 7) continue;
-    var off = Math.abs(tx * v[1] - ty * v[0]) / n;
+    var off = Math.abs(tx * b.vy - ty * b.vx) / n;
     if (off > 0.6) continue;
-    var d = lineTo(me, b, view);
-    if (d && me.canFire) return { move: d === me.dir ? null : d, fire: d === me.dir };
+    var aim = clearAim(me, b, view.map);
+    if (aim !== null && me.canFire) return { move: move, aim: aim, fire: true };
   }
 
   // 2. 威脅老闆最近的敵人
   var foes = view.enemies.slice().sort(function (a, b) { return dist(a, boss) - dist(b, boss); });
   var shot = shootAny(me, foes.filter(function (e) { return dist(e, boss) < 8; }), view);
-  if (shot) return shot;
+  if (shot) { shot.move = move; return shot; }
 
   // 3. 跟在老闆旁邊 1.5～3 格
-  if (dist(me, boss) > 3) return walk(me, stepToward(me, [boss], view), view);
-  if (dist(me, boss) < 1.2) {
-    var away = me.x < boss.x ? 'left' : 'right';
-    return { move: away, fire: false };
-  }
-  return { move: null, fire: false };
+  return walk(me, move, view);
 }
 ` + HELPERS;
 
@@ -215,7 +193,14 @@ function decide(view, memory) {
     if (o.draft) { var best = 0; o.draft.forEach(function (c, i) { if (c.rarity > o.draft[best].rarity) best = i; }); act.pick = best; }
     if (o.core && o.core.hp < o.core.maxHp * 0.5 && o.parts >= o.shop.repair) act.buy = 'repair';
   }
-  // 1. 預警區：往遠離中心的方向跑
+  // 目標排序：治療者、召喚師優先，跳過無敵的敵人
+  var rank = { healer: 0, summoner: 1, bomber: 2, sniper: 3 };
+  var foes = view.enemies.filter(function (e) { return !e.invulnerable; }).sort(function (a, b) {
+    return ((rank[a.kind] ?? 5) - (rank[b.kind] ?? 5)) || (dist(a, me) - dist(b, me));
+  });
+  var shot = shootAny(me, foes, view);
+  if (shot) { act.aim = shot.aim; act.fire = true; }
+  // 1. 預警區：移動避開危險，同時朝目標開火
   var hz = (o.hazards || []).filter(function (h) { return (h.firesIn < 25 || h.dps > 0) && inHazard(me, h); });
   if (hz.length) {
     var h = hz[0], cx = h.kind === 'line' ? (h.x + h.x2) / 2 : h.x, cy = h.kind === 'line' ? (h.y + h.y2) / 2 : h.y;
@@ -224,20 +209,17 @@ function decide(view, memory) {
     else act.move = (Math.atan2(me.x - cx, -(me.y - cy)) * 180 / Math.PI + 360) % 360;
     return act;
   }
-  // 2. 目標排序：治療者、召喚師優先；Boss 無敵時不打
-  var rank = { healer: 0, summoner: 1, bomber: 2, sniper: 3 };
-  var foes = view.enemies.filter(function (e) { return !e.invulnerable; }).sort(function (a, b) {
-    return ((rank[a.kind] ?? 5) - (rank[b.kind] ?? 5)) || (dist(a, me) - dist(b, me));
-  });
-  var shot = shootAny(me, foes, view);
-  if (shot) { act.move = shot.move; act.fire = shot.fire; return act; }
-  // 3. 照顧目標
+  // 2. 照顧目標；沒別的目標且有射線時留在原地
   var goal = null;
   if (o.generators) o.generators.forEach(function (g) { if (g.active) goal = g; });
   if (o.npc && o.npc.alive && dist(me, o.npc) > 2.5) goal = o.npc;
   if (o.core && dist(me, o.core) > 4) goal = o.core;
-  if (!goal && foes.length) goal = foes[0];
-  if (goal) { var w = walk(me, stepToward(me, [goal], view), view); act.move = w.move; act.fire = w.fire; }
+  if (!goal && !shot && foes.length) goal = foes[0];
+  if (goal) {
+    var w = walk(me, stepToward(me, [goal], view), view);
+    act.move = w.move;
+    if (!shot) { act.aim = w.aim; act.fire = w.fire; }
+  }
   return act;
 }
 ` + HELPERS;
@@ -245,7 +227,7 @@ function decide(view, memory) {
 const C = require('./constants');
 const tag = code => `// spec v${C.SPEC_VERSION}\n` + code;
 module.exports = {
-  standard:  { name: '標準',   desc: '會尋路，找最近的敵人或敵方基地，對齊就開火，打掉擋路的磚牆', code: tag(CLASSIC) },
+  standard:  { name: '標準',   desc: '會尋路，對有射線的敵人或基地獨立瞄準，打掉擋路的磚牆', code: tag(CLASSIC) },
   guard:     { name: '守門員', desc: '守在基地或你旁邊，敵人靠近才出手；會用職業技能', code: tag(GUARD) },
   assassin:  { name: '刺客',   desc: '專挑敵方玩家、先打命少血少的，走草叢接近；會用職業技能', code: tag(ASSASSIN) },
   pve:       { name: '打怪專用', desc: '躲預警區、優先擊殺治療者與召喚師、照顧關卡目標；自動選強化卡', code: tag(PVE) },

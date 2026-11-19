@@ -54,6 +54,7 @@
       this.liveTiles = meta.tiles.split('');
       this.latest = null;
       this.pred = null;                 // 自己坦克的預測位置 { x, y, dir }
+      this.aimOrigin = null;
       this.predOff = { x: 0, y: 0 };    // 預測修正時的視覺平滑
       this.tankMeta = new Map(meta.tanks.map(t => [t.id, t]));
       this.sideMeta = new Map(meta.sides.map(s => [s.key, s]));
@@ -82,9 +83,10 @@
     applySnapshot(s, now) {
       const tickMs = 1000 / this.meta.tickRate;
       const tanks = new Map();
+      const aims = s.A ? new Map(s.A) : null;
       const kinds = this.meta.pve ? this.meta.pve.kinds : null;
       for (const a of s.T) {
-        const st = { x: a[1] / 100, y: a[2] / 100, dir: a[3], shield: a[4], hp: a[5], buffs: a[6] || 0, ack: a[7] || 0, skillCd: a[8] || 0 };
+        const st = { x: a[1] / 100, y: a[2] / 100, dir: a[3], shield: a[4], hp: a[5], buffs: a[6] || 0, ack: a[7] || 0, skillCd: a[8] || 0, aim: aims?.get(a[0]) };
         if (a.length > 9) { st.kind = a[9]; st.kindName = kinds ? kinds[a[9]] : null; st.maxHp = a[10]; st.elite = a[11]; st.flags = a[12]; st.size = a[13] / 100; }
         tanks.set(a[0], st);
       }
@@ -402,6 +404,8 @@
       const ox = Math.round(area.x + area.w / 2 - cam.x * tp);
       const oy = Math.round(area.y + area.h / 2 - cam.y * tp);
       const mapW = S * tp;
+      this.aimOrigin = predPos ? [ox + predPos[0] * tp, oy + predPos[1] * tp] : null;
+      const myAim = this.readAim?.();
 
       ctx.save();
       ctx.translate(ox, oy);
@@ -522,7 +526,7 @@
       if (predPos && this.myTank && !A.tanks.has(this.myTank.id) && this.latest && this.latest.tanks.has(this.myTank.id)) {
         // 剛重生：伺服器時間軸還沒播到，但預測已經有位置
         const m = this.myTank, t = this.latest.tanks.get(m.id);
-        this._drawTank(ctx, predPos[0] * tp, predPos[1] * tp, this.pred.angle, this.sideMeta.get(m.side).color, m, tp * this.meta.tankSize, t, now);
+        this._drawTank(ctx, predPos[0] * tp, predPos[1] * tp, this.pred.angle, this.sideMeta.get(m.side).color, m, tp * this.meta.tankSize, { ...t, aim: myAim }, now);
       }
       for (let [id, t] of A.tanks) {
         const m = this.tankMeta.get(id);
@@ -531,7 +535,7 @@
         if (predPos && this.myTank && id === this.myTank.id) {
           [x, y] = predPos;
           const latestMe = this.latest && this.latest.tanks.get(id);
-          t = Object.assign({}, latestMe || t, { dir: this.pred.angle });
+          t = { ...(latestMe || t), dir: this.pred.angle, aim: myAim };
         }
         drawn.push([id, x, y, t.hp, t.maxHp, t.size]);
         if (m.cls === 'monster' && window.PveDraw) {
@@ -684,7 +688,7 @@
           const world = { size: S, tiles: this.liveTiles, tankSize: this.meta.tankSize };
           let bounces = this.meta.ricochet ? this.meta.bulletBounces : 0;
           if (me.buffs & 512) bounces = Math.max(bounces, this.meta.bounceBuff);
-          const a0 = this.pred.angle, spread = this.meta.spreadAngle || 25;
+          const a0 = myAim ?? this.pred.angle, spread = this.meta.spreadAngle || 25;
           const dirs = me.buffs & 256 ? [a0, a0 - spread, a0 + spread] : [a0];
           ctx.save();
           ctx.setLineDash([tp * 0.18, tp * 0.16]);
@@ -927,6 +931,7 @@
         ctx.strokeRect(-hullW * s, -0.42 * s, hullW * 2 * s, 0.84 * s);
       }
       // 砲管（先畫，砲塔蓋在上面）
+      if (st.aim != null) ctx.rotate((st.aim - dirIdx) * Math.PI / 180);
       ctx.fillStyle = '#d9dee6';
       if (cls === 'assault') { barrel(0.07, 0.62, -0.07); barrel(0.07, 0.62, 0.07); }
       else if (cls === 'heavy') { barrel(0.16, 0.6); ctx.fillStyle = '#aeb5bf'; R(-0.12, -0.66, 0.24, 0.1); }   // 砲口制退器

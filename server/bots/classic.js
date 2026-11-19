@@ -1,11 +1,11 @@
 'use strict';
 
-// 「標準」範例打法（以前的內建電腦）：會尋路、對齊就開火、打掉擋路的磚牆。
+// 「標準」範例打法（以前的內建電腦）：會尋路、有射線就開火、打掉擋路的磚牆。
 // 現在的內建電腦換成故意很笨的 defaultBot.js，這份留給玩家當範例、給擂台當對手、給測試用。
-module.exports = `// 範例電腦隊友：找最近的敵人或敵方基地，對齊就開火，路上有磚牆就打掉
+const AIM_HELPERS = require('./aim');
+
+module.exports = `// 範例電腦隊友：找最近的敵人或敵方基地，有射線就開火，路上有磚牆就打掉
 var DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };          // 尋路用四方向
-var AIM = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0],               // 射擊可以八方向
-  upleft: [-1, -1], upright: [1, -1], downleft: [-1, 1], downright: [1, 1] };
 
 function think(view, memory) {
   var me = view.me, map = view.map;
@@ -27,20 +27,23 @@ function think(view, memory) {
     memory.wander = 12; memory.still = 0;
   }
 
-  // 1. 和目標在同一直線或斜線上、中間沒有擋住 → 轉過去開火
+  // 1. 對可射擊的目標瞄準，仍可往遊戲目標移動
+  var aim = null;
   for (var i = 0; i < targets.length; i++) {
-    var d = clearShot(me, targets[i], map, view.rules.breakableWalls);
-    if (d) return { move: d === me.dir ? null : d, fire: d === me.dir };
+    aim = clearAim(me, targets[i], map);
+    if (aim !== null) break;
   }
+  if (aim !== null && (!goals || goals.length === 0)) return { move: null, aim: aim, fire: true };
 
   // 2. 用 BFS 找往最近目標的下一步（磚牆打得破時當作可以通過）
   if (goals && goals.length === 0) return { move: null, fire: false };   // 已經站在佔點區裡
   var dir = nextStep(me, goals || targets, map, view.rules.breakableWalls);
+  if (aim !== null) return { move: dir, aim: aim, fire: true };
   if (!dir) return { move: null, fire: true };
   var v = DIRS[dir];
   var nx = Math.floor(me.x) + v[0], ny = Math.floor(me.y) + v[1];
   var brickAhead = map.tiles[ny] && map.tiles[ny][nx] === '#';
-  return { move: dir, fire: brickAhead && me.dir === dir };
+  return { move: dir, aim: dir, fire: brickAhead };
 }
 
 function objectiveGoals(view) {
@@ -58,29 +61,6 @@ function objectiveGoals(view) {
     if (mine && !mine.atHome && !mine.carrier) return [{ x: mine.x, y: mine.y }];
     var free = o.flags.filter(function (f) { return !f.ally && !f.carrier; });
     return free.length ? free.map(function (f) { return { x: f.x, y: f.y }; }) : null;
-  }
-  return null;
-}
-
-function tileAt(map, x, y) {
-  if (x < 0 || y < 0 || x >= map.width || y >= map.height) return '@';
-  return map.tiles[y][x];
-}
-
-function clearShot(me, t, map, breakable) {
-  var mx = Math.floor(me.x), my = Math.floor(me.y);
-  var tx = Math.floor(t.x), ty = Math.floor(t.y);
-  var dir = null, dx = t.x - me.x, dy = t.y - me.y;
-  if (Math.abs(dx) < 0.4) dir = dy < 0 ? 'up' : 'down';
-  else if (Math.abs(dy) < 0.4) dir = dx < 0 ? 'left' : 'right';
-  else if (Math.abs(Math.abs(dx) - Math.abs(dy)) < 0.35) dir = (dy < 0 ? 'up' : 'down') + (dx < 0 ? 'left' : 'right');
-  if (!dir) return null;
-  var v = AIM[dir], x = mx, y = my;
-  for (var n = 0; n < 60; n++) {
-    x += v[0]; y += v[1];
-    if (x === tx && y === ty) return dir;
-    var c = tileAt(map, x, y);
-    if (c === '@' || c === 'B' || (c === '#' && !breakable)) return null;
   }
   return null;
 }
@@ -114,4 +94,4 @@ function nextStep(me, targets, map, breakable) {
   }
   return null;
 }
-`;
+` + AIM_HELPERS;

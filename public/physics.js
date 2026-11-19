@@ -15,7 +15,7 @@
   DIRS.forEach(function (d) { var v = DIR_VEC[d], n = Math.hypot(v[0], v[1]); UNIT[d] = [v[0] / n, v[1] / n]; });
   // 角度：0 = 上、90 = 右、180 = 下、270 = 左（順時針，像指南針）
   var ANGLE_OF = { up: 0, upright: 45, right: 90, downright: 135, down: 180, downleft: 225, left: 270, upleft: 315 };
-  var SNAP = 12;   // 推搖桿時離正上下左右 12° 以內，就當作直走（才鑽得進 1 格寬的通道），但砲管照實際角度
+  var SNAP = 12;   // 離正上下左右 12° 以內時沿著格線直走，車身保持實際輸入角度
   function norm(a) { a = a % 360; return a < 0 ? a + 360 : a; }
   function vec(deg) { var r = deg * Math.PI / 180; return [Math.round(Math.sin(r) * 1e9) / 1e9, Math.round(-Math.cos(r) * 1e9) / 1e9]; }
   function angleOfVec(x, y) { return norm(Math.atan2(x, -y) * 180 / Math.PI); }

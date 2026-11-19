@@ -197,6 +197,14 @@ body:not(.is-host) .host-only { display: none !important; }
   font-weight: 900; font-size: 18px; transform: translate(-50%, -50%);
 }
 .fire-btn.down { background: rgba(255, 107, 107, .6); transform: translate(-50%, -50%) scale(.94); }
+.fire-btn.aiming::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 10px; height: 10px;
+  border-radius: 50%; background: #fff; pointer-events: none;
+  transform: translate(-50%, -50%) rotate(var(--fire-angle)) translateY(calc(-36px * var(--fire-scale, 1)));
+}
+@media (pointer: fine) {
+  #canvas, .stick-zone, .fire-zone { cursor: crosshair; }
+}
 
 /* 橫向：搖桿在左、開火在右，地圖在中間 */
 @media (orientation: landscape) {

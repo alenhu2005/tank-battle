@@ -1,6 +1,6 @@
 'use strict';
 
-// 內建電腦（白痴版）：沒交代碼的玩家、內建電腦隊伍、打怪模式的怪物都用這份。
+// 內建電腦（白痴版）：沒交代碼的玩家與內建電腦隊伍使用。
 // 故意做得很笨，讓玩家自己寫的代碼有發揮空間：
 //   不會尋路（常常卡牆）、反應慢、方向抖、大概對準就亂開槍、完全不會閃子彈、偶爾發呆。
 module.exports = `// 白痴電腦：慢慢晃向目標，看到敵人大概對準就開槍
@@ -15,6 +15,12 @@ function think(view, memory) {
   if (memory.t % 20 === 1 || memory.dir === undefined) {
     memory.pause = Math.random() < 0.2;                       // 偶爾發呆
     memory.dir = goal ? angleTo(me, goal) + (Math.random() * 60 - 30) : Math.random() * 360;
+    var closest = null, range = 7;
+    view.enemies.forEach(function (e) {
+      var d = Math.hypot(e.x - me.x, e.y - me.y);
+      if (d < range) { closest = e; range = d; }
+    });
+    memory.aim = closest ? angleTo(me, closest) + (Math.random() * 40 - 20) : null;
   }
 
   // 卡住太久就隨便換個方向
@@ -22,17 +28,10 @@ function think(view, memory) {
   memory.lx = me.x; memory.ly = me.y;
   if (memory.still > 25) { memory.dir = Math.random() * 360; memory.still = 0; }
 
-  // 有敵人在 7 格內、而且砲管大概對著它（±20 度）就開槍；卡住時也會亂開槍
-  var fire = false;
-  view.enemies.forEach(function (e) {
-    var d = Math.hypot(e.x - me.x, e.y - me.y);
-    if (d < 7 && diff(angleTo(me, e), me.angle) < 20) fire = true;
-  });
-  if (memory.still > 10) fire = true;
-
   return {
     move: memory.pause ? null : (memory.dir + 360) % 360,
-    fire: fire && Math.random() < 0.6,
+    aim: memory.aim,
+    fire: (memory.aim !== null || memory.still > 10) && Math.random() < 0.6,
     skill: !!me.skillReady && Math.random() < 0.01,           // 偶爾亂用技能
   };
 }
@@ -56,5 +55,4 @@ function pickGoal(view) {
 }
 
 function angleTo(a, b) { return (Math.atan2(b.x - a.x, -(b.y - a.y)) * 180 / Math.PI + 360) % 360; }
-function diff(a, b) { return Math.abs(((a - b + 540) % 360) - 180); }
 `;

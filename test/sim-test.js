@@ -345,6 +345,41 @@ console.log('ALL OK');
   console.log('analog control OK');
 }
 
+// 玩家與電腦都能邊移動邊朝其他角度射擊，沒有 aim 的舊輸入沿用車身角度
+{
+  const C = require('../server/constants');
+  const sides = [
+    { key: 'a', name: 'A', color: '#fff', members: [{ playerId: 'p', name: 'P', code: 'function think(){return {move:"left", aim:-137.5, fire:true}}' }] },
+    { key: 'b', name: 'B', color: '#eee', members: [{ playerId: 'q', name: 'Q', code: 'function think(){return null}' }] },
+  ];
+  const r = new Round({ mode: 'ffa', sides, countdown: 0 });
+  r.tiles.fill('.');
+  const [player, bot] = r.tanks;
+  r.tanks.forEach((t, i) => { t.x = 5.5 + i * 3; t.y = 10.5; });
+  player.spreadBuff = 2;
+  r.setInput('p', { move: 90, aim: 0, fire: true });
+  r.step();
+  assert(player.x > 5.5 && bot.x < 8.5);
+  assert.strictEqual(player.angle, 90);
+  assert.strictEqual(bot.angle, 270);
+  assert.deepStrictEqual(r.bullets.filter(b => b.owner === player.id).map(b => b.angle), [0, 360 - C.SPREAD_ANGLE, C.SPREAD_ANGLE]);
+  assert.strictEqual(r.bullets.find(b => b.owner === bot.id).angle, 222.5);
+  assert.deepStrictEqual(r.snapshotFor(null).A, [[player.id, 0], [bot.id, 222.5]]);
+  assert.strictEqual(JSON.parse(r._viewFor(bot)).me.aim, 222.5);
+  r.bullets = [];
+  player.cooldown = 0;
+  r.setInput('p', { move: null, fire: true });
+  r.step();
+  assert.strictEqual(r.bullets.find(b => b.owner === player.id).angle, 90);
+  assert(!r.snapshotFor(null).A.some(([id]) => id === player.id));
+  r.dispose();
+
+  assert(validateCode('function think(){return {aim:"up", fire:true}}').ok);
+  const invalid = validateCode('function think(){return {aim:"north", fire:true}}');
+  assert(!invalid.ok && invalid.errors.some(error => error.includes('aim')));
+  console.log('independent turret aim OK');
+}
+
 // 延遲補償：敵人在子彈飛到前最後 6 tick 才閃開；玩家畫面落後 6 tick，畫面上確實打中了
 {
   const { Round } = require('../server/game');

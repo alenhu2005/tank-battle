@@ -794,8 +794,8 @@ ${sample.code}\`\`\`
   // ---------- 新手教學 ----------
   const TUT_STEPS = [
     '以左下搖桿移動',
-    '斜推搖桿：坦克朝該角度移動與射擊',
-    '按住「開火」射擊；虛線為彈道',
+    '斜推搖桿可朝任意角度移動',
+    '手機拖曳「開火」鈕連射。電腦用滑鼠瞄準，按左鍵或空白鍵開火。虛線是彈道。',
     '擊毀一塊磚牆（橘色可破壞，灰色鋼牆不可）',
     '拾取一個道具（發光方塊）',
     '擊毀練習靶（頭上綠條為血量）',
@@ -1038,15 +1038,21 @@ ${sample.code}\`\`\`
     }
   }
 
-  // ---------- 操作：虛擬搖桿（八方向）、開火鍵、鍵盤 ----------
-  // 方向編號與伺服器一致：0 上 1 下 2 左 3 右 4 左上 5 右上 6 左下 7 右下
-  const input = { move: -1, fire: false, skill: false };   // move：角度（度，0 = 上，順時針），-1 = 不動；skill：按了技能（送出一次後清掉）
+  // ---------- 操作：移動搖桿、砲塔瞄準、鍵盤 ----------
+  const input = { move: -1, tapAim: undefined, skill: false };   // 角度以正上方為 0，順時針增加；tapAim 為 null 時朝車頭開火
   let sentInput = '', lastSendAt = 0, inputSeq = 0;
   let pending = [];   // 已送出、伺服器還沒確認的移動輸入（預測用）
-  // 輸入改變時不立刻送，交給下面每秒 30 次的迴圈（同時做本機預測）
-  function pushInput(force) { if (force) sentInput = ''; }
-
   const PHYS = window.TankPhysics;
+  const mouse = { id: null, point: null };
+  const fireStick = { id: null, x: 0, y: 0, angle: null, firing: false, sent: false, timer: null };
+  function readAim() {
+    if (fireStick.id !== null) return fireStick.angle;
+    if (!mouse.point || !renderer.aimOrigin) return null;
+    const dx = mouse.point[0] - renderer.aimOrigin[0], dy = mouse.point[1] - renderer.aimOrigin[1];
+    return Math.hypot(dx, dy) > 1 ? PHYS.angleOfVec(dx, dy) : null;
+  }
+  renderer.readAim = readAim;
+
   function predWorld() {
     return { size: renderer.size, tiles: renderer.liveTiles, tankSize: renderer.meta.tankSize, alignRate: renderer.meta.alignRate || 1 };
   }
@@ -1077,19 +1083,26 @@ ${sample.code}\`\`\`
   }
 
   setInterval(() => {
-    if (!roundMeta || !renderer.latest) return;
+    if (!roundMeta || !renderer.myTank || !renderer.latest) return;
     const r = renderer, now = performance.now();
-    const key = Math.round(input.move) + ',' + (input.fire ? 1 : 0);
-    const active = input.move >= 0 || input.fire || input.skill;
+    const held = fireStick.firing || mouse.id !== null || keys.has('Space') || keys.has('KeyJ');
+    const fire = held || input.tapAim !== undefined;
+    const rawAim = !held && input.tapAim !== undefined ? input.tapAim : readAim();
+    const aim = rawAim == null ? null : Math.round(rawAim * 10) / 10;
+    const move = Math.round(input.move * 10) / 10;
+    const key = `${move},${aim},${fire}`;
+    const active = move >= 0 || fire || input.skill;
     if (!active && key === sentInput && now - lastSendAt < 500) return;
     const seq = ++inputSeq;
-    send({ t: 'i', a: input.move >= 0 ? Math.round(input.move * 10) / 10 : -1, f: input.fire ? 1 : 0, k: input.skill ? 1 : 0, s: seq, v: Math.round(r.renderTick * 10) / 10 });
+    send({ t: 'i', a: move, aim, f: fire ? 1 : 0, k: input.skill ? 1 : 0, s: seq, v: Math.round(r.renderTick * 10) / 10 });
+    if (fireStick.firing) fireStick.sent = true;
+    input.tapAim = undefined;
     input.skill = false;
     sentInput = key; lastSendAt = now;
     // 本機預測：倒數中、凍住或沒活著時不動
     const me = r.myTank && r.latest.tanks.get(r.myTank.id);
     if (!me || !r.pred || r.latest.c > 0 || input.move < 0 || (me.buffs & 32)) return;
-    let dir = Math.round(input.move * 10) / 10;
+    let dir = move;
     if (me.buffs & 64) dir = PHYS.norm(dir + 180);   // 混亂：方向顛倒
     const step = myStep(me);
     r.pred.phase = me.buffs & 128 ? 1 : 0;
@@ -1098,17 +1111,20 @@ ${sample.code}\`\`\`
     if (pending.length > 90) pending.shift();
   }, 1000 / 30);
   function resetInput() {
-    input.move = -1; input.fire = false; stick.id = null; fireId = null;
-    $('#fireBtn').classList.remove('down');
-    $('#stickKnob').style.transform = '';
-    pushInput(true);
+    input.move = -1; input.skill = false; input.tapAim = undefined;
+    keys.clear();
+    stick.id = null;
+    mouse.id = null; mouse.point = null;
+    clearFireStick();
+    knob.style.transform = '';
+    base.style.left = ''; base.style.top = '';
+    sentInput = '';
   }
 
-  // 角度（0 = 右，逆時針）每 45° 一區
-  const SECTOR_TO_DIR = [3, 5, 0, 4, 2, 6, 1, 7];
   const stick = { id: null, ox: 0, oy: 0 };
   const zone = $('#stickZone'), base = $('#stickBase'), knob = $('#stickKnob');
   zone.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse') return;
     e.preventDefault();
     if (stick.id !== null) return;
     stick.id = e.pointerId;
@@ -1122,11 +1138,12 @@ ${sample.code}\`\`\`
   zone.addEventListener('pointermove', e => { if (e.pointerId === stick.id) { e.preventDefault(); updateStick(e); } });
   const endStick = e => {
     if (e.pointerId !== stick.id) return;
-    stick.id = null; knob.style.transform = ''; input.move = -1; pushInput();
+    stick.id = null; knob.style.transform = ''; input.move = -1;
     base.style.left = ''; base.style.top = '';
   };
   zone.addEventListener('pointerup', endStick);
   zone.addEventListener('pointercancel', endStick);
+  zone.addEventListener('lostpointercapture', endStick);
   function updateStick(e) {
     let dx = e.clientX - stick.ox, dy = e.clientY - stick.oy;
     const d = Math.hypot(dx, dy), maxR = 45;
@@ -1135,7 +1152,7 @@ ${sample.code}\`\`\`
     // 無段落：推多少角度就是多少角度
     const mv = d > 12 ? PHYS.angleOfVec(dx, dy) : -1;
     if (input.move < 0 && mv >= 0) buzz(6);
-    input.move = mv; pushInput();
+    input.move = mv;
   }
 
   // 職業技能按鈕
@@ -1159,36 +1176,94 @@ ${sample.code}\`\`\`
     sb.classList.toggle('ready', !!me && cd === 0);
   }
 
-  let fireId = null;
   const fz = $('#fireZone'), fb = $('#fireBtn');
+  function startStickFire() {
+    fireStick.firing = true;
+    fb.classList.add('down');
+  }
+  function clearFireStick() {
+    clearTimeout(fireStick.timer);
+    fireStick.id = null; fireStick.angle = null; fireStick.firing = false; fireStick.sent = false;
+    fb.classList.remove('down', 'aiming');
+  }
   fz.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' || fireStick.id !== null) return;
     e.preventDefault();
-    if (fireId !== null) return;
-    fireId = e.pointerId; fz.setPointerCapture(e.pointerId);
-    input.fire = true; fb.classList.add('down'); pushInput();
+    fireStick.id = e.pointerId; fireStick.x = e.clientX; fireStick.y = e.clientY;
+    mouse.point = null;
+    fz.setPointerCapture(e.pointerId);
+    // 留一點時間讓手指開始拖曳，中心長按則朝車頭連射。
+    fireStick.timer = setTimeout(startStickFire, 150);
   });
-  const endFire = e => { if (e.pointerId !== fireId) return; fireId = null; input.fire = false; fb.classList.remove('down'); pushInput(); };
-  fz.addEventListener('pointerup', endFire);
-  fz.addEventListener('pointercancel', endFire);
+  fz.addEventListener('pointermove', e => {
+    if (e.pointerId !== fireStick.id) return;
+    const dx = e.clientX - fireStick.x, dy = e.clientY - fireStick.y;
+    if (Math.hypot(dx, dy) <= 12) return;
+    clearTimeout(fireStick.timer);
+    fireStick.angle = PHYS.angleOfVec(dx, dy);
+    fb.style.setProperty('--fire-angle', fireStick.angle + 'deg');
+    fb.classList.add('aiming');
+    startStickFire();
+  });
+  function endStickFire(e) {
+    if (e.pointerId !== fireStick.id) return;
+    if (e.type === 'pointerup' && !fireStick.sent) input.tapAim = fireStick.angle;
+    clearFireStick();
+  }
+  fz.addEventListener('pointerup', endStickFire);
+  fz.addEventListener('pointercancel', endStickFire);
+  fz.addEventListener('lostpointercapture', endStickFire);
+
+  const gameScreen = $('#game');
+  const isBoard = e => e.target.closest('#canvas, #stickZone, #fireZone');
+  function trackMouse(e) {
+    const rect = renderer.canvas.getBoundingClientRect();
+    mouse.point = [e.clientX - rect.left, e.clientY - rect.top];
+  }
+  gameScreen.addEventListener('pointermove', e => {
+    if (e.pointerType !== 'mouse') return;
+    if (mouse.id !== null || isBoard(e)) trackMouse(e);
+    else mouse.point = null;
+  });
+  gameScreen.addEventListener('pointerleave', e => {
+    if (e.pointerType === 'mouse' && mouse.id === null) mouse.point = null;
+  });
+  gameScreen.addEventListener('pointerdown', e => {
+    if (e.pointerType !== 'mouse' || e.button !== 0 || !renderer.myTank || !roundMeta || !isBoard(e)) return;
+    e.preventDefault();
+    trackMouse(e);
+    mouse.id = e.pointerId;
+    gameScreen.setPointerCapture(e.pointerId);
+    input.tapAim = readAim();
+  });
+  function endMouseFire(e) {
+    if (e.pointerId !== mouse.id) return;
+    mouse.id = null;
+    if (e.type !== 'pointerup') { input.tapAim = undefined; mouse.point = null; }
+  }
+  gameScreen.addEventListener('pointerup', endMouseFire);
+  gameScreen.addEventListener('pointercancel', endMouseFire);
+  gameScreen.addEventListener('lostpointercapture', endMouseFire);
 
   const keys = new Set();
   const KEY_VEC = { ArrowUp: [0, -1], KeyW: [0, -1], ArrowDown: [0, 1], KeyS: [0, 1], ArrowLeft: [-1, 0], KeyA: [-1, 0], ArrowRight: [1, 0], KeyD: [1, 0] };
-  const VEC_TO_DIR = { '0,-1': 0, '0,1': 1, '-1,0': 2, '1,0': 3, '-1,-1': 4, '1,-1': 5, '-1,1': 6, '1,1': 7 };
   function keyInput() {
     let x = 0, y = 0;
     for (const k of keys) if (KEY_VEC[k]) { x += KEY_VEC[k][0]; y += KEY_VEC[k][1]; }
     x = Math.sign(x); y = Math.sign(y);
     input.move = (x || y) ? PHYS.angleOfVec(x, y) : -1;
-    input.fire = keys.has('Space') || keys.has('KeyJ');
-    pushInput();
   }
   window.addEventListener('keydown', e => {
     if (!$('#game').classList.contains('active') || e.target.closest('input, textarea')) return;
     if (e.code === 'KeyK' || e.code === 'ShiftLeft') { e.preventDefault(); input.skill = true; tutAdvance(6); return; }   // 鍵盤：K 或左 Shift 用技能
-    if (e.code in KEY_VEC || e.code === 'Space' || e.code === 'KeyJ') { e.preventDefault(); keys.add(e.code); keyInput(); }
+    if (e.code in KEY_VEC || e.code === 'Space' || e.code === 'KeyJ') {
+      e.preventDefault();
+      if (!e.repeat && (e.code === 'Space' || e.code === 'KeyJ')) input.tapAim = readAim();
+      keys.add(e.code); keyInput();
+    }
   });
   window.addEventListener('keyup', e => { if (keys.delete(e.code)) keyInput(); });
-  window.addEventListener('blur', () => { keys.clear(); if (roundMeta) resetInput(); });
+  window.addEventListener('blur', () => { if (roundMeta) resetInput(); else keys.clear(); });
 
   // 全螢幕與橫向鎖定（Android 有效；iPhone 請「加入主畫面」）
   function tryFullscreen() {

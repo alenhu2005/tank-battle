@@ -190,7 +190,7 @@ class Round {
   setInput(playerId, input) {
     const t = this.playerTank(playerId);
     if (!t || t.sandbox) return;
-    t.input = { move: toAngle(input.move), fire: !!input.fire };
+    t.input = { move: toAngle(input.move), aim: Number.isFinite(input.aim) ? Physics.norm(input.aim) : null, fire: !!input.fire };
     if (input.skill) t.skillQueued = true;   // 技能按鈕（一次性）
     if (Number.isInteger(input.seq)) t.inputSeq = input.seq;   // 手機預測用：回報處理到第幾個輸入
     if (Number.isFinite(input.view)) t.viewTick = input.view;   // 延遲補償：玩家畫面上正在顯示第幾個 tick
@@ -260,6 +260,7 @@ class Round {
     for (let i = 0; i < n; i++) {
       const t = this.tanks[(i + offset) % n];
       if (!t.alive) continue;
+      t.aim = t.input.aim ?? null;
       if (t.cooldown > 0) t.cooldown--;
       if (t.shield > 0) t.shield--;
       for (const k of TIMERS) if (t[k] > 0) t[k]--;
@@ -313,6 +314,7 @@ class Round {
         ? (p.y < this.center ? 'down' : 'up')
         : (p.x < this.center ? 'right' : 'left');
       t.angle = Physics.ANGLE_OF[t.dir];
+      t.aim = null;
       t.shield = C.SHIELD_TICKS; // 開局與重生都有短暫無敵
       t.cooldown = 0;
       t.input = { move: null, fire: false };
@@ -366,7 +368,7 @@ class Round {
     if (m.pierce) pierceTanks += m.pierce;
     if (m.blastEvery && (t.shotCount = (t.shotCount || 0) + 1) % m.blastEvery === 0) blast = true;
     const frost = !!(t.elite && t.elite.includes('frost'));
-    const a0 = t.angle || 0;
+    const a0 = t.aim ?? t.angle ?? 0;
     // 延遲補償：玩家看到的敵人比伺服器晚一點，子彈用玩家畫面上的位置判定命中（最多 0.2 秒）
     const lag = t.sandbox || !Number.isFinite(t.viewTick) ? 0 : Math.max(0, Math.min(C.MAX_LAG_TICKS, Math.round(this.tick - t.viewTick)));
     const angles = t.spreadBuff > 0 ? [a0, a0 - C.SPREAD_ANGLE, a0 + C.SPREAD_ANGLE] : [a0];
@@ -953,7 +955,9 @@ class Round {
 
   _tankView(t) {
     return {
-      id: t.id, x: t.x, y: t.y, dir: t.dir, angle: Math.round((t.angle || 0) * 10) / 10, isBot: t.isBot, owner: t.owner, cls: t.cls, lives: t.lives, hp: t.hp, maxHp: t.maxHp || t.stats.hp, shield: t.shield,
+      id: t.id, x: t.x, y: t.y, dir: t.dir, angle: Math.round((t.angle || 0) * 10) / 10,
+      aim: Math.round((t.aim ?? t.angle ?? 0) * 10) / 10,
+      isBot: t.isBot, owner: t.owner, cls: t.cls, lives: t.lives, hp: t.hp, maxHp: t.maxHp || t.stats.hp, shield: t.shield,
       carrying: !!t.carrying,
       ...(t.monster ? { kind: t.kind, elite: t.elite || [], size: t.size, boss: !!t.boss, invulnerable: !!(t.invuln || t.dmgTaken === 0) } : {}),
       ...(t.structure || t.npc ? { kind: t.kind } : {}),
@@ -1036,7 +1040,7 @@ class Round {
         vis = { side: me.side, see: (x, y) => (x - cx) ** 2 + (y - cy) ** 2 <= r2 };
       }
     }
-    const T = [];
+    const T = [], A = [];
     for (const t of this.tanks) {
       if (!t.alive) continue;
       if (vis && t.side !== vis.side && !vis.see(t.x, t.y)) continue;
@@ -1049,6 +1053,7 @@ class Round {
       const row = [t.id, Math.round(t.x * 100), Math.round(t.y * 100), Math.round(t.angle || 0), t.shield > 0 ? 1 : 0, t.hp, buffs, t.ackSeq || 0, t.skillCd || 0];
       if (t.monster || t.structure || t.npc) row.push(...this._pveTankExtra(t));
       T.push(row);
+      if (t.aim != null) A.push([t.id, Math.round(t.aim * 10) / 10]);
     }
     const B = [];
     for (const b of this.bullets) {
@@ -1057,6 +1062,7 @@ class Round {
     }
     const E = vis ? this.events.filter(e => vis.see(e[1], e[2]) || e[0] === 'baseBoom') : this.events;
     const snap = { t: 's', k: this.tick, T, B };
+    if (A.length) snap.A = A;
     if (this.tick <= this.startTicks) snap.c = this.startTicks - this.tick;
     if (this.kills.length) snap.K = this.kills;
     if (this.objective !== 'survival' && (this.tick % 5 === 1 || this.objEvents.length)) {

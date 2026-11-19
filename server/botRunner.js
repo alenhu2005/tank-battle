@@ -6,6 +6,7 @@
 
 const ivm = require('isolated-vm');
 const C = require('./constants');
+const Physics = require('../public/physics');
 
 const HARNESS = `
 var __fn = (typeof think === 'function') ? think
@@ -136,7 +137,7 @@ class BotSandbox {
     return this.errors.map(e => `[t${e.tick}] ${e.msg}${e.repeat > 1 ? `（之後同樣的錯誤又發生 ${e.repeat - 1} 次）` : ''}`);
   }
 
-  // 回傳 { move, fire }，出錯則回傳 null（該 tick 不動）
+  // 回傳 { move, aim, fire }，出錯則回傳 null（該 tick 不動）
   think(viewJson, tick) {
     if (this.dead) return null;
     this.currentTick = tick;
@@ -180,12 +181,16 @@ class BotSandbox {
     const extra = {};   // 打怪模式的抽卡與商店
     if (Number.isInteger(r.pick)) extra.pick = r.pick;
     if (typeof r.buy === 'string') extra.buy = r.buy;
-    if (typeof move === 'number' && Number.isFinite(move)) return { move: ((move % 360) + 360) % 360, fire: !!r.fire, skill: !!r.skill, ...extra };
-    if (move !== null && !C.DIRS.includes(move)) {
+    if (Number.isFinite(move)) move = ((move % 360) + 360) % 360;
+    else if (move !== null && !C.DIRS.includes(move)) {
       this._error(`move 的值 ${JSON.stringify(move)} 無效：可以是角度（數字，0 = 上、90 = 右，順時針）、${C.DIRS.map(d => '"' + d + '"').join(' ')} 或 null`);
       move = null;
     }
-    return { move, fire: !!r.fire, skill: !!r.skill, ...extra };
+    const action = { move, fire: !!r.fire, skill: !!r.skill, ...extra };
+    if (Number.isFinite(r.aim)) action.aim = Physics.norm(r.aim);
+    else if (C.DIRS.includes(r.aim)) action.aim = Physics.ANGLE_OF[r.aim];
+    else if (r.aim != null) this._error(`aim 的值 ${JSON.stringify(r.aim)} 無效：請用角度數字、八方向名稱或 null`);
+    return action;
   }
 
   report() {
