@@ -11,6 +11,13 @@ function think(view, memory) {
   var me = view.me, map = view.map;
   var targets = view.enemies.slice();
   (view.bases || []).forEach(function (b) { if (!b.ally && b.alive) targets.push(b); });
+  var o = view.objective || {};
+  if (o.type === 'siege' && o.attacking) {                 // 攻城：核心與砲台也是目標
+    if (o.core.alive) targets.push(o.core);
+    targets = targets.concat(o.turrets);
+  }
+  var special = modeAction(view, memory);                  // 足球、鬼抓人：另外處理
+  if (special) return special;
 
   // 遊戲目標：佔點就往中央區域走、搶旗就去搶旗或帶旗回家
   var goals = objectiveGoals(view);
@@ -54,13 +61,59 @@ function objectiveGoals(view) {
     var inHill = Math.abs(me.x - o.x) <= o.radius && Math.abs(me.y - o.y) <= o.radius;
     return inHill ? [] : [{ x: o.x, y: o.y }];
   }
-  if (o.type === 'escort') return [o.cart];   // 護送：進攻方推車、防守方擋車，都往礦車去
+  if (o.type === 'escort') return [o.cart];
+  if (o.type === 'siege') {                                  // 攻方往核心走；守方在核心附近迎敵
+    if (o.attacking) return o.core.alive ? [o.core] : null;
+    return nearEnemy || Math.abs(me.x - o.core.x) + Math.abs(me.y - o.core.y) < 4 ? null : [o.core];
+  }
+  if (o.type === 'crystals') {                               // 帶 3 顆以上或地上沒晶礦就回家
+    if (o.carrying >= Math.min(3, o.carryMax) || (o.carrying > 0 && o.crystals.length === 0)) return [o.home];
+    return o.crystals.length ? o.crystals : null;
+  }   // 護送：進攻方推車、防守方擋車，都往礦車去
   if (o.type === 'ctf') {
     var mine = o.flags.filter(function (f) { return f.ally; })[0];
     if (me.carrying) return [{ x: mine.homeX, y: mine.homeY }];
     if (mine && !mine.atHome && !mine.carrier) return [{ x: mine.x, y: mine.y }];
     var free = o.flags.filter(function (f) { return !f.ally && !f.carrier; });
     return free.length ? free.map(function (f) { return { x: f.x, y: f.y }; }) : null;
+  }
+  return null;
+}
+
+// 足球：繞到球的後方再往對方球門推，對準時開火把球打出去
+// 鬼抓人：當鬼就追最近的人並開火；不是鬼就遠離鬼，順便射鬼讓它減速
+function modeAction(view, memory) {
+  var o = view.objective || {}, me = view.me;
+  if (o.type === 'soccer') {
+    var b = o.ball, g = o.enemyGoal;
+    var gx = g.x - b.x, gy = g.y - b.y, gl = Math.hypot(gx, gy) || 1;
+    var ux = gx / gl, uy = gy / gl;
+    var behind = { x: b.x - ux * 0.9, y: b.y - uy * 0.9 };
+    var front = (me.x - b.x) * ux + (me.y - b.y) * uy > -0.3;      // 站在球和球門之間：要先繞過去
+    var side = { x: behind.x - uy * 1.2, y: behind.y + ux * 1.2 };
+    var to = front ? side : Math.hypot(me.x - behind.x, me.y - behind.y) > 0.5 ? behind : b;
+    var shotAim = aimAt(me, b), goalDir = aimAt(b, g);
+    var diff = Math.abs(((shotAim - goalDir) % 360 + 540) % 360 - 180);
+    return { move: aimAt(me, to), aim: shotAim, fire: diff < 25 && !front };
+  }
+  if (o.type === 'tag') {
+    var it = null, others = [];
+    view.enemies.forEach(function (e) { if (e.id === o.it) it = e; else others.push(e); });
+    if (o.iAmIt) {
+      var prey = null, pd = 1e9;
+      view.enemies.forEach(function (e) {
+        var d = Math.hypot(e.x - me.x, e.y - me.y);
+        if (e.id !== o.immuneFrom && d < pd) { pd = d; prey = e; }
+      });
+      if (!prey) return { move: null, fire: false };
+      var a = clearAim(me, prey, view.map);
+      return { move: nextStep(me, [prey], view.map, view.rules.breakableWalls) || aimAt(me, prey), aim: a, fire: a !== null };
+    }
+    if (!it || Math.hypot(it.x - me.x, it.y - me.y) > 7) return null;   // 鬼很遠：照常行動
+    var away = (aimAt(it, me) + (memory.dodge || 0)) % 360;
+    if (memory.still > 6) memory.dodge = (memory.dodge || 0) + 70;
+    var shoot = clearAim(me, it, view.map);
+    return { move: away, aim: shoot, fire: shoot !== null };
   }
   return null;
 }

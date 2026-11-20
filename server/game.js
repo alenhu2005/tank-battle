@@ -99,7 +99,7 @@ class Round {
     this.nextBulletId = 1;
 
     this.objective = C.OBJECTIVES.includes(opts.objective) ? opts.objective : 'survival';
-    if (this.objective === 'ctf' || this.objective === 'escort') this.baseMode = false;     // 搶旗的旗子、護送的終點都在基地的位置
+    if (this.objective === 'ctf' || this.objective === 'escort' || this._modeHas()) this.baseMode = false;     // 搶旗的旗子、護送的終點都在基地的位置
     if (this.objective === 'pve') { this.hpSystem = true; this.baseMode = false; }          // 打怪：固定使用血量系統、沒有基地
     this.attackerIndex = opts.attackerIndex || 0;              // 護送：哪一隊進攻
     this.objEvents = [];
@@ -149,9 +149,9 @@ class Round {
         for (const isBot of (this.codeOnly ? [true] : [false, true])) {
           // 電腦預設是標準規格（bot）；房間開了「電腦也有職業」時會帶 botCls
           const cls = isBot ? (C.CLASSES[m.botCls] ? m.botCls : 'bot') : (C.CLASSES[m.cls] ? m.cls : 'assault');
-          const stats = this.statsFor(cls);
+          const stats = this.statsFor(cls, isBot ? 'b' : 'p');
           const tank = {
-            id: id++, side: s.key, owner: m.playerId, ownerName: m.name, isBot, cls, stats, skin: isBot ? undefined : (m.skin || 'default'),
+            id: id++, side: s.key, owner: m.playerId, ownerName: m.name, isBot, cls, stats,
             lives: 1, hp: stats.hp,
             alive: false, x: 0, y: 0, dir: 'up', angle: 0,
             spawn: this.sides[si].spawns[slot++ % this.sides[si].spawns.length],
@@ -220,7 +220,7 @@ class Round {
       sides: this.sides.map(s => ({ key: s.key, name: s.name, color: s.color, base: s.base ? { x: s.base.x, y: s.base.y } : null, anchor: s.anchor })),
       tanks: this.tanks.map(t => ({
         id: t.id, side: t.side, owner: t.owner, name: t.ownerName, isBot: t.isBot, cls: t.cls,
-        maxLives: t.unlimited ? -1 : t.maxLives || 1, maxHp: t.maxHp || t.stats.hp, vision: t.stats.vision, size: t.size || undefined, kind: t.structure || t.npc ? t.kind : undefined, skin: t.skin,
+        maxLives: t.unlimited ? -1 : t.maxLives || 1, maxHp: t.maxHp || t.stats.hp, vision: t.stats.vision, size: t.size || undefined, kind: t.structure || t.npc ? t.kind : undefined,
         grassSight: !!t.stats.grassSight,
       })),
     };
@@ -341,7 +341,7 @@ class Round {
   _blocked(t, x, y) { return Physics.blocked(this, t, x, y, this._others(t)); }
 
   _move(t, dir) {
-    const step = t.stats.speed * (t.speedBuff > 0 ? C.SPEED_BUFF : 1) * (t.dashTicks > 0 ? C.DASH_SPEED : 1) * (t.slowTicks > 0 ? 0.6 : 1) / C.TICK_RATE;
+    const step = t.stats.speed * (t.speedBuff > 0 ? C.SPEED_BUFF : 1) * (t.dashTicks > 0 ? C.DASH_SPEED : 1) * (t.slowTicks > 0 ? 0.6 : 1) * (t.id === this.itId ? C.TAG_SPEED : 1) / C.TICK_RATE;
     Physics.move(this, t, dir, step, this._others(t));
   }
 
@@ -382,7 +382,7 @@ class Round {
       this.bullets.push({
         id: this.nextBulletId++, owner: t.id, side: t.side, angle: a, dir: Physics.dirOf(a), vx, vy,
         x: mx, y: my,
-        speed, pierce, blast, freeze, confuse, bounces, extra: i > 0, lag, born: this.tick, ox: t.x, oy: t.y, pierceTanks, dmg, snipe: t.cls === 'sniper' ? dmgMult : 0,
+        speed, pierce, blast, freeze, confuse, bounces, extra: i > 0, lag, born: this.tick, ox: t.x, oy: t.y, pierceTanks, dmg, snipe: t.cls === 'sniper' ? dmgMult * (this._edge('sniper', this._role(t)).damage || 1) : 0,
         homing: !!m.homing, frost,
       });
     });
@@ -545,6 +545,7 @@ class Round {
         b.px = b.x; b.py = b.y;
         b.x += vx * step; b.y += vy * step;
         this._bulletHitWorld(b);
+        if (!b.dead && this.ball) this._ballHit(b);
         if (!b.dead) this._bulletHitTank(b);
         if (!b.dead) {
           for (const t of this.tanks) {   // 閃避統計：敵方子彈擦身而過（1 格內）卻沒打中
@@ -743,6 +744,11 @@ class Round {
   // amount：扣幾點血。沒開血量系統時一律 1（每條命的耐久就是能挨幾發）
   _damage(t, shooter, x, y, cause, amount) {
     if (!t.alive) return;
+    if (this.objective === 'tag' && cause !== 'self') {      // 鬼抓人：沒有傷害
+      if (cause === 'shot') this._tagShot(shooter, t);
+      this.events.push(['spark', x, y]);
+      return;
+    }
     if (cause !== 'self' && (t.shield > 0 || t.invuln || t.dmgTaken === 0)) { this.events.push(['spark', x, y]); return; }
     let dmg = this.hpSystem ? Math.max(1, Math.round(amount || 1)) : 1;
     if (this.pve && cause !== 'self') dmg = this._pveDamageMods(t, shooter, dmg, cause);
@@ -777,8 +783,8 @@ class Round {
     if (t.ana) this._recordDeath(t, shooter, cause);
     t.alive = false;
     t.deaths++;
-    if (this.objective === 'koth' || this.objective === 'ctf' || this.objective === 'escort' || t.unlimited) {
-      // 佔點、搶旗、護送或設定成無限命：直接重生（電腦等久一點）
+    if ((C.RESPAWN_OBJECTIVES.includes(this.objective) && !t.structure) || t.unlimited) {
+      // 佔點、搶旗、護送等目標或設定成無限命：直接重生（電腦等久一點）
       t.respawnTimer = t.isBot ? this.botRespawnTicks : this.respawnTicks;
     } else {
       t.lives = Math.max(0, t.lives - 1);
@@ -787,7 +793,7 @@ class Round {
     t.input = { move: null, fire: false };
     this.events.push(['boom', t.x, t.y]);
     this.kills.push([t.id, shooter ? shooter.id : 0, cause]);
-    this._onTankDeath(t);
+    this._onTankDeath(t, shooter);
     if (this.pve) this._pveOnDeath(t, shooter);
   }
 
@@ -811,7 +817,7 @@ class Round {
         t.alive = false; t.deaths++;
         this.events.push(['boom', t.x, t.y]);
         this.kills.push([t.id, shooter ? shooter.id : 0, 'base']);
-        this._onTankDeath(t);
+        this._onTankDeath(t, null);
       }
       t.lives = 0;
     }
@@ -828,7 +834,7 @@ class Round {
     if (!this.hpSystem) return this.statsFor(cls).hp;
     const R = this.rules || C.ADV_DEFAULTS;
     const base = isBot && cls !== 'monster' ? (R.botHp || 100) : cls === 'monster' ? (R.botHp || 100) : (R.playerHp || 100);
-    return Math.max(1, Math.round(base * (C.HP.hpFactor[cls] || 1)));
+    return Math.max(1, Math.round(base * (C.HP.hpFactor[cls] || 1) * (this._edge(cls, isBot ? 'b' : 'p').hp || 1)));
   }
 
   // 每週挑戰「斷補」：治療效果減半
@@ -836,8 +842,9 @@ class Round {
 
   _damageOf(t) {
     if (t.monster) return t.pveDmg || 10;
-    const base = this.hpSystem ? (C.HP.damage[t.cls] || 25) : 1;
-    return this.hpSystem && t.mods && t.mods.dmg ? Math.round(base * (1 + t.mods.dmg)) : base;
+    if (!this.hpSystem) return 1;
+    const base = (C.HP.damage[t.cls] || 25) * (this._edge(t.cls, this._role(t)).damage || 1);
+    return Math.round(t.mods && t.mods.dmg ? base * (1 + t.mods.dmg) : base);
   }
 
   // 血量系統：一段時間沒受傷就慢慢回血
@@ -871,18 +878,30 @@ class Round {
   }
 
   // 這一局的職業數值（套用房主的速度／彈速／冷卻倍率）
-  statsFor(cls) {
+  // role：'p' 玩家坦克（職業較強）、'b' 電腦坦克（狙擊較弱）、省略 = 原始職業數值
+  statsFor(cls, role) {
     this._statsCache = this._statsCache || {};
-    if (!this._statsCache[cls]) {
+    const key = role ? cls + '|' + role : cls;
+    if (!this._statsCache[key]) {
       const s = Object.assign({}, classStats(cls));
       const R = this.rules || C.ADV_DEFAULTS;
+      const edge = this._edge(cls, role);
       s.speed = Math.round(s.speed * R.speed * 100) / 100;
-      s.bulletSpeed = Math.round(s.bulletSpeed * R.bullet * 100) / 100;
-      s.cooldown = Math.max(3, Math.round(s.cooldown * R.fire));
-      this._statsCache[cls] = s;
+      s.bulletSpeed = Math.round(s.bulletSpeed * R.bullet * (edge.bulletSpeed || 1) * 100) / 100;
+      s.cooldown = Math.max(3, Math.round(s.cooldown * R.fire * (edge.cooldown || 1)));
+      this._statsCache[key] = s;
     }
-    return this._statsCache[cls];
+    return this._statsCache[key];
   }
+
+  // 玩家／電腦的職業倍率（只套用在正式職業上，不影響標準電腦與怪物）
+  _edge(cls, role) {
+    if (!C.CLASSES[cls]) return {};
+    if (role === 'p') return C.PLAYER_EDGE;
+    if (role === 'b') return C.BOT_CLASS_EDGE[cls] || {};
+    return {};
+  }
+  _role(t) { return t.monster || t.structure ? undefined : t.isBot ? 'b' : 'p'; }
 
   _checkEnd() {
     if (this.endTimer >= 0) {
@@ -1013,6 +1032,7 @@ class Round {
         tickRate: C.TICK_RATE, tankSize: C.TANK_SIZE, blastRadius: C.BLAST_RADIUS,
         mode: this.mode, baseMode: this.baseMode, fog: this.fog, breakableWalls: this.breakableWalls,
         specVersion: C.SPEC_VERSION,
+        playerEdge: C.PLAYER_EDGE, botClassEdge: C.BOT_CLASS_EDGE,
         codeOnly: this.codeOnly, classes: this.classTable, hpSystem: this.hpSystem, regen: this.hpSystem && this.regenOn,
         playerHp: this.rules.playerHp, botHp: this.rules.botHp,
         botClasses: this.botClassesOn,
@@ -1069,6 +1089,7 @@ class Round {
       snap.O = this.objectiveSnapshot();
       if (this.objEvents.length) snap.OE = this.objEvents;
     }
+    if (this.ball) this._modeSnapExtra(snap);
     if (this.baseKillsNow.length) snap.X = this.baseKillsNow;
     if (E.length) snap.E = E.map(e => e.length > 3 ? [e[0], Math.round(e[1] * 100), Math.round(e[2] * 100), e[3]] : [e[0], Math.round(e[1] * 100), Math.round(e[2] * 100)]);
     if (this.tileChanges.length) snap.M = this.tileChanges;
@@ -1167,6 +1188,7 @@ installObjectives(Round);
 installSkills(Round);
 installTerrain(Round);
 installPve(Round);
+require('./modes')(Round);
 Round.TIMERS = TIMERS;
 Round.SHOTS = SHOTS;
 

@@ -532,6 +532,9 @@ console.log('ALL OK');
 {
   const { Round } = require('../server/game');
   const C = require('../server/constants');
+  // 這段測的是血量機制本身：先關掉玩家／電腦的職業差異
+  const savedEdge = { ...C.PLAYER_EDGE }, savedBotEdge = { ...C.BOT_CLASS_EDGE };
+  Object.assign(C.PLAYER_EDGE, { hp: 1, damage: 1, cooldown: 1 }); for (const k in C.BOT_CLASS_EDGE) delete C.BOT_CLASS_EDGE[k];
   const idle = 'function think(){ return null; }';
   const mk = (cls0, cls1, extra = {}) => {
     const sides = [0, 1].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: idle, cls: i ? cls1 : cls0 }] }));
@@ -603,6 +606,7 @@ console.log('ALL OK');
     while (!r.over) r.step();
     r.dispose(); }
   console.log('hp system OK');
+  Object.assign(C.PLAYER_EDGE, savedEdge); Object.assign(C.BOT_CLASS_EDGE, savedBotEdge);
 }
 
 // 特殊地形（油桶、補血站、傳送門）、縮圈、助攻／傷害／治療統計、代碼相容性提醒
@@ -781,4 +785,149 @@ console.log('ALL OK');
   assert.strictEqual(blue.carrying, 'red', 'own flag still carried by enemy');
   r.dispose();
   console.log('ctf stand capture OK');
+}
+
+// 玩家與電腦的職業分開：玩家較強、電腦狙擊削弱
+{
+  const { Round } = require('../server/game');
+  const C = require('../server/constants');
+  const idle = 'function think(){ return null; }';
+  const sides = [0, 1].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: idle, cls: 'sniper', botCls: 'sniper' }] }));
+  const r = new Round({ mode: 'ffa', baseMode: false, timeLimit: 0, sides, hpSystem: true, botClasses: true });
+  const player = r.tanks.find(t => !t.isBot), bot = r.tanks.find(t => t.isBot && t.cls === 'sniper');
+  assert(player.maxHp > 100 * C.HP.hpFactor.sniper, 'player hp edge');
+  assert(player.stats.cooldown < r.statsFor('sniper').cooldown, 'player fires faster');
+  if (bot) {
+    assert(bot.stats.bulletSpeed < player.stats.bulletSpeed, 'bot sniper bullet slower');
+    assert(r._damageOf(bot) < r._damageOf(player), 'bot sniper weaker');
+  }
+  r.dispose();
+  console.log('class edge OK');
+}
+
+// 新遊戲目標：攻城、移動佔點、晶礦、足球、職業輪換、鬼抓人
+{
+  const { Round } = require('../server/game');
+  const C = require('../server/constants');
+  const idle = 'function think(){ return null; }';
+  const mk = (objective, extra = {}) => {
+    const sides = ['red', 'blue'].map(key => ({ key, name: key, color: '#fff', members: [{ playerId: key, name: key, code: idle, cls: 'assault' }] }));
+    const r = new Round({ mode: 'faction', objective, timeLimit: 0, sides, hpSystem: true, ...extra });
+    r.startTicks = 0;
+    for (const t of r.tanks) t.shield = 0;
+    return { r, red: r.tanks.find(t => t.side === 'red' && !t.isBot && !t.structure), blue: r.tanks.find(t => t.side === 'blue' && !t.isBot && !t.structure) };
+  };
+  // 攻城：核心被打爆 → 進攻方贏；時間到 → 防守方贏；砲台會開火
+  { const { r } = mk('siege');
+    assert(r.timeLimitTicks > 0 && !r.baseMode);
+    const core = r.tankById.get(r.siege.core);
+    assert.strictEqual(core.side, r.siege.defender);
+    assert.strictEqual(r.siege.turrets.length, 4);
+    for (const t of r.tanks) if (t.alive && !t.structure) assert(!r._tileBlocked(t.x, t.y), 'no tank inside castle wall');
+    const att = r.tanks.find(t => t.side === r.siege.attacker && !t.structure);
+    const tu = r.tankById.get(r.siege.turrets[0]);
+    att.x = tu.x + 2; att.y = tu.y; tu.cooldown = 0;
+    const before = r.bullets.length;
+    if (r._pveLos(tu, att)) { r._siegeTurrets(); assert(r.bullets.length > before, 'turret fires'); }
+    r._damage(core, att, core.x, core.y, 'shot', 1e6);
+    assert(!core.alive);
+    const e = r._modeEnd();
+    assert.strictEqual(e.reason, 'siegeWin'); assert.strictEqual(e.winner.key, r.siege.attacker);
+    for (let i = 0; i < 200; i++) r.step();
+    assert(!core.alive, 'core does not respawn');
+    r.dispose(); }
+  { const { r } = mk('siege', { timeLimit: 5 });
+    while (!r.over) r.step();
+    assert.strictEqual(r.result.reason, 'siegeHold'); r.dispose(); }
+  // 移動佔點：時間到就換位置
+  { const { r } = mk('mkoth');
+    const h0 = { ...r.hill };
+    r.hillMoveAt = r.playTick;
+    r._mkothUpdate();
+    assert(r.hill.x !== h0.x || r.hill.y !== h0.y, 'hill moved');
+    assert(r.objectiveView(r.tanks[0]).moving);
+    r.dispose(); }
+  // 晶礦：撿起、帶回、陣亡掉落
+  { const { r, red, blue } = mk('crystals');
+    r.crystals.push({ id: 99, x: red.x, y: red.y, n: 3 });
+    r._crystalsUpdate();
+    assert.strictEqual(red.crystals, 3);
+    r._damage(red, blue, red.x, red.y, 'shot', 1e6);
+    assert.strictEqual(red.crystals, 0);
+    assert(r.crystals.some(c => c.n === 3), 'dropped on death');
+    blue.crystals = 4;
+    const home = r.sideByKey.get('blue').anchor;
+    blue.x = home.x + 0.5; blue.y = home.y + 0.5;
+    r._crystalsUpdate();
+    assert.strictEqual(r.objScore.blue, 4); assert.strictEqual(blue.crystals, 0);
+    r.dispose(); }
+  // 足球：子彈推球、進球得分
+  { const { r, red } = mk('soccer');
+    r.ball.frozen = 0;
+    const bl = { x: r.ball.x, y: r.ball.y, vx: 1, vy: 0 };
+    assert(r._ballHit(bl) && bl.dead && r.ball.vx > 0, 'bullet pushes ball');
+    const g = r.goals.find(x => x.side === 'blue');
+    Object.assign(r.ball, { x: (g.x0 + g.x1) / 2, y: (g.y0 + g.y1) / 2, vx: 0, vy: 0 });
+    r._soccerUpdate();
+    assert.strictEqual(r.objScore.red, 1, 'goal scored');
+    assert(Math.abs(r.ball.x - r.center - 0.5) < 0.01, 'ball reset');
+    for (let i = 0; i < 300; i++) r.step();
+    assert(r.ball.x > 0.3 && r.ball.y > 0.3 && r.ball.x < r.size - 0.3 && r.ball.y < r.size - 0.3, 'ball stays in map');
+    void red; r.dispose(); }
+  // 職業輪換：擊殺升級換職業，最後一階擊殺獲勝
+  { const { r, red, blue } = mk('gungame');
+    assert.strictEqual(red.cls, 'assault');
+    r._damage(blue, red, blue.x, blue.y, 'shot', 1e6);
+    assert.strictEqual(red.ggLevel, 1); assert.strictEqual(red.cls, 'scout'); assert.strictEqual(red.hp, red.maxHp);
+    red.ggLevel = 6; blue.alive = true; blue.hp = 1;
+    r._damage(blue, red, blue.x, blue.y, 'shot', 1e6);
+    assert.strictEqual(r._modeEnd().reason, 'gungame');
+    r.dispose(); }
+  // 鬼抓人：沒有傷害、碰到換鬼、時間到當鬼最短的隊伍贏
+  { const { r, red, blue } = mk('tag', { timeLimit: 3 });
+    r.itId = red.id;
+    const hp = blue.hp;
+    r._damage(blue, red, blue.x, blue.y, 'shot', 50);
+    assert.strictEqual(blue.hp, hp, 'no damage in tag');
+    assert.strictEqual(r.itId, blue.id, 'shot passes it');
+    r._damage(red, blue, red.x, red.y, 'shot', 50);
+    assert.strictEqual(r.itId, blue.id, 'no instant tag-back');
+    red.x = blue.x + 0.5; red.y = blue.y;
+    r.tick += 3 * C.TICK_RATE;
+    r._tagUpdate();
+    assert.strictEqual(r.itId, red.id, 'touch passes it');
+    for (const t of r.tanks) t.itTicks = 0;
+    r.tick = 0; r.itId = red.id;
+    while (!r.over) r.step();
+    assert.strictEqual(r.result.reason, 'tag'); assert.strictEqual(r.result.winner, 'blue');
+    r.dispose(); }
+  // 這些目標都要兩隊或無限重生
+  for (const o of ['siege', 'soccer']) assert(C.TWO_TEAM_OBJECTIVES.includes(o));
+  console.log('new objectives OK');
+}
+
+// 打怪：通關自動選下一關、一局結束、重玩；公開大廳摘要；進行中可加入
+{
+  const { Room } = require('../server/room');
+  const room = new Room('7777', () => {}, 'normal');
+  const host = room.addHuman('host', null);
+  room.settings.objective = 'pve'; room.settings.pveLevel = '1-1';
+  room.startRound();
+  assert.strictEqual(room.state, 'playing');
+  const sum = room.summary();
+  assert.strictEqual(sum.objective, 'pve'); assert.strictEqual(sum.pve.level, '1-1'); assert.strictEqual(sum.humans, 1);
+  assert(!room.canJoin(), 'can join while playing');
+  // 直接讓這局通關
+  room.round._pveWin();
+  while (!room.round.over) room.round.step();
+  room._tick();
+  assert.strictEqual(room.state, 'finished');
+  assert.strictEqual(room.lastResult.pveNext, '1-2');
+  assert.strictEqual(room.settings.pveLevel, '1-2');
+  room.handle(host, { t: 'pveReplay' });
+  assert.strictEqual(room.settings.pveLevel, '1-1'); assert.strictEqual(room.state, 'playing');
+  room.close();
+  const D = require('../server/pve/data');
+  assert(Object.keys(D.LEVELS).length >= 15, 'more campaign levels');
+  console.log('pve progression OK');
 }

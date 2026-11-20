@@ -28,6 +28,10 @@
       <input id="nameInput" maxlength="12" autocomplete="off" placeholder="輸入暱稱">
     </label>
     <button id="createBtn" class="btn primary big">建立房間</button>
+    <div class="pub-lobby">
+      <div class="pub-head"><b>公開大廳</b><span id="onlineCount" class="muted small-text"></span></div>
+      <ul id="roomList" class="room-list"><li class="room-empty">讀取中…</li></ul>
+    </div>
     <div class="home-alt">
       <button id="tutorialBtn" class="btn">🎓 新手教學</button>
       <button id="practiceBtn" class="btn">🧪 代碼練習場</button>
@@ -64,7 +68,7 @@
   <div class="lobby-body">
     <div class="panel">
       <div class="panel-title"><span>參賽</span></div>
-      <p class="small-text muted">提交代碼後與本週其他參賽者各對戰兩場（純代碼 1v1），以 Elo 計分排名。每週一重置；重新提交將覆蓋舊代碼並重賽。</p>
+      <p class="small-text muted">提交代碼後與本週其他參賽者各對戰兩場（純代碼 1v1），以 Elo 計分排名。每週一重置；重新提交將覆蓋舊代碼並重賽。在房間裡上傳並通過測試的自訂代碼會自動參賽。</p>
       <div class="set-row"><span>參賽代碼</span><select id="leagueCodeSel" aria-label="參賽代碼"></select></div>
       <button id="leagueSubmit" class="btn primary">⚔️ 參賽</button>
       <div id="leagueResult" class="code-status"></div>
@@ -99,7 +103,6 @@
     <div class="panel">
       <div class="panel-title"><span>我的職業</span></div>
       <div id="classPicker" class="cls-grid"></div>
-      <div class="skin-row"><span class="muted small-text">塗裝</span><div id="skinPicker" class="skin-chips"></div></div>
     </div>
     <div id="botClassPanel" class="panel hidden">
       <div class="panel-title"><span>我的電腦職業</span></div>
@@ -215,6 +218,8 @@
     <button id="readyBtn2" class="btn">準備</button>
     <button id="nextBtn" class="btn primary host-only">下一局</button>
     <button id="endMatchBtn" class="btn ghost host-only">結束比賽</button>
+    <button id="pveNextBtn" class="btn primary host-only hidden">下一關</button>
+    <button id="pveRetryBtn" class="btn host-only hidden">重玩本關</button>
     <button id="toLobbyBtn" class="btn primary host-only">回到大廳</button>
   </footer>
 </section>

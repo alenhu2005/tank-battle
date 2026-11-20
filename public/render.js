@@ -98,7 +98,7 @@
       // 最新狀態（不延遲）：給自己坦克的預測用
       if (s.M) for (const [idx, ch] of s.M) this.liveTiles[idx] = ch;
       this.latest = { k: s.k, tanks, c: s.c };
-      const snap = { k: s.k, tanks, bullets, M: s.M, L: s.L, S: s.S, E: s.E, K: s.K, X: s.X, I: s.I, P: s.P, O: s.O, OE: s.OE, W: s.W, Z: s.Z, N: s.N, H: s.H, V: s.V };
+      const snap = { k: s.k, tanks, bullets, M: s.M, L: s.L, S: s.S, E: s.E, K: s.K, X: s.X, I: s.I, P: s.P, O: s.O, OE: s.OE, W: s.W, Z: s.Z, N: s.N, H: s.H, V: s.V, BL: s.BL };
       this.buf.push(snap);
       // 死亡重播用：保留最近約 6 秒
       this.hist.push(snap);
@@ -138,7 +138,13 @@
           this.particles.push({ type: 'float', x: x / 100, y: y / 100, t0: now, dur: 1200, text: `${it.icon} ${it.name}`, bits: [] });
           if (this.onPickup) this.onPickup(tankId, type);
         }
-        if (snap.O) this.obj = snap.O;
+        if (snap.O) {
+          this.obj = snap.O;
+          if (snap.O.type === 'gungame') for (const [id, lv, maxHp] of snap.O.lv) {   // 職業輪換：換職業
+            const m = this.tankMeta.get(id);
+            if (m) { m.cls = snap.O.ladder[Math.min(lv, snap.O.ladder.length - 1)]; if (maxHp) m.maxHp = maxHp; }
+          }
+        }
         if (snap.Z) this.smokes = snap.Z.map(a => ({ x: a[0] / 100, y: a[1] / 100, r: a[2] / 100, left: a[3], k: snap.k }));
         if (snap.N) this.mines = snap.N.map(a => ({ id: a[0], x: a[1] / 100, y: a[2] / 100, armed: a[3] }));
         if (snap.H) this.hazards = snap.H;
@@ -485,6 +491,34 @@
         }
       }
 
+      if (this.obj && this.obj.type === 'crystals') {
+        // 晶礦：己方旗座是交件區
+        for (const sm of this.meta.sides) {
+          if (!sm.anchor) continue;
+          ctx.save();
+          ctx.strokeStyle = sm.color; ctx.globalAlpha = 0.6; ctx.lineWidth = Math.max(1.5, tp * 0.07); ctx.setLineDash([tp * 0.18, tp * 0.12]);
+          ctx.beginPath(); ctx.arc((sm.anchor.x + 0.5) * tp, (sm.anchor.y + 0.5) * tp, (this.obj.home || 1.5) * tp, 0, 7); ctx.stroke();
+          ctx.restore();
+        }
+        for (const [id, cx100, cy100, n] of this.obj.c) {
+          const cx = cx100 / 100 * tp, cy = cy100 / 100 * tp + Math.sin(now / 280 + id) * tp * 0.04, r = tp * (0.22 + Math.min(0.15, n * 0.02));
+          ctx.fillStyle = '#5ef2ff'; ctx.strokeStyle = '#e6fdff'; ctx.lineWidth = Math.max(1, tp * 0.04);
+          ctx.beginPath(); ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r * 0.7, cy); ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r * 0.7, cy); ctx.closePath(); ctx.fill(); ctx.stroke();
+          if (n > 1) { ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.max(8, tp * 0.35)}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(n, cx, cy + r + tp * 0.2); }
+        }
+      }
+      if (this.obj && this.obj.type === 'soccer') {
+        for (const [side, x0, y0, x1, y1] of this.obj.goals) {
+          const sm = this.sideMeta.get(side);
+          ctx.fillStyle = sm.color + '33'; ctx.fillRect(x0 * tp, y0 * tp, (x1 - x0) * tp, (y1 - y0) * tp);
+          ctx.strokeStyle = sm.color; ctx.lineWidth = Math.max(2, tp * 0.08); ctx.strokeRect(x0 * tp, y0 * tp, (x1 - x0) * tp, (y1 - y0) * tp);
+        }
+        // 中線與中圈
+        ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.lineWidth = Math.max(1, tp * 0.05);
+        ctx.beginPath(); ctx.moveTo(0, S / 2 * tp); ctx.lineTo(S * tp, S / 2 * tp); ctx.stroke();
+        ctx.beginPath(); ctx.arc(S / 2 * tp, S / 2 * tp, 2 * tp, 0, 7); ctx.stroke();
+      }
+
       // 場地道具
       for (const it of this.items) {
         const left = it.left - (rt - it.k);
@@ -555,7 +589,12 @@
           ctx.globalAlpha = 1;
           continue;
         }
+        if (m.kind === 'sturret') { this._drawSiegeTurret(ctx, x * tp, y * tp, t.dir, this.sideMeta.get(m.side).color, tp); continue; }
         if (m.kind === 'core' && window.PveDraw) { window.PveDraw.drawCore(ctx, x * tp, y * tp, (m.size || 1.6) * tp, t.hp / (t.maxHp || m.maxHp), now); continue; }
+        if (this.obj && this.obj.type === 'tag' && this.obj.it === id) {   // 鬼抓人：鬼的標記
+          ctx.fillStyle = `rgba(255, 60, 80, ${0.25 + 0.15 * Math.sin(now / 120)})`;
+          ctx.beginPath(); ctx.arc(x * tp, y * tp, tp * 0.8, 0, 7); ctx.fill();
+        }
         const ghost = t.buffs & (8 | 128);       // 隱形或穿牆：半透明
         if (ghost) ctx.globalAlpha = t.buffs & 8 ? 0.35 : 0.6;
         this._drawTank(ctx, x * tp, y * tp, t.dir, m.kind === 'npc' ? '#4fd1ff' : this.sideMeta.get(m.side).color, m, tp * this.meta.tankSize, t, now);
@@ -613,6 +652,27 @@
         }
       }
 
+      // 足球
+      if (A.BL) {
+        const b2 = B.BL || A.BL, jump = Math.abs(b2[0] - A.BL[0]) + Math.abs(b2[1] - A.BL[1]) > 150;
+        const bx = (jump ? A.BL[0] : A.BL[0] + (b2[0] - A.BL[0]) * alpha) / 100 * tp, by = (jump ? A.BL[1] : A.BL[1] + (b2[1] - A.BL[1]) * alpha) / 100 * tp;
+        ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(bx + tp * 0.06, by + tp * 0.1, tp * 0.35, tp * 0.22, 0, 0, 7); ctx.fill();
+        ctx.fillStyle = '#f5f5f5'; ctx.strokeStyle = '#222'; ctx.lineWidth = Math.max(1, tp * 0.05);
+        ctx.beginPath(); ctx.arc(bx, by, tp * 0.35, 0, 7); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(bx, by, tp * 0.12, 0, 7); ctx.fill();
+      }
+      // 身上的晶礦、鬼的標記
+      if (this.obj && (this.obj.type === 'crystals' || this.obj.type === 'tag')) {
+        ctx.font = `700 ${Math.max(9, tp * 0.42)}px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        const marks = this.obj.type === 'tag' ? [[this.obj.it, '👹']] : this.obj.car.map(([id, n]) => [id, '💎' + n]);
+        for (const [id, label] of marks) {
+          const d = drawn.find(x => x[0] === id);
+          if (!d) continue;
+          ctx.fillStyle = '#fff'; ctx.fillText(label, d[1] * tp, (d[2] + 0.75) * tp);
+        }
+      }
+
       // 血條（血量系統）
       const hpOn = this.meta.hpSystem;
       if (hpOn && tp >= 7) {
@@ -638,7 +698,7 @@
         ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
         for (const [id, x, y] of drawn) {
           const m = this.tankMeta.get(id);
-          if (!m || (m.isBot && !this.meta.codeOnly)) continue;
+          if (!m || (m.isBot && !this.meta.codeOnly) || m.kind) continue;
           const label = m.name.length > 6 ? m.name.slice(0, 6) + '…' : m.name;
           ctx.fillStyle = 'rgba(0,0,0,.6)';
           const ly = (y - (hpOn ? 0.8 : 0.55)) * tp;
@@ -876,6 +936,17 @@
       ctx.fillStyle = '#ddd'; ctx.fillRect(x + tp * 0.2, y + tp * 0.78, tp * 0.6, tp * 0.08);
     }
 
+    // 攻城戰的城堡砲台
+    _drawSiegeTurret(ctx, x, y, dir, color, tp) {
+      const r = tp * 0.45;
+      ctx.fillStyle = '#3a3f47'; ctx.strokeStyle = color; ctx.lineWidth = Math.max(1.5, tp * 0.08);
+      ctx.beginPath(); for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2 + Math.PI / 8; ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); } ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.save(); ctx.translate(x, y); ctx.rotate((typeof dir === 'number' ? dir : 0) * Math.PI / 180);
+      ctx.fillStyle = '#20242a'; ctx.fillRect(-tp * 0.09, -tp * 0.62, tp * 0.18, tp * 0.5);
+      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(0, 0, tp * 0.2, 0, 7); ctx.fill();
+      ctx.restore();
+    }
+
     _drawTank(ctx, x, y, dirIdx, color, m, s, st, now) {
       ctx.save();
       ctx.translate(x, y);
@@ -911,16 +982,6 @@
       else if (cls === 'assault') poly([[-hullW, 0.42], [-hullW, -0.3], [-hullW + 0.1, -0.42], [hullW - 0.1, -0.42], [hullW, -0.3], [hullW, 0.42]]);   // 切角
       else R(-hullW, -0.42, hullW * 2, 0.84);
       if (m.isBot) { ctx.fillStyle = color; R(-hullW, -0.1, hullW * 2, 0.12); }      // 電腦：車身條紋
-      // 塗裝（打怪解鎖）
-      if (m.skin && m.skin !== 'default' && !m.isBot) {
-        ctx.save(); ctx.beginPath(); ctx.rect(-hullW * s, -0.42 * s, hullW * 2 * s, 0.84 * s); ctx.clip();
-        if (m.skin === 'camo') { ctx.fillStyle = 'rgba(30, 50, 25, .45)'; for (const [cx, cy, r] of [[-0.15, -0.2, 0.12], [0.12, 0.05, 0.14], [-0.1, 0.25, 0.1], [0.2, -0.3, 0.08]]) { ctx.beginPath(); ctx.arc(cx * s, cy * s, r * s, 0, 7); ctx.fill(); } }
-        else if (m.skin === 'stripes') { ctx.fillStyle = 'rgba(255,255,255,.35)'; for (let i = -3; i < 4; i++) { ctx.beginPath(); ctx.moveTo((i * 0.2) * s, -0.45 * s); ctx.lineTo((i * 0.2 + 0.08) * s, -0.45 * s); ctx.lineTo((i * 0.2 + 0.33) * s, 0.45 * s); ctx.lineTo((i * 0.2 + 0.25) * s, 0.45 * s); ctx.fill(); } }
-        else if (m.skin === 'carbon') { ctx.fillStyle = 'rgba(15,15,20,.55)'; ctx.fillRect(-hullW * s, -0.42 * s, hullW * 2 * s, 0.84 * s); ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 1; for (let i = -6; i < 6; i++) { ctx.beginPath(); ctx.moveTo(i * 0.1 * s, -0.5 * s); ctx.lineTo((i * 0.1 + 0.5) * s, 0.5 * s); ctx.stroke(); } }
-        else if (m.skin === 'gold') { ctx.fillStyle = 'rgba(255, 200, 60, .55)'; ctx.fillRect(-hullW * s, -0.42 * s, hullW * 2 * s, 0.84 * s); ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(-hullW * s, -0.42 * s, hullW * 0.6 * s, 0.84 * s); }
-        ctx.restore();
-        if (m.skin === 'neon') { ctx.strokeStyle = `hsl(${(now / 10) % 360}, 100%, 65%)`; ctx.lineWidth = Math.max(1.5, s * 0.06); ctx.strokeRect(-hullW * s, -0.42 * s, hullW * 2 * s, 0.84 * s); }
-      }
       // 車身細節
       if (cls === 'assault') { ctx.fillStyle = light; poly([[-0.14, 0.3], [0, 0.2], [0.14, 0.3], [0.14, 0.36], [0, 0.26], [-0.14, 0.36]]); }
       else if (cls === 'scout') { ctx.fillStyle = darker; R(-hullW + 0.03, 0.3, 0.06, 0.16); R(hullW - 0.09, 0.3, 0.06, 0.16); }   // 尾翼

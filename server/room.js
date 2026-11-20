@@ -56,9 +56,27 @@ class Room {
 
   canJoin() {
     if (this.kind !== 'normal') return '單人練習房無法加入';
-    if (this.state === 'playing') return '遊戲進行中，請於本局結束後加入';
     if (this.players.length >= C.MAX_PLAYERS) return `房間已滿（最多 ${C.MAX_PLAYERS} 人）`;
     return null;
+  }
+
+  // 公開大廳用的摘要（所有一般房間都會列出來）
+  summary() {
+    const host = this.get(this.hostId), S = this.settings;
+    return {
+      code: this.code, host: host ? host.name : '', state: this.state,
+      humans: this.humans().length, ais: this.players.length - this.humans().length, max: C.MAX_PLAYERS,
+      mode: S.mode, objective: S.objective || 'survival', codeOnly: !!S.codeOnly,
+      pve: S.objective === 'pve' ? { mode: S.pveMode, level: S.pveLevel, diff: S.pveDiff } : null,
+      roundNo: this.roundNo, rounds: S.rounds,
+      names: this.humans().map(p => p.name).slice(0, 6),
+    };
+  }
+
+  // 新加入的人：遊戲進行中就先觀戰，下一局開始時加入
+  catchUp(p) {
+    if (this.state === 'playing' && this.round) send(p.ws, this._roundStartMsg(p));
+    else if (this.lastResult && (this.state === 'intermission' || this.state === 'finished')) send(p.ws, this._roundEndMsg(p));
   }
 
   _uniqueName(name) {
@@ -253,10 +271,6 @@ class Room {
       case 'shop':       // 打怪：零件商店
         if (this.state === 'playing' && this.round && this.round.pve) this.round.pveShop(p.id, String(msg.item || ''));
         return;
-      case 'skin':       // 坦克塗裝（解鎖狀態存在玩家手機裡）
-        if (this.state === 'playing') return;
-        if (['default', 'camo', 'stripes', 'gold', 'neon', 'carbon'].includes(msg.skin)) p.skin = msg.skin;
-        return this.sendRoom();
       case 'aiCode': {   // 房主幫電腦隊伍換打法（練習場選對手用）
         const target = this.get(msg.id);
         if (!isHost || !target || !target.isAI || this.state === 'playing') return;
@@ -313,6 +327,15 @@ class Room {
         if (!isHost || this.state !== 'playing' || !this.round) return;
         this.round.forceEnd();
         return;
+      case 'pveNext':    // 打怪結算後：下一關、重玩本關
+      case 'pveReplay': {
+        const lr = this.lastResult;
+        if (!isHost || this.state === 'playing' || !lr || !lr.pve) return;
+        if (msg.t === 'pveNext' && lr.pveNext) this.settings.pveLevel = lr.pveNext;
+        else if (msg.t === 'pveReplay' && lr.pve.mode === 'campaign') this.settings.pveLevel = lr.pve.level;
+        this.roundNo = 0;
+        return this.startRound();
+      }
       case 'endMatch':
         if (!isHost || this.state === 'playing') return;
         this.state = 'finished';
@@ -364,13 +387,13 @@ class Room {
       code = (host && (p.aiKey === 'mine' ? host.code : host.prevCode)) || code;
     }
     return { playerId: p.id, name: p.name, code, cls: p.cls, botCls: this.settings.botClasses ? (p.botCls || 'assault') : null,
-      aiPilot: p.isAI, handicap: p.handicap || 0, skin: p.skin || 'default' };
+      aiPilot: p.isAI, handicap: p.handicap || 0 };
   }
 
   startError() {
     const sides = this._buildSides();
     if (this.settings.objective === 'pve') return null;
-    if (this.settings.objective === 'escort' && sides.length !== 2) return '護送模式需剛好兩隊';
+    if (C.TWO_TEAM_OBJECTIVES.includes(this.settings.objective) && sides.length !== 2) return { escort: '護送', siege: '攻城戰', soccer: '坦克足球' }[this.settings.objective] + '模式需剛好兩隊';
     if (this.settings.mode === 'faction') {
       if (sides.some(s => s.members.length === 0)) return '陣營戰需紅藍兩隊皆有成員';
     } else if (this.settings.mode === 'team') {
@@ -468,7 +491,14 @@ class Room {
       pveBoard.submit(res.pve, this.humans().map(p => p.name)).catch(() => {});
     }
     r.dispose();
-    this.state = this.roundNo >= this.settings.rounds ? 'finished' : 'intermission';
+    // 打怪：一局就結束；戰役通關後自動選好下一關（房主可以改成重玩）
+    if (res.pve) {
+      const keys = Object.keys(PVE.LEVELS), i = keys.indexOf(res.pve.level);
+      const next = res.pve.mode === 'campaign' && res.pve.cleared && i >= 0 && i + 1 < keys.length ? keys[i + 1] : null;
+      if (next) this.settings.pveLevel = next;
+      this.lastResult.pveNext = next;
+      this.state = 'finished';
+    } else this.state = this.roundNo >= this.settings.rounds ? 'finished' : 'intermission';
     this.sendRoom();
     for (const p of this.humans()) send(p.ws, this._roundEndMsg(p));
   }

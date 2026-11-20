@@ -78,7 +78,6 @@
     $: (q) => document.querySelector(q), $$: (q) => document.querySelectorAll(q), esc: (x) => esc(x), send: (o) => send(o), toast: (m) => toast(m),
     buzz: (p) => buzz(p), show: (id) => show(id), store, renderer, onData: () => { if (room && $('#lobby').classList.contains('active')) renderLobby(); },
   });
-  document.addEventListener('click', e => { const b = e.target.closest('[data-skin]'); if (b) { window.PveUI.chooseSkin(b.dataset.skin); $('#skinPicker').innerHTML = window.PveUI.skinRow(); } });
   let specText = '';
   let defaultBot = '';
 
@@ -86,6 +85,7 @@
   function show(id) {
     $$('.screen').forEach(s => s.classList.toggle('active', s.id === id));
     if (id === 'game') requestAnimationFrame(layoutGame);
+    if (id === 'home') setTimeout(refreshRooms, 0);
   }
   let toastTimer;
   function toast(msg) {
@@ -153,7 +153,6 @@
         info = { classes: m.classes, botClass: m.botClass, colors: m.colors, factionColors: m.factionColors, teamCount: m.teamCount, itemTypes: m.itemTypes || [] };
         store.set('session', { code: m.code, id: m.id, token: m.token, at: Date.now() });
         history.replaceState(null, '', '?room=' + m.code);
-        { const sk = window.PveUI.progress().skin; if (sk && sk !== 'default') setTimeout(() => send({ t: 'skin', skin: sk }), 200); }
         break;
       case 'resumeFailed':
         store.del('session');
@@ -214,6 +213,35 @@
     return n;
   }
   $('#createBtn').onclick = () => { const name = getName(); if (name) connect({ t: 'create', name }); };
+
+  // 公開大廳：所有房間都公開，每 3 秒刷新；遊戲進行中的房間也能進（先觀戰，下一局加入）
+  const MODE_NAME = { ffa: '大亂鬥', faction: '陣營戰', team: '組隊' };
+  const PVE_MODE = { campaign: '戰役', endless: '無盡', weekly: '每週挑戰' };
+  async function refreshRooms() {
+    if (!$('#home').classList.contains('active') || document.hidden) return;
+    let d;
+    try { d = await (await fetch('/api/rooms', { cache: 'no-store' })).json(); } catch { return; }
+    $('#onlineCount').textContent = `${d.rooms.length} 間・${d.online} 人在線`;
+    if (!d.rooms.length) { $('#roomList').innerHTML = '<li class="room-empty">目前沒有房間，建立一個吧</li>'; return; }
+    const lv = window.PveUI.data();
+    $('#roomList').innerHTML = d.rooms.map(r => {
+      const obj = OBJ_NAME[r.objective] || r.objective;
+      const what = r.pve ? `${obj}・${PVE_MODE[r.pve.mode] || ''}${r.pve.mode === 'campaign' ? ` ${r.pve.level}${lv && lv.levels[r.pve.level] ? ' ' + lv.levels[r.pve.level].name : ''}` : ''}`
+        : `${MODE_NAME[r.mode] || r.mode}・${obj}${r.codeOnly ? '・純代碼' : ''}`;
+      const st = r.state === 'playing' ? `<span class="room-state playing">遊戲中 ${r.roundNo}/${r.pve ? 1 : r.rounds}</span>` : r.state === 'lobby' ? '<span class="room-state lobby">等待中</span>' : '<span class="room-state">結算中</span>';
+      const full = r.humans + r.ais >= r.max;
+      return `<li><div class="room-info"><b>${esc(r.host)} 的房間 ${st}</b><small>${esc(what)}・👤${r.humans}${r.ais ? ` 🤖${r.ais}` : ''}/${r.max}・${esc(r.names.join('、'))}</small></div>
+        <button class="btn ${full ? '' : 'primary'}" data-room="${r.code}" ${full ? 'disabled' : ''}>${full ? '已滿' : '加入'}</button></li>`;
+    }).join('');
+  }
+  $('#roomList').addEventListener('click', e => {
+    const b = e.target.closest('[data-room]'); if (!b) return;
+    const name = getName(); if (!name) return;
+    connect({ t: 'join', code: b.dataset.room, name });
+  });
+  setTimeout(refreshRooms, 0);
+  setInterval(refreshRooms, 3000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshRooms(); });
   const quickName = () => { const n = $('#nameInput').value.trim() || '新手'; store.set('name', n); return n; };
   $('#tutorialBtn').onclick = () => connect({ t: 'create', name: quickName(), kind: 'tutorial' });
   $('#practiceBtn').onclick = () => connect({ t: 'create', name: quickName(), kind: 'practice' });
@@ -248,6 +276,21 @@
   if (saved && Date.now() - saved.at < 6 * 3600 * 1000 && (!urlRoom || urlRoom === saved.code)) connect({ t: 'resume', ...saved });
 
   // ---------- 大廳 ----------
+  const OBJECTIVES = [['survival', '生存'], ['koth', '佔點'], ['mkoth', '移動佔點'], ['ctf', '搶旗'], ['escort', '護送'], ['siege', '攻城戰'], ['crystals', '晶礦收集'], ['soccer', '坦克足球'], ['gungame', '職業輪換'], ['tag', '鬼抓人'], ['pve', '打怪']];
+  const OBJ_NAME = Object.fromEntries(OBJECTIVES);
+  const OBJ_DESC = {
+    survival: '最後存活的隊伍獲勝',
+    koth: '佔領中央區域累計 45 秒獲勝；無限重生',
+    mkoth: '只有一個佔點，每 30 秒換位置；累計 45 秒獲勝；無限重生',
+    ctf: '奪取敵旗帶回己方旗座 3 次獲勝（己方旗子被搶也能得分）；無限重生、無基地',
+    escort: '進攻方將礦車推至終點，防守方守到時間結束；每局交換攻守，限兩隊',
+    siege: '防守方有加固城牆、4 座砲台與城堡核心；進攻方時限內摧毀核心獲勝；無限重生，每局交換攻守，限兩隊',
+    crystals: '晶礦隨機出現，撿起後帶回己方旗座得分，先到 20 分獲勝；陣亡時掉落身上全部晶礦；無限重生',
+    soccer: '用子彈或車身把球推進對方球門，先進 3 球獲勝；無限重生，限兩隊',
+    gungame: '每次擊殺換下一個職業（突擊→偵察→重裝→爆破→工兵→護士→狙擊），最先完成 7 殺獲勝；無限重生',
+    tag: '鬼碰到或射中別人就換對方當鬼；時間到時累計當鬼最短的隊伍獲勝；無傷害、鬼移速 +15%',
+    pve: '全員同隊對抗怪物：戰役、無盡、每週挑戰',
+  };
   const MODE_NAMES = { ffa: '大亂鬥', faction: '陣營戰', team: '組隊' };
   const TIME_OPTS = [[120, '2 分'], [180, '3 分'], [300, '5 分'], [480, '8 分'], [0, '不限']];
 
@@ -333,8 +376,8 @@
     $('#settings').innerHTML = `
       <div class="set-row pvp-only"><span>模式</span>${seg('mode', [['ffa', '大亂鬥'], ['faction', '陣營戰'], ['team', '組隊']], s.mode)}</div>
       <div class="set-desc pvp-only">${{ ffa: '玩家與自己的電腦一隊，最後存活者獲勝', faction: '紅藍兩隊；點玩家列表的顏色換隊', team: '點玩家列表的「N隊」換隊，同號為隊友' }[s.mode]}</div>
-      <div class="set-row"><span>目標</span>${seg('objective', [['survival', '生存'], ['koth', '佔點'], ['ctf', '搶旗'], ['escort', '護送'], ['pve', '打怪']], s.objective || 'survival')}</div>
-      <div class="set-desc">${{ survival: '最後存活的隊伍獲勝', koth: '佔領中央區域累計 45 秒獲勝；無限重生', ctf: '奪取敵旗帶回己方旗座 3 次獲勝（己方旗子被搶也能得分）；無限重生、無基地', escort: '進攻方將礦車推至終點，防守方守到時間結束；每局交換攻守，限兩隊', pve: '全員同隊對抗怪物：戰役 9 關、無盡、每週挑戰' }[s.objective || 'survival']}</div>
+      <div class="set-row"><span>目標</span><select id="objectiveSel" ${dis}>${OBJECTIVES.map(([v, l]) => `<option value="${v}" ${(s.objective || 'survival') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      <div class="set-desc">${OBJ_DESC[s.objective || 'survival']}</div>
       ${(s.objective || 'survival') === 'pve' ? window.PveUI.lobbyRows(s, host && room.state === 'lobby', seg) : ''}
       <div class="set-row"><span>純代碼對戰</span>${sw('codeOnly', s.codeOnly)}</div>
       <div class="set-desc">玩家不上場，每人派出一台電腦坦克</div>
@@ -349,7 +392,7 @@
       <div class="set-row"><span>近距離鏡頭</span>${sw('closeCam', s.closeCam)}</div>
       <div class="set-desc">玩家視野限於周圍，無法查看全圖；不影響電腦</div>
       <div class="set-row"><span>電腦也有職業</span>${sw('botClasses', s.botClasses)}</div>
-      <div class="set-desc">${s.botClasses ? '玩家可為電腦選擇職業，電腦可使用技能（skill: true）' : '電腦為標準規格，無技能'}</div>
+      <div class="set-desc">${s.botClasses ? '玩家可為電腦選擇職業，電腦可使用技能（skill: true）；玩家職業數值較強，電腦狙擊另有削弱' : '電腦為標準規格，無技能'}</div>
       <div class="set-row pvp-only"><span>基地模式</span>${sw('baseMode', s.baseMode)}</div>
       <div class="set-desc pvp-only">每隊一座基地，被摧毀即全隊淘汰</div>
       <div class="set-row"><span>迷霧</span>${sw('fog', s.fog)}</div>
@@ -363,7 +406,7 @@
       <div class="set-row"><span>地圖</span><div style="display:flex;gap:6px;align-items:center">
         ${s.mapStyle === 'custom' && host ? '<button class="btn small" id="editMapBtn">✏️ 編輯</button>' : ''}
         <select id="mapStyleSel" ${dis}>${[['random', '隨機'], ['maze', '迷宮'], ['open', '開闊'], ['river', '河流'], ['forest', '森林'], ['fortress', '堡壘'], ['custom', '自訂']].map(([v, l]) => `<option value="${v}" ${s.mapStyle === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
-      <div class="set-row"><span>局數</span><div class="stepper">
+      <div class="set-row pvp-only"><span>局數</span><div class="stepper">
         <button data-set="rounds" data-val="${s.rounds - 1}" ${dis}>−</button><b>${s.rounds}</b><button data-set="rounds" data-val="${s.rounds + 1}" ${dis}>＋</button></div></div>
       <div class="set-row pvp-only"><span>每局時間</span>${seg('timeLimit', TIME_OPTS, s.timeLimit)}</div>
       <details class="adv" ${advOpen ? 'open' : ''}><summary>⚙️ 進階規則${advChanged(s.adv) ? '（已調整）' : ''}</summary>
@@ -394,7 +437,6 @@
     renderClassPicker('#classPicker2');
     renderClassPicker('#botClassPicker', 'botCls');
     renderClassPicker('#botClassPicker2', 'botCls');
-    $('#skinPicker').innerHTML = window.PveUI.skinRow();
     $('#botClassPanel').classList.toggle('hidden', !room.settings.botClasses);
   }
 
@@ -453,6 +495,7 @@
   });
   $('#settings').addEventListener('change', e => {
     if (e.target.id === 'pveLevelSel' && isHost()) return send({ t: 'settings', pveLevel: e.target.value });
+    if (e.target.id === 'objectiveSel' && isHost()) return send({ t: 'settings', objective: e.target.value });
     if (e.target.id !== 'mapStyleSel' || !isHost()) return;
     const v = e.target.value;
     if (v === 'custom') return openMapEditor();
@@ -486,8 +529,14 @@
   const toggleReady = () => { const mp = myPlayer(); send({ t: 'ready', ready: !(mp && mp.ready) }); };
   $('#readyBtn').onclick = toggleReady;
   $('#readyBtn2').onclick = toggleReady;
-  $('#startBtn').onclick = () => { send({ t: 'start' }); tryFullscreen(); };
+  $('#startBtn').onclick = () => {
+    const s = room && room.settings;
+    if (s && s.objective === 'pve' && (s.pveMode || 'campaign') === 'campaign' && window.PveUI.data() && !window.PveUI.unlocked(s.pveLevel)) return toast('此關卡尚未解鎖，請先通關上一關');
+    send({ t: 'start' }); tryFullscreen();
+  };
   $('#nextBtn').onclick = () => { send({ t: 'start' }); tryFullscreen(); };
+  $('#pveNextBtn').onclick = () => { send({ t: 'pveNext' }); tryFullscreen(); };
+  $('#pveRetryBtn').onclick = () => { send({ t: 'pveReplay' }); tryFullscreen(); };
   $('#endMatchBtn').onclick = () => { if (confirm('結束整場比賽？')) send({ t: 'endMatch' }); };
   $('#toLobbyBtn').onclick = () => send({ t: 'toLobby' });
 
@@ -593,6 +642,8 @@
 請完全依照下面的規格，寫出完整、可以直接執行的代碼（定義 think(view, memory)，可以加輔助函式）。
 只輸出代碼，放在一個 \`\`\`javascript 區塊裡；不要用 import、require、setTimeout。
 房主可能開或關「血量系統」「電腦也有職業」等設定，代碼要兩種情況都能正常跑（看 view.rules.hpSystem、view.me.skill）。
+房主也可能選任何一種遊戲目標（view.objective.type：survival、koth、ctf、escort、siege、crystals、soccer、gungame、tag、pve），請每一種都處理；不認得的就當成 survival。
+移動（move）和砲塔（aim）是分開的：盡量一邊閃子彈或走向目標，一邊用 aim 朝敵人開火。
 
 ${specText}
 ${sample ? `## 參考：「${sample.name}」打法的範例（${sample.desc}），可以改進它，也可以完全重寫
@@ -668,6 +719,7 @@ ${sample.code}\`\`\`
         toast((await copyText(text)) ? '已複製更新指令' : '複製失敗');
       };
       toast('代碼已啟用');
+      autoLeague(store.get('botCode', ''));
     } else {
       st.innerHTML = `<span class="bad">❌ 測試未通過，沿用${room && room.myCode.custom ? '上一份能用的代碼' : '內建 AI'}</span>
         <div class="logbox err selectable">${esc(m.errors.join('\n'))}</div>
@@ -771,6 +823,28 @@ ${sample.code}\`\`\`
       const wb = $('#waveBanner'); wb.textContent = `第 ${a} 波：${b} 隻怪物`; wb.classList.add('show');
       clearTimeout(waveTimer); waveTimer = setTimeout(() => wb.classList.remove('show'), 1800);
       window.Sfx.play('emp');
+      return;
+    }
+    const who = id => `<span style="color:${tankColor(id)}">${esc(tankName(id))}</span>`;
+    if (type === 'hillMove') {
+      const wb = $('#waveBanner'); wb.textContent = '佔點已移動'; wb.classList.add('show');
+      clearTimeout(waveTimer); waveTimer = setTimeout(() => wb.classList.remove('show'), 1500);
+      return;
+    }
+    if (type === 'goal') {
+      const sd = renderer.sideMeta.get(a), wb = $('#waveBanner');
+      wb.innerHTML = `<span style="color:${sd.color}">${esc(sd.name)}</span> 進球！`; wb.classList.add('show');
+      clearTimeout(waveTimer); waveTimer = setTimeout(() => wb.classList.remove('show'), 1800);
+      window.Sfx.play('emp');
+      return;
+    }
+    if (type === 'deposit') el.innerHTML = `${who(a)} 💎 交回 ${b} 顆晶礦`;
+    else if (type === 'level') el.innerHTML = `${who(a)} ⬆️ 升到第 ${b + 1} 階${renderer.obj && renderer.obj.ladder && renderer.obj.ladder[b] ? `：${(info.classes[renderer.obj.ladder[b]] || {}).name || ''}` : ''}`;
+    else if (type === 'tag') { el.innerHTML = `${who(a)} 👹 → ${who(b)}`; if (renderer.myTank && b === renderer.myTank.id) buzz([60]); }
+    if (['deposit', 'level', 'tag'].includes(type)) {
+      feed.prepend(el);
+      while (feed.children.length > 4) feed.lastChild.remove();
+      setTimeout(() => el.remove(), 4500);
       return;
     }
     const side = renderer.sideMeta.get(b);
@@ -978,9 +1052,25 @@ ${sample.code}\`\`\`
       const mine = r.myTank ? (r.myTank.side === o.att ? '進攻' : '防守') : '';
       const stTxt = { push: '前進中', back: '後退中', contested: '爭奪中', idle: '停住' }[o.st] || '';
       objHtml = `<span>${mine ? `${mine}・` : ''}礦車 <i class="bar"><i style="width:${pct}%;background:${sm.color}"></i></i> ${pct}%・${stTxt}</span>`;
+    } else if (o && o.type === 'siege') {
+      const mine = r.myTank ? (r.myTank.side === o.att ? '進攻' : '防守') : '';
+      const pct = Math.round(o.core[0] / o.core[1] * 100), sm = r.sideMeta.get(o.def);
+      objHtml = `<span>${mine ? `${mine}・` : ''}核心 <i class="bar"><i style="width:${pct}%;background:${sm.color}"></i></i> ${pct}%・砲台 ${o.tur}</span>`;
+    } else if (o && o.type === 'crystals') {
+      const car = r.myTank && o.car.find(c => c[0] === r.myTank.id);
+      objHtml = o.s.map(([k, v]) => { const sm = r.sideMeta.get(k); return `<span style="color:${sm.color}">💎 ${v}/${o.target}</span>`; }).join('') + (car ? `<span>攜帶 ${car[1]}</span>` : '');
+    } else if (o && o.type === 'soccer') {
+      objHtml = o.s.map(([k, v]) => { const sm = r.sideMeta.get(k); return `<span style="color:${sm.color}">⚽ ${v}/${o.target}</span>`; }).join('');
+    } else if (o && o.type === 'gungame') {
+      const lv = new Map(o.lv), mineLv = r.myTank ? lv.get(r.myTank.id) : null, top = Math.max(0, ...o.lv.map(x => x[1]));
+      objHtml = `${mineLv != null ? `<span>我 ${mineLv}/${o.ladder.length}・${(info.classes[o.ladder[Math.min(mineLv, o.ladder.length - 1)]] || {}).name || ''}</span>` : ''}<span>領先 ${top}/${o.ladder.length}</span>`;
+    } else if (o && o.type === 'tag') {
+      const t = new Map(o.t), it = r.meta.tanks.find(x => x.id === o.it), mine = r.myTank ? t.get(r.myTank.id) || 0 : null;
+      objHtml = `<span>👹 ${it ? esc(it.name) + (it.isBot ? '的電腦' : '') : '-'}${r.myTank && o.it === r.myTank.id ? '（你）' : ''}</span>${mine != null ? `<span>當鬼 ${Math.floor(mine / r.meta.tickRate)}s</span>` : ''}`;
     } else if (r.meta.pve) {
       objHtml = window.PveUI.hud(r);
     }
+    if (o && o.type === 'koth' && o.move != null) objHtml += `<span>⏱ ${Math.ceil(o.move / r.meta.tickRate)}s 後換點</span>`;
     if (r.meta.baseMode && r.wallShieldTicks && r.wallHp.size) {
       const left = Math.ceil((r.wallShieldTicks - Math.max(0, played)) / r.meta.tickRate);
       if (left > 0) objHtml += `<span>🛡️ 圍牆無敵 ${left}s</span>`;
@@ -1006,7 +1096,7 @@ ${sample.code}\`\`\`
       const BUFF_ICONS = [[1, '👟'], [2, '🔥'], [4, '💣'], [8, '👻'], [16, '👁️'], [32, '❄️'], [64, '😵'], [128, '🌀'], [256, '🔱'], [512, '🏀'], [1024, '💨']];
       const buffIcons = BUFF_ICONS.filter(([bit]) => buffs & bit).map(([, ic]) => ic).join('');
       const maxL = r.myTank.maxLives;
-      const hearts = maxL < 0 || ['koth', 'ctf', 'escort'].includes(r.meta.objective) ? '♥∞'
+      const hearts = maxL < 0 || !['survival', 'pve'].includes(r.meta.objective) ? '♥∞'
         : maxL > 5 ? `♥×${mine.lives}` : `${'♥'.repeat(mine.lives)}<span style="opacity:.3">${'♥'.repeat(Math.max(0, maxL - mine.lives))}</span>`;
       const myLive = r.latest && r.latest.tanks.get(r.myTank.id);
       const hpChip = r.meta.hpSystem && mine.alive && myLive && r.myTank.maxHp ? (() => {
@@ -1064,7 +1154,8 @@ ${sample.code}\`\`\`
   }
   function myStep(me) {
     const cls = info.classes[renderer.myTank.cls];
-    return (cls ? cls.speed : 4) * (me.buffs & 1 ? renderer.meta.speedBuff : 1) / renderer.meta.tickRate;
+    const it = renderer.obj && renderer.obj.type === 'tag' && renderer.obj.it === renderer.myTank.id ? 1.15 : 1;   // 鬼抓人：鬼較快
+    return (cls ? cls.speed : 4) * (me.buffs & 1 ? renderer.meta.speedBuff : 1) * it / renderer.meta.tickRate;
   }
 
   // 收到伺服器快照：以伺服器位置為準，重播還沒被確認的輸入
@@ -1360,6 +1451,27 @@ ${sample.code}\`\`\`
   $('#pveHubBtn').onclick = () => window.PveUI.openHub('codex');
   $('#pveHubBack').onclick = () => show('home');
   $('#leagueBack').onclick = () => show('home');
+  // 上傳的自訂代碼（不是範例）通過測試後，自動到本週擂台參賽排名；同一份代碼只送一次
+  let autoLeagueTimer = null;
+  function codeHash(c) { let h = 5381; for (let i = 0; i < c.length; i++) h = (h * 33 + c.charCodeAt(i)) | 0; return c.length + ':' + h; }
+  async function autoLeague(code, retry) {
+    if (!code || samples.some(x => x.code === code) || store.get('leagueAutoHash', '') === codeHash(code)) return;
+    clearTimeout(autoLeagueTimer);
+    let res;
+    try {
+      res = await (await fetch('/api/league/submit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: leagueKey(), name: store.get('name', '') || '匿名', code }),
+      })).json();
+    } catch { return; }
+    if (res.ok) {
+      store.set('leagueAutoHash', codeHash(code));
+      const mine = res.standings && res.standings.mine;
+      toast(`🏆 已自動參加擂台：${res.rating} 分${mine ? `・第 ${mine.rank} 名` : ''}`);
+    } else if (!retry && /頻繁/.test(res.error || '')) {
+      autoLeagueTimer = setTimeout(() => autoLeague(store.get('botCode', ''), true), 31000);   // 30 秒內只能送一次：稍後重送最新的
+    }
+  }
   $('#leagueSubmit').onclick = async () => {
     const sel = $('#leagueCodeSel').value;
     const code = sel === 'mine' ? store.get('botCode', '') : (samples.find(s => 'sample:' + s.key === sel) || {}).code;
@@ -1492,7 +1604,7 @@ ${sample.code}\`\`\`
   if (urlReplay && /^\d{4}-\d+$/.test(urlReplay)) loadReplay(urlReplay);
 
   // ---------- 局後結果 ----------
-  const REASONS = { last: '最後存活', draw: '同歸於盡', time: '時間到・戰力較高', timeDraw: '時間到・平手', forced: '房主強制結束', escortWin: '礦車抵達終點', escortDefend: '防守成功', koth: '佔點達標', ctf: '搶旗達標', pveWin: '擊退所有怪物', pveLose: '全員陣亡', pveTime: '時間到・未完成目標', pveEndless: '無盡模式結束', pveCore: '核心被摧毀', pveNpc: '友軍被擊毀' };
+  const REASONS = { last: '最後存活', draw: '同歸於盡', time: '時間到・戰力較高', timeDraw: '時間到・平手', forced: '房主強制結束', escortWin: '礦車抵達終點', escortDefend: '防守成功', koth: '佔點達標', ctf: '搶旗達標', pveWin: '擊退所有怪物', pveLose: '全員陣亡', pveTime: '時間到・未完成目標', pveEndless: '無盡模式結束', pveCore: '核心被摧毀', pveNpc: '友軍被擊毀', siegeWin: '城堡核心被摧毀', siegeHold: '守城成功', crystals: '晶礦達標', soccer: '進球達標', gungame: '完成職業輪換', tag: '當鬼時間最短' };
 
   function renderResult() {
     if (!lastResult || !room) return;
@@ -1584,6 +1696,14 @@ ${sample.code}\`\`\`
     $('#nextBtn').classList.toggle('hidden', !inter || !host);
     $('#endMatchBtn').classList.toggle('hidden', !inter || !host);
     $('#toLobbyBtn').classList.toggle('hidden', !finished || !host);
+    // 打怪：一局結束後直接選下一關或重玩
+    const pv = finished && host && lastResult && lastResult.pve;
+    const lvData = window.PveUI.data();
+    $('#pveNextBtn').classList.toggle('hidden', !(pv && lastResult.pveNext));
+    if (pv && lastResult.pveNext) $('#pveNextBtn').textContent = `下一關 ${lastResult.pveNext}${lvData && lvData.levels[lastResult.pveNext] ? ' ' + lvData.levels[lastResult.pveNext].name : ''}`;
+    $('#pveRetryBtn').classList.toggle('hidden', !pv);
+    if (pv) $('#pveRetryBtn').textContent = pv.mode !== 'campaign' ? '再來一次' : pv.cleared ? '重玩本關' : '再試一次';
+    $('#toLobbyBtn').classList.toggle('primary', !(pv && (lastResult.pveNext || !pv.cleared)));
     $('#classPanel2').classList.toggle('hidden', !inter || room.settings.codeOnly);
     $('#botClassPanel2').classList.toggle('hidden', !inter || !room.settings.botClasses);
     const mp = myPlayer();

@@ -54,7 +54,7 @@ module.exports = function install(Round) {
     const humans = new Set(this.tanks.filter(t => t.side === 'players' && !t.isBot).map(t => t.owner)).size
       || new Set(this.tanks.filter(t => t.side === 'players').map(t => t.owner)).size || 1;
     this.pve = {
-      mode, levelKey, level, diffKey, diff: D.DIFFICULTY[diffKey], mods: weekly ? weekly.mods : [], week: weekly ? weekly.week : null,
+      mode, levelKey, level, diffKey, diff: D.DIFFICULTY[diffKey], mods: weekly ? weekly.mods : (level.mods || []), week: weekly ? weekly.week : null,
       humans, units: Math.max(1, this.tanks.filter(t => t.side === 'players').length),
       wave: 0, phase: 'prep', timer: 2 * T, queue: [], parts: 0, hazards: [], nextHazard: 1, hazardsChanged: true,
       kills: 0, bossKind: null, bossId: null, stateChanged: true, preview: null, startTick: this.tick,
@@ -121,7 +121,7 @@ module.exports = function install(Round) {
   // 玩家方的固定單位（核心、救援對象）
   P._pveStructure = function (kind, x, y, side, hp) {
     const t = {
-      id: this.nextTankId++, side: side.key, owner: kind, ownerName: kind === 'core' ? '核心' : '友軍', isBot: true, cls: kind, kind,
+      id: this.nextTankId++, side: side.key, owner: kind, ownerName: kind === 'core' ? '核心' : kind === 'sturret' ? '砲台' : '友軍', isBot: true, cls: kind, kind,
       stats: { speed: 0, cooldown: 999, bulletSpeed: 0, maxBullets: 0, hp: 1, vision: 0 }, structure: true,
       lives: 1, maxLives: 1, hp, maxHp: hp, alive: true, x, y, dir: 'up', angle: 0, size: kind === 'core' ? 1.6 : 0.84,
       respawnTimer: 0, shield: 0, cooldown: 0, input: { move: null, fire: false },
@@ -183,7 +183,7 @@ module.exports = function install(Round) {
       input: { move: null, fire: false }, slowTicks: 0, markedUntil: 0, summoned: false, selfDestruct: false, reserved: false,
     });
     t.stats = { speed: def.speed || 0, cooldown: def.cooldown || 999, bulletSpeed: (def.bulletSpeed || 6) * diff.bulletSpeed, maxBullets: def.maxBullets || 0, hp: 1, vision: 0, skill: null };
-    let hpMult = diff.hp * waveGrow * bossScale * (extra.hpMult || 1);
+    let hpMult = diff.hp * waveGrow * bossScale * (extra.hpMult || 1) * (p.level.hpMult && !D.BOSSES[kind] ? p.level.hpMult : 1);
     // 精英詞綴
     const affixes = extra.affixes || [];
     if (!extra.noElite && !t.boss && !t.part && !t.structureM) {
@@ -323,7 +323,7 @@ module.exports = function install(Round) {
     p.phase = 'fight';
     p.stateChanged = true;
     const boss = p.preview && p.preview.boss;
-    if (boss) this._pveSpawnBoss(boss, p.mode === 'endless' ? Math.pow(1.25, Math.floor(p.wave / 5) - 1) : 1);
+    if (boss) this._pveSpawnBoss(boss, p.mode === 'endless' ? Math.pow(1.25, Math.floor(p.wave / 5) - 1) : (p.level.bossScale || 1));
     p.queue.push(...p.nextList);
     // 撐過一波：玩家回 1 條命（簡單、普通）
     if (p.wave > 1 && p.diff.regainLife) {
@@ -391,7 +391,7 @@ module.exports = function install(Round) {
 
   // 依強化重新計算數值
   P._pveRecalc = function (t) {
-    const m = t.mods || {}, base = this.statsFor(t.cls);
+    const m = t.mods || {}, base = this.statsFor(t.cls, this._role(t));
     t.stats = Object.assign({}, base, {
       speed: base.speed * (1 + (m.speed || 0)),
       cooldown: Math.max(3, Math.round(base.cooldown * Math.max(0.3, 1 + (m.fire || 0)))),

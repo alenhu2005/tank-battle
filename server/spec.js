@@ -99,6 +99,11 @@ P  傳送門：可以通過，成對出現（通常是彼此點對稱的位置�
 - 坦克中心在安全區外時持續受傷：血量系統每秒 ${C.ZONE.dmgPerSec * 100}% 最大血量；經典模式在圈外每待 ${C.ZONE.classicSeconds} 秒扣 1。
 - 只在生存和佔點模式出現。
 
+## 玩家與電腦的職業差異
+- 玩家坦克（isBot 為 false）的職業較強：血量 ×${C.PLAYER_EDGE.hp}、傷害 ×${C.PLAYER_EDGE.damage}、開火冷卻 ×${C.PLAYER_EDGE.cooldown}（rules.playerEdge）。
+- 電腦坦克有職業時，狙擊另外削弱：傷害 ×${C.BOT_CLASS_EDGE.sniper.damage}、彈速 ×${C.BOT_CLASS_EDGE.sniper.bulletSpeed}、冷卻 ×${C.BOT_CLASS_EDGE.sniper.cooldown}（rules.botClassEdge）。
+- 下方職業表是原始數值；rules.classes 也是原始數值，實際數值請乘上以上倍率。
+
 ## 職業（速度：格/秒，冷卻：tick）
   bot     電腦（沒有職業時）  移速 ${B.speed}  冷卻 ${B.cooldown}  彈速 ${B.bulletSpeed}  同時子彈 ${B.maxBullets}  每命耐久 ${B.hp}
 ${classLines}
@@ -119,8 +124,14 @@ ${Object.entries(C.HP.traits).map(([k, t]) => `  ${k.padEnd(8)} 血量 ×${C.HP.
 - { type: "koth", x, y, radius, myScore, bestEnemyScore, target, holder }：佔點。地圖中央以 (x, y) 為中心、兩軸各 ±radius 的區域，只有你們隊在裡面時每 tick 加 1 分，先到 target 分獲勝。holder 是 "me" | "enemy" | "contested" | null。
 - { type: "ctf", flags: [ { x, y, homeX, homeY, ally, atHome, carrier } ], myCaptures, bestEnemyCaptures, target }：搶旗。碰到敵方的旗子就會撿起來（me.carrying 變成 true）；帶著它回到己方旗座（己方旗子的 homeX, homeY）就得 1 分，不需要己方旗子在家，先到 target 分獲勝。帶旗的坦克被打掉時旗子會掉在原地，碰到自己掉落的旗子會把它送回家，掉落 ${C.FLAG_RETURN_TICKS / C.TICK_RATE} 秒沒人碰也會自己回家。
 - { type: "escort", attacking, cart: { x, y }, radius, progress, state, path: [{ x, y }] }：護送。進攻方（attacking 為 true）要把礦車推到路線終點：礦車 radius 格內只有進攻方時會沿著 path 前進（人越多越快），只有防守方時會後退（速度是前進的一半，人越多越快），兩邊都有時停住。progress 是 0～1 的進度。時間到之前推到終點進攻方贏，否則防守方贏。每局交換攻守。
+- 移動佔點：type 也是 "koth"，多了 moving: true 和 nextMoveIn（幾 tick 後換位置）。佔點每 ${C.MKOTH_MOVE_SECONDS} 秒換到地圖上隨機的新位置。
+- { type: "siege", attacking, ticksLeft, core: { x, y, hp, maxHp, alive }, turrets: [ { x, y, hp, maxHp } ] }：攻城戰（限兩隊，每局交換攻守）。防守方的旗座變成城堡：一圈加固磚牆（上下左右各有 3 格寬的城門）、四座自動砲台（${C.SIEGE.turretRange} 格內有射線就射最近的敵人）、中央的城堡核心（大小 1.6 格）。進攻方在時間內打爆核心就贏，否則防守方贏。核心和砲台不在 enemies 裡，要自己從這裡拿位置來瞄準。
+- { type: "crystals", crystals: [ { x, y, n } ], carrying, carryMax, home: { x, y, radius }, carriers: [ { id, n, ally } ], myScore, bestEnemyScore, target, ticksLeft }：晶礦收集。地上每 ${C.CRYSTALS.everySeconds} 秒長出一顆晶礦（n 是那一堆的數量），走過去就撿起來（最多帶 carryMax 顆）；回到 home 半徑內就把身上的晶礦全部換成分數，先到 target 分獲勝。被打掉時身上的晶礦會全部掉在原地。
+- { type: "soccer", ball: { x, y, vx, vy, r }, myGoal, enemyGoal, myScore, enemyScore, target, ticksLeft }：坦克足球（限兩隊）。球門是 { x0, y0, x1, y1, x, y } 的矩形（x, y 是中心）。車身碰到球會把球往「坦克中心→球」的方向推出去；子彈打到球會被球擋下，並把球往子彈飛行方向推。球進對方球門得 1 分，先到 target 分獲勝；進球後球回到中央、凍結 2 秒。
+- { type: "gungame", ladder: [職業], myLevel, leaderLevel, levels: [ { id, level, ally } ] }：職業輪換。每擊殺一台敵人就換到 ladder 的下一個職業（血量回滿、技能冷卻歸零），完成全部 7 個職業的人那一隊獲勝；時間到時比最高階。只有玩家的坦克會換職業（純代碼對戰時是電腦）。
+- { type: "tag", it, iAmIt, myTicks, ticksLeft, immuneFrom, times: [ { id, ticks, ally } ] }：鬼抓人。it 是當鬼的坦克 id。沒有傷害：鬼的子彈打中人或鬼的車身碰到人，就換對方當鬼（新的鬼會愣住 0.7 秒，剛被換掉的人 2 秒內不會被他抓回來 → immuneFrom）；其他人的子彈打中鬼會讓鬼減速 1 秒。鬼的移速 ×${C.TAG_SPEED}。時間到時，隊伍全員累計當鬼時間（ticks）最少的隊伍獲勝。
 - { type: "pve", ... }：打怪。見下方「打怪模式」。
-- 佔點、搶旗和護送模式所有坦克都會無限重生（電腦 ${C.BOT_RESPAWN_DELAY / C.TICK_RATE} 秒後重生）；生存和打怪模式照一般的命數規則。
+- 除了生存和打怪，其他目標所有坦克都會無限重生（電腦 ${C.BOT_RESPAWN_DELAY / C.TICK_RATE} 秒後重生）；生存和打怪模式照一般的命數規則。
 
 ## 打怪模式（view.objective.type 為 "pve"）
 所有玩家同一隊對抗怪物（cls 為 "monster"），固定使用血量系統。

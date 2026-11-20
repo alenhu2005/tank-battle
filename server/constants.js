@@ -73,7 +73,15 @@ const C = module.exports = {
   MONSTER_CLASS: { name: '怪物', speed: 3.4, cooldown: 30, bulletSpeed: 7, maxBullets: 1, hp: 1, vision: 0 },
 
   // 遊戲目標（模式）
-  OBJECTIVES: ['survival', 'koth', 'ctf', 'pve', 'escort'],
+  OBJECTIVES: ['survival', 'koth', 'ctf', 'pve', 'escort', 'siege', 'mkoth', 'crystals', 'soccer', 'gungame', 'tag'],
+  TWO_TEAM_OBJECTIVES: ['escort', 'siege', 'soccer'],      // 只能兩隊
+  RESPAWN_OBJECTIVES: ['koth', 'ctf', 'escort', 'siege', 'mkoth', 'crystals', 'soccer', 'gungame', 'tag'],   // 無限重生
+  MODE_DEFAULT_SECONDS: 180,  // 新模式沒設時間時的時限（秒）
+  MKOTH_MOVE_SECONDS: 30,     // 移動佔點：每幾秒換位置
+  SIEGE: { coreHp: 3000, coreHits: 45, turretHp: 500, turretHits: 6, turretCooldown: 40, turretBulletSpeed: 6.5, turretRange: 10, defaultSeconds: 240 },
+  CRYSTALS: { everySeconds: 2.5, maxOnMap: 10, carryMax: 10, homeRadius: 1.5, target: 20 },
+  SOCCER: { push: 3.5, shot: 0.35, maxSpeed: 9, friction: 0.97, target: 3 },
+  TAG_SPEED: 1.15,            // 鬼的移動速度倍率
   CART_SPEED: 0.6,           // 護送：礦車每秒前進幾格（每多一台進攻坦克再快 25%）
   CART_BACK_SPEED: 0.3,       // 只有防守方在旁邊時，礦車每秒往回退幾格（每多一台防守坦克再快 25%）
   CART_RADIUS: 2,            // 礦車周圍多遠算「在旁邊」
@@ -115,9 +123,14 @@ const C = module.exports = {
     armor: 0.5,              // 裝甲：加最大血量一半的額外血量（最多到 1.5 倍）
     armorCap: 1.5,
   },
+  // 玩家與電腦的職業分開：玩家坦克明顯較強；電腦的狙擊太強，額外削弱
+  PLAYER_EDGE: { hp: 1.3, damage: 1.15, cooldown: 0.9 },
+  BOT_CLASS_EDGE: { sniper: { damage: 0.6, bulletSpeed: 0.8, cooldown: 1.2 } },
+
   // 規格版本：每次規格有新東西就 +1，並在 CHANGELOG 最前面加一行（玩家拿舊代碼給 AI 改時，AI 才知道要補什麼）
-  SPEC_VERSION: 6,
+  SPEC_VERSION: 7,
   CHANGELOG: [
+    [7, '新遊戲目標：攻城戰 siege、移動佔點（koth 的 moving）、晶礦收集 crystals、坦克足球 soccer、職業輪換 gungame、鬼抓人 tag'],
     [6, '全向砲塔：回傳 aim 可獨立瞄準，view 坦克的 aim 提供砲塔角度'],
     [5, '打怪模式改版：view.objective 的 pve 欄位（波次、Boss、預警區 hazards、核心、發電機等）、抽卡回傳 pick／buy、怪物的 kind／elite／size'],
     [4, '新地形 O 油桶、H 補血站、P 傳送門；縮圈 view.zone；坦克多了 maxHp'],

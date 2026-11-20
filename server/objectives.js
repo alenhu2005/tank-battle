@@ -16,6 +16,7 @@ module.exports = function install(Round) {
   // 在建構子產生地圖、坦克之後呼叫
   P._initObjective = function () {
     const o = this.objective;
+    if (this._modeHas()) return this._modeInit();
     if (o === 'koth') {
       const c = Math.floor(this.center);
       this.hill = { x: c + 0.5, y: c + 0.5, r: C.KOTH_RADIUS };
@@ -39,6 +40,7 @@ module.exports = function install(Round) {
 
   P._updateObjective = function () {
     const o = this.objective;
+    if (this._modeHas()) return this._modeUpdate();
     if (o === 'koth') {
       const inside = new Set();
       for (const t of this.tanks) {
@@ -141,7 +143,8 @@ module.exports = function install(Round) {
   };
 
   // 坦克死掉時：搶旗模式掉落旗子
-  P._onTankDeath = function (t) {
+  P._onTankDeath = function (t, shooter) {
+    if (this._modeHas()) return this._modeDeath(t, shooter);
     if (this.objective !== 'ctf' || !t.carrying) return;
     const f = this.flags.find(x => x.side === t.carrying);
     t.carrying = null;
@@ -153,6 +156,7 @@ module.exports = function install(Round) {
   // 回傳 { winner, reason } 表示分出勝負；回傳 null 交給一般的勝負判斷；回傳 false 表示還沒結束且不要用一般判斷
   P._objectiveEnd = function () {
     const o = this.objective;
+    if (this._modeHas()) return this._modeEnd();
     if (o === 'koth') {
       const w = this.sides.find(s => this.objScore[s.key] >= C.KOTH_TARGET_TICKS);
       if (w) return { winner: w, reason: 'koth' };
@@ -177,6 +181,7 @@ module.exports = function install(Round) {
 
   P.objectiveSnapshot = function () {
     const o = this.objective;
+    if (this._modeHas()) return this._modeSnapshot();
     if (o === 'koth') return { type: 'koth', hill: [this.hill.x, this.hill.y, this.hill.r], s: this.sides.map(s => [s.key, this.objScore[s.key]]), h: this.hillHolder, target: C.KOTH_TARGET_TICKS };
     if (o === 'ctf') return { type: 'ctf', f: this.flags.map(f => [f.side, Math.round(f.x * 100), Math.round(f.y * 100), f.carrier || 0, f.atHome ? 1 : 0]), s: this.sides.map(s => [s.key, this.objScore[s.key]]), target: C.CTF_CAPTURES };
     if (o === 'pve') return { type: 'pve', wave: this.pve.wave };
@@ -186,6 +191,7 @@ module.exports = function install(Round) {
 
   P.objectiveView = function (me) {
     const o = this.objective;
+    if (this._modeHas()) return this._modeView(me);
     if (o === 'koth') {
       const enemyBest = Math.max(0, ...this.sides.filter(s => s.key !== me.side).map(s => this.objScore[s.key]));
       return {

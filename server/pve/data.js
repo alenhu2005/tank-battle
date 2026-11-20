@@ -138,6 +138,19 @@ const LEVELS = {
     waves: [W({ crawler: 3, lurker: 1 })] },
   '3-3': { chapter: 3, name: '機械巨像', story: '一切的源頭。', objective: 'boss', boss: 'colossus', style: 'arena', par: 420,
     waves: [W({ crawler: 3, shield: 1 })] },
+  // 第四、五章：沿用既有目標，加上關卡詞綴（mods）與強化倍率（hpMult 小怪血量、bossScale Boss 血量）
+  '4-1': { chapter: 4, name: '夜襲', story: '停電的夜裡，潛伏者從四面八方摸過來。', objective: 'waves', style: 'forest', par: 300, mods: ['darkness'],
+    waves: [W({ lurker: 3, crawler: 4 }), W({ lurker: 4, charger: 3 }), W({ lurker: 4, bomber: 3, healer: 1 }), W({ lurker: 5, charger: 3, summoner: 1 }), W({ lurker: 6, shield: 2, sniper: 2 })] },
+  '4-2': { chapter: 4, name: '最後防線', story: '敵軍主力加速推進，守住核心 4 分鐘。', objective: 'core', style: 'fortress', par: 240, holdSeconds: 240, mods: ['swift'],
+    waves: [W({ charger: 4, crawler: 4 }), W({ bomber: 5, charger: 3 }), W({ shield: 3, bomber: 4, healer: 1 }), W({ charger: 5, sniper: 3, builder: 1 }), W({ bomber: 6, shield: 3, summoner: 1 })], loopWaves: true },
+  '4-3': { chapter: 4, name: '堡壘再臨', story: '強化過的堡壘捲土重來，身邊還帶著精英護衛。', objective: 'boss', boss: 'fortress', style: 'arena', par: 360, bossScale: 1.5, mods: ['elite'],
+    waves: [W({ crawler: 4, shield: 1 }), W({ charger: 3, healer: 1, sniper: 1 })] },
+  '5-1': { chapter: 5, name: '突圍', story: '友軍被困在迷宮深處，敵人倒下時會殉爆。', objective: 'rescue', style: 'maze', par: 300, mods: ['explode'],
+    waves: [W({ crawler: 6, charger: 2 }), W({ crawler: 5, shield: 2, healer: 1 }), W({ charger: 4, bomber: 3, lurker: 2 }), W({ sniper: 3, shield: 3, summoner: 1 })], loopWaves: true, hpMult: 1.2 },
+  '5-2': { chapter: 5, name: '過載', story: '發電機嚴重過載，敵軍裝甲也全面升級。', objective: 'generators', style: 'river', par: 330, hpMult: 1.35,
+    waves: [W({ lurker: 3, builder: 1, crawler: 3 }), W({ summoner: 2, shield: 2, lurker: 2 }), W({ builder: 2, sniper: 3, healer: 2 }), W({ summoner: 2, lurker: 4, charger: 3 })], loopWaves: true },
+  '5-3': { chapter: 5, name: '終焉', story: '巨像完成了最終形態。一擊定勝負。', objective: 'boss', boss: 'colossus', style: 'arena', par: 480, bossScale: 1.4, mods: ['glass'],
+    waves: [W({ crawler: 4, shield: 2 }), W({ charger: 3, healer: 2, sniper: 2 })] },
 };
 
 // ---------- 每週挑戰詞綴 ----------

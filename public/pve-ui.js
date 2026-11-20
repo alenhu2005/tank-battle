@@ -1,16 +1,8 @@
-// 打怪模式的介面：大廳設定、HUD、波次預告、Boss 登場、強化卡與商店、結算（星級、成就）、圖鑑與紀錄、塗裝
+// 打怪模式的介面：大廳設定、HUD、波次預告、Boss 登場、強化卡與商店、結算（星級、成就）、圖鑑與紀錄
 (function () {
   'use strict';
   let api = null, data = null;
   const OBJ_NAMES = { waves: '撐過所有波次', destroy: '摧毀所有據點', boss: '擊敗 Boss', core: '守護核心', rescue: '護送友軍到撤離點', generators: '依序啟動 4 座發電機', train: '在 4 圈內擊毀列車', endless: '撐得越久越好' };
-  const SKINS = {
-    default: { name: '標準', req: null },
-    camo:    { name: '迷彩', req: '通關第一章' },
-    stripes: { name: '條紋', req: '通關第二章' },
-    carbon:  { name: '碳纖', req: '通關第三章' },
-    neon:    { name: '霓虹', req: '無盡模式 20 波' },
-    gold:    { name: '黃金', req: '煉獄難度通關任一關' },
-  };
   // 成就：check(summary, ctx) → true 表示達成
   const ACH = [
     ['first',     '初次通關', '通關任一關卡', (s) => s.cleared && s.mode === 'campaign'],
@@ -38,12 +30,13 @@
   // ---------- 進度（存在手機裡） ----------
   function progress() {
     const p = api.store.get('pveProgress', null) || {};
-    return Object.assign({ stars: {}, endless: 0, seen: {}, ach: {}, skin: 'default' }, p);
+    return Object.assign({ stars: {}, endless: 0, seen: {}, ach: {} }, p);
   }
   function saveProgress(p) { api.store.set('pveProgress', p); }
-  function skinUnlocked(key, p = progress()) {
-    const st = lv => Object.values(p.stars[lv] || {}).some(v => v > 0);
-    return { default: true, camo: st('1-3'), stripes: st('2-3'), carbon: st('3-3'), neon: p.endless >= 20, gold: !!p.ach.hell }[key];
+  // 關卡解鎖：通關（任一難度拿到星星）前一關才開放下一關
+  function unlocked(level, p = progress()) {
+    const keys = Object.keys(data.levels), i = keys.indexOf(level);
+    return i <= 0 || bestStars(keys[i - 1], p) > 0;
   }
   function bestStars(level, p = progress()) { return Math.max(0, ...Object.values(p.stars[level] || {})); }
 
@@ -56,8 +49,9 @@
     if ((s.pveMode || 'campaign') === 'campaign') {
       const lv = data.levels[s.pveLevel] || data.levels['1-1'];
       html += `<div class="set-row"><span>關卡</span><select id="pveLevelSel" ${dis}>${Object.entries(data.levels).map(([k, v]) =>
-        `<option value="${k}" ${k === s.pveLevel ? 'selected' : ''}>${k} ${v.name}${v.boss ? ' 👑' : ''}　${'★'.repeat(bestStars(k, p))}${'☆'.repeat(3 - bestStars(k, p))}</option>`).join('')}</select></div>
-        <div class="set-desc pve-story">「${api.esc(lv.story)}」<br>目標：${OBJ_NAMES[lv.objective] || ''}・標準時間 ${Math.floor(lv.par / 60)}:${String(lv.par % 60).padStart(2, '0')}</div>`;
+        unlocked(k, p) ? `<option value="${k}" ${k === s.pveLevel ? 'selected' : ''}>${k} ${v.name}${v.boss ? ' 👑' : ''}　${'★'.repeat(bestStars(k, p))}${'☆'.repeat(3 - bestStars(k, p))}</option>`
+          : `<option value="${k}" disabled ${k === s.pveLevel ? 'selected' : ''}>🔒 ${k} ${v.name}</option>`).join('')}</select></div>
+        <div class="set-desc pve-story">「${api.esc(lv.story)}」<br>目標：${OBJ_NAMES[lv.objective] || ''}・標準時間 ${Math.floor(lv.par / 60)}:${String(lv.par % 60).padStart(2, '0')}${(lv.mods || []).length ? `<br>關卡詞綴：${lv.mods.map(m => `<b>${api.esc(data.weeklyMods[m].name)}</b>（${api.esc(data.weeklyMods[m].desc)}）`).join('、')}` : ''}${host && !unlocked(s.pveLevel, p) ? '<br><b class="warn-text">🔒 尚未解鎖：請先通關上一關</b>' : ''}</div>`;
     } else if (s.pveMode === 'endless') {
       html += `<div class="set-desc">無盡波次，每 5 波一隻 Boss。個人最佳：第 ${p.endless} 波。</div>`;
     } else {
@@ -70,19 +64,6 @@
     }
     html += '<div class="set-desc">打怪固定使用血量系統；每波結束可選強化卡、用零件購買補給。</div>';
     return html;
-  }
-
-  function skinRow() {
-    const p = progress(), cur = p.skin || 'default';
-    return Object.entries(SKINS).map(([k, v]) => {
-      const ok = skinUnlocked(k, p);
-      return `<button class="skin-chip ${k === cur ? 'sel' : ''} skin-${k}" data-skin="${k}" ${ok ? '' : 'disabled'} title="${ok ? v.name : '解鎖條件：' + v.req}">${ok ? v.name : '🔒 ' + v.name}</button>`;
-    }).join('');
-  }
-  function chooseSkin(k) {
-    if (!skinUnlocked(k)) return api.toast(`解鎖條件：${SKINS[k].req}`);
-    const p = progress(); p.skin = k; saveProgress(p);
-    api.send({ t: 'skin', skin: k });
   }
 
   // ---------- 對戰中 ----------
@@ -245,8 +226,7 @@
     } else if (tab === 'ach') {
       const n = ACH.filter(([k]) => p.ach[k]).length;
       el.innerHTML = `<div class="muted small-text">已達成 ${n} / ${ACH.length}</div><ul class="achs">${ACH.map(([k, name, desc]) =>
-        `<li class="${p.ach[k] ? 'done' : ''}"><span>${p.ach[k] ? '🏅' : '🔒'}</span><div><b>${api.esc(name)}</b><small>${api.esc(desc)}</small></div></li>`).join('')}</ul>
-        <h4>塗裝</h4><div class="skins">${Object.entries(SKINS).map(([k, v]) => `<span class="${skinUnlocked(k, p) ? 'done' : ''}">${skinUnlocked(k, p) ? '🎨' : '🔒'} ${api.esc(v.name)}${v.req ? `<small>${api.esc(v.req)}</small>` : ''}</span>`).join('')}</div>`;
+        `<li class="${p.ach[k] ? 'done' : ''}"><span>${p.ach[k] ? '🏅' : '🔒'}</span><div><b>${api.esc(name)}</b><small>${api.esc(desc)}</small></div></li>`).join('')}</ul>`;
     } else if (tab === 'progress') {
       el.innerHTML = `<table class="prog"><tr><th>關卡</th>${Object.values(data.difficulty).map(d => `<th class="num">${d.name}</th>`).join('')}</tr>${Object.entries(data.levels).map(([k, v]) =>
         `<tr><td>${k} ${api.esc(v.name)}</td>${Object.keys(data.difficulty).map(d => { const s = (p.stars[k] || {})[d] || 0; return `<td class="num stars">${'★'.repeat(s)}<span>${'☆'.repeat(3 - s)}</span></td>`; }).join('')}</tr>`).join('')}</table>
@@ -285,5 +265,5 @@
     });
   }
 
-  window.PveUI = { init, lobbyRows, skinRow, chooseSkin, onRoundStart, onObjEvent, hud, frame, resultHtml, openHub, progress, data: () => data, SKINS };
+  window.PveUI = { init, lobbyRows, unlocked, onRoundStart, onObjEvent, hud, frame, resultHtml, openHub, progress, data: () => data };
 })();

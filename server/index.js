@@ -82,6 +82,13 @@ const server = http.createServer((req, res) => {
     }).catch(e => json(res, 500, { error: e.message }));
     return;
   }
+  // 公開大廳：所有房間都公開，任何人都能進
+  if (url.pathname === '/api/rooms' && req.method === 'GET') {
+    const list = [...rooms.values()].filter(r => r.kind === 'normal' && r.humans().some(p => p.connected)).map(r => r.summary());
+    list.sort((a, b) => (a.state === 'lobby' ? 0 : 1) - (b.state === 'lobby' ? 0 : 1) || b.humans - a.humans);
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    return res.end(JSON.stringify({ rooms: list.slice(0, 50), online: list.reduce((a, r) => a + r.humans, 0) }));
+  }
   if (url.pathname === '/api/pve/board' && req.method === 'GET') {
     const board = url.searchParams.get('board') === 'weekly' ? 'weekly' : 'endless';
     pveBoard.top(board).then(data => json(res, 200, { ...data, weekly: weeklySpec() })).catch(e => json(res, 500, { error: e.message }));
@@ -98,7 +105,7 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=300' });
     return res.end(JSON.stringify({
       monsters: D.MONSTERS, bosses: D.BOSSES, affixes: D.AFFIXES, cards: D.CARDS, shop: D.SHOP, difficulty: D.DIFFICULTY,
-      levels: Object.fromEntries(Object.entries(D.LEVELS).map(([k, v]) => [k, { chapter: v.chapter, name: v.name, story: v.story, objective: v.objective, boss: v.boss || null, par: v.par }])),
+      levels: Object.fromEntries(Object.entries(D.LEVELS).map(([k, v]) => [k, { chapter: v.chapter, name: v.name, story: v.story, objective: v.objective, boss: v.boss || null, par: v.par, mods: v.mods || [] }])),
       weeklyMods: D.WEEKLY_MODS, kinds: D.MONSTER_KINDS, weekly: weeklySpec(),
     }));
   }
@@ -180,6 +187,7 @@ wss.on('connection', (ws) => {
       } else return;
       send(ws, { t: 'joined', code: room.code, id: player.id, token: player.token, name: player.name, ...CLIENT_INFO });
       room.sendRoom();
+      if (msg.t === 'join') room.catchUp(player);         // 進行中的房間：先觀戰
       if (room.kind === 'tutorial') room.startRound();   // 教學直接開始
       return;
     }

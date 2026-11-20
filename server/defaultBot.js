@@ -40,6 +40,16 @@ function pickGoal(view) {
   var me = view.me, o = view.objective || {};
   if (o.type === 'koth') return { x: o.x, y: o.y };
   if (o.type === 'escort') return o.cart;
+  if (o.type === 'soccer') return o.ball;                                  // 足球：撞球就好
+  if (o.type === 'siege' && o.attacking && o.core.alive) return o.core;
+  if (o.type === 'crystals') {
+    if (o.carrying >= 3 || (o.carrying > 0 && !o.crystals.length)) return o.home;
+    if (o.crystals.length) return o.crystals[0];
+  }
+  if (o.type === 'tag') {
+    var it = view.enemies.filter(function (e) { return e.id === o.it; })[0];
+    if (!o.iAmIt && it) return { x: me.x * 2 - it.x, y: me.y * 2 - it.y };   // 遠離鬼
+  }
   if (o.type === 'ctf') {
     var home = null, enemyFlag = null;
     o.flags.forEach(function (f) { if (f.ally) home = f; else if (!f.carrier) enemyFlag = f; });
