@@ -756,7 +756,8 @@ module.exports = function install(Round) {
     }
     if (best === null) return;
     const diff = ((best - b.angle + 540) % 360) - 180;
-    b.angle = (b.angle + Math.max(-4, Math.min(4, diff)) + 360) % 360;
+    const turn = typeof b.homing === 'number' ? b.homing : 4;   // 工兵導引釘轉得比較慢
+    b.angle = (b.angle + Math.max(-turn, Math.min(turn, diff)) + 360) % 360;
     [b.vx, b.vy] = Physics.vec(b.angle);
     b.dir = Physics.dirOf(b.angle);
   };

@@ -102,6 +102,10 @@ P  傳送門：可以通過，成對出現（通常是彼此點對稱的位置�
 ## 玩家與電腦的職業差異
 - 玩家坦克（isBot 為 false）的職業較強：血量 ×${C.PLAYER_EDGE.hp}、傷害 ×${C.PLAYER_EDGE.damage}、開火冷卻 ×${C.PLAYER_EDGE.cooldown}（rules.playerEdge）。
 - 電腦坦克有職業時，狙擊另外削弱：傷害 ×${C.BOT_CLASS_EDGE.sniper.damage}、彈速 ×${C.BOT_CLASS_EDGE.sniper.bulletSpeed}、冷卻 ×${C.BOT_CLASS_EDGE.sniper.cooldown}（rules.botClassEdge）。
+- 玩家坦克另外有職業套件（電腦坦克沒有，維持下方的原本職業；rules.playerPerks）：專屬子彈、強化版技能（取代原本的技能）、被動專長。
+${Object.entries(C.PLAYER_PERKS).map(([k, v]) => `  ${k.padEnd(8)} 子彈「${v.bullet.name}」：${v.bullet.desc}\n           技能 ${v.skill.key}「${v.skill.name}」（冷卻 ${v.skill.cd} 秒）：${v.skill.desc}\n           專長「${v.name}」：${v.desc}`).join('\n')}
+  你的代碼操控玩家坦克（AI 駕駛）時，me.skill 會是上面的技能 key。
+  對手是玩家時要注意：重裝玩家的車頭正面每 ${C.PERK.plateTicks / C.TICK_RATE} 秒能擋下一發子彈（從側面或後面打就不會被擋）；偵察玩家的子彈會在磚牆反彈；工兵玩家的砲塔不在 enemies 裡。
 - 下方職業表是原始數值；rules.classes 也是原始數值，實際數值請乘上以上倍率。
 
 ## 職業（速度：格/秒，冷卻：tick）

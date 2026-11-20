@@ -519,6 +519,7 @@ body.room-practice #shareBtn { display: none; }
 
 /* 血量系統 */
 .cls-card small.trait { color: #ffb4a8; }
+.cls-card small.perk { color: #9fe0ff; }
 .hpchip { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 54px; height: 16px; margin-right: 6px;
   border-radius: 8px; background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.25); overflow: hidden; vertical-align: middle; }
 .hpchip i { position: absolute; left: 0; top: 0; bottom: 0; background: #3fbf5f; transition: width .15s; }

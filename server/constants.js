@@ -126,6 +126,34 @@ const C = module.exports = {
   // 玩家與電腦的職業分開：玩家坦克明顯較強；電腦的狙擊太強，額外削弱
   PLAYER_EDGE: { hp: 1.3, damage: 1.15, cooldown: 0.9 },
   BOT_CLASS_EDGE: { sniper: { damage: 0.6, bulletSpeed: 0.8, cooldown: 1.2 } },
+  // 玩家職業套件：只有玩家坦克有（電腦坦克維持原本的職業）
+  //   desc 被動專長、bullet 專屬子彈、skill 強化版技能（取代原本的技能）
+  PLAYER_PERKS: {
+    assault: { name: '腎上腺素', icon: '💢', desc: '擊殺後 3 秒開火冷卻 ×0.6',
+      bullet: { name: '雙管', desc: '一次射出兩發平行子彈（算一發的額度），每發傷害 ×0.55，同一組打中只算一次連擊（經典模式：打中同一台只算一發）' },
+      skill: { key: 'ram', name: '突擊衝撞', icon: '⏩', cd: 6, desc: '0.6 秒內移速 ×2.5，撞到的敵人受到 30 傷害並被擊退（經典模式：扣 1 點耐久）' } },
+    heavy: { name: '前裝甲', icon: '🛡️', desc: '車頭正面 ±50° 飛來的子彈，每 4 秒可完全擋下一發',
+      bullet: { name: '重砲彈', desc: '大口徑砲彈：傷害 ×1.2，命中時把目標擊退 0.6 格' },
+      skill: { key: 'bigwall', name: '堡壘牆', icon: '🧱', cd: 12, desc: '前方生成 5 格鋼牆，持續 7 秒' } },
+    scout: { name: '打帶跑', icon: '💨', desc: '子彈命中敵人後加速 1.5 秒',
+      bullet: { name: '跳彈', desc: '子彈碰到牆（含磚牆）會反彈，最多 2 次' },
+      skill: { key: 'ghost', name: '幻影煙霧', icon: '🌫️', cd: 12, desc: '施放煙霧 5 秒，並隱形 2 秒' } },
+    sniper: { name: '屏息', icon: '🎯', desc: '靜止 0.6 秒後，下一發彈速 ×1.4、傷害 ×1.25（經典模式改為多貫穿 1 台）',
+      bullet: { name: '穿甲彈', desc: '每發都能貫穿 1 台坦克' },
+      skill: { key: 'mark', name: '標記射擊', icon: '🔴', cd: 8, desc: '5 秒內下一發蓄力（彈速 ×1.8、不被抵消、再貫穿 1 台），命中的敵人被標記 5 秒，受到的所有傷害 +25%' } },
+    demo: { name: '高爆', icon: '💥', desc: '爆炸範圍 ×1.35，炸牆範圍擴大成十字 5 格',
+      bullet: { name: '集束彈', desc: '爆炸後向四個斜角噴出破片（短距離，傷害 ×0.4）' },
+      skill: { key: 'minefield', name: '雷區', icon: '🧨', cd: 8, desc: '一次在周圍放 3 顆地雷，0.5 秒後啟動；最多 6 顆' } },
+    engineer: { name: '修復', icon: '🧱', desc: '3 格內受損的加固牆（基地圍牆、城牆）每 2 秒修復 1 點',
+      bullet: { name: '導引釘', desc: '子彈會緩慢轉向前方 4 格內的敵人' },
+      skill: { key: 'turret', name: '部署砲塔', icon: '🗼', cd: 18, desc: '在前方部署自動砲塔 6 秒，射擊 6 格內看得到的敵人（每發 14 傷害）；在自家基地旁使用時改為修補並加固圍牆' } },
+    nurse: { name: '大範圍光環', icon: '✚', desc: '治療光環範圍 +1 格',
+      bullet: { name: '治療彈', desc: '子彈穿過隊友時治療 8% 血量（經典模式回 1 點耐久）' },
+      skill: { key: 'sanctuary', name: '聖域', icon: '💉', cd: 10, desc: '治療自身與 3 格內隊友 40% 血量，並給 1.5 秒護盾' } },
+  },
+  PERK: { frenzyTicks: 90, frenzyCd: 0.6, plateTicks: 120, plateArc: 50, scoutRush: 45, steadyTicks: 18, steadySpeed: 1.4, steadyDmg: 1.25, demoBlast: 1.35, engRepairTicks: 60, nurseHeal: 0.08,
+    twinDmg: 0.55, shellDmg: 1.2, twinGap: 0.17, shellSpeed: 1, knockback: 0.6, scoutBounces: 2, shardDmg: 0.4, shardTicks: 7, markTicks: 150, markDmg: 1.25,
+    ramDmg: 30, ramTicks: 18, turretTicks: 180, turretRange: 6, turretHp: 50, turretHits: 1, turretDmg: 14, turretCooldown: 36, homingTurn: 2 },
 
   // 規格版本：每次規格有新東西就 +1，並在 CHANGELOG 最前面加一行（玩家拿舊代碼給 AI 改時，AI 才知道要補什麼）
   SPEC_VERSION: 7,

@@ -90,7 +90,8 @@ console.log('ALL OK');
   t.x = 5.5; t.y = 5.5; t.dir = 'upright'; t.angle = 45; t.cooldown = 0;
   r.setInput('p0', { move: null, fire: true });
   r.step();
-  const b = r.bullets.find(b => b.owner === t.id);
+  const bs = r.bullets.filter(b => b.owner === t.id);   // 玩家突擊是雙管：取兩發的中心
+  const b = bs.length ? { x: bs.reduce((a, q) => a + q.x, 0) / bs.length, y: bs.reduce((a, q) => a + q.y, 0) / bs.length } : null;
   assert(b && b.x > 5.5 && b.y < 5.5 && Math.abs((b.x - 5.5) - (5.5 - b.y)) < 1e-6, 'diagonal bullet');
   console.log('8-direction movement OK');
   r.dispose();
@@ -153,7 +154,7 @@ console.log('ALL OK');
   const C = require('../server/constants');
   const idx = k => C.ITEM_TYPES.findIndex(t => t.key === k);
   const mk = (extra = {}) => {
-    const sides = [0, 1].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: 'function think(){return null}' }] }));
+    const sides = [0, 1].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: 'function think(){return null}', cls: 'nurse' }] }));   // 護士：子彈沒有特殊效果（只會治療隊友），方便測道具
     const r = new Round({ mode: 'ffa', baseMode: true, timeLimit: 0, sides, size: 21, items: true, ...extra });
     for (const t of r.tanks) t.shield = 0;
     return r;
@@ -349,8 +350,8 @@ console.log('ALL OK');
 {
   const C = require('../server/constants');
   const sides = [
-    { key: 'a', name: 'A', color: '#fff', members: [{ playerId: 'p', name: 'P', code: 'function think(){return {move:"left", aim:-137.5, fire:true}}' }] },
-    { key: 'b', name: 'B', color: '#eee', members: [{ playerId: 'q', name: 'Q', code: 'function think(){return null}' }] },
+    { key: 'a', name: 'A', color: '#fff', members: [{ playerId: 'p', name: 'P', cls: 'nurse', code: 'function think(){return {move:"left", aim:-137.5, fire:true}}' }] },
+    { key: 'b', name: 'B', color: '#eee', members: [{ playerId: 'q', name: 'Q', cls: 'nurse', code: 'function think(){return null}' }] },
   ];
   const r = new Round({ mode: 'ffa', sides, countdown: 0 });
   r.tiles.fill('.');
@@ -384,7 +385,7 @@ console.log('ALL OK');
 {
   const { Round } = require('../server/game');
   const run = (lagged) => {
-    const sides = [0, 1].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: 'function think(){return null}' }] }));
+    const sides = [0, 1].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, cls: 'nurse', code: 'function think(){return null}' }] }));
     const r = new Round({ mode: 'ffa', baseMode: false, timeLimit: 0, sides, size: 21 });
     r.startTicks = 0; r.tiles.fill('.');
     const me = r.tanks[0], foe = r.tanks[2];
@@ -434,13 +435,13 @@ console.log('ALL OK');
     const normal = me.stats.speed / 30 * 10;
     assert(me.x - 5.5 > normal * 2, 'dash moves faster: ' + (me.x - 5.5) + ' vs ' + normal);
     assert(me.skillCd > 0, 'cooldown started'); r.dispose(); }
-  // 護盾牆：前方 3 格變鋼牆，5 秒後恢復
+  // 玩家重裝「堡壘牆」：前方 5 格變鋼牆，7 秒後恢復
   { const { r, me } = mk('heavy'); me.x = 10.5; me.y = 14.5; me.angle = 0;
     r.setInput('p0', { skill: true }); r.step(); r.setInput('p0', {});
-    const row = () => [9, 10, 11].map(x => r.tiles[13 * r.size + x]).join('');
-    assert.strictEqual(row(), '@@@', 'shield wall up');
-    for (let i = 0; i < 5 * 30 + 2; i++) r.step();
-    assert.strictEqual(row(), '...', 'shield wall gone'); r.dispose(); }
+    const row = () => [8, 9, 10, 11, 12].map(x => r.tiles[13 * r.size + x]).join('');
+    assert.strictEqual(row(), '@@@@@', 'shield wall up');
+    for (let i = 0; i < 7 * 30 + 2; i++) r.step();
+    assert.strictEqual(row(), '.....', 'shield wall gone'); r.dispose(); }
   // 煙霧：敵方電腦看不到煙霧裡的坦克
   { const { r, me, foe } = mk('scout'); me.x = 10.5; me.y = 14.5;
     r.setInput('p0', { skill: true }); r.step();
@@ -455,15 +456,19 @@ console.log('ALL OK');
   // 地雷：敵人踩到就爆炸
   { const { r, me, foe } = mk('demo'); me.x = 6.5; me.y = 14.5;
     r.setInput('p0', { skill: true }); r.step(); r.setInput('p0', {});
-    assert.strictEqual(r.mines.length, 1);
+    assert.strictEqual(r.mines.length, 3, 'player minefield drops 3');
     assert(!JSON.parse(r._viewFor(r.tanks[3])).mines.length, 'enemy cannot see mine');
     for (let i = 0; i < 35; i++) r.step();
-    me.x = 2.5; foe.x = 6.5; foe.y = 14.5; foe.lives = 9; r.step();
-    assert(foe.deaths === 1 && r.mines.length === 0, 'mine exploded'); r.dispose(); }
+    const mine0 = r.mines[0];
+    me.x = 2.5; foe.x = mine0.x; foe.y = mine0.y; foe.lives = 9; r.step();
+    assert(foe.deaths === 1 && r.mines.length < 3, 'mine exploded'); r.dispose(); }
   // 工兵：前方蓋牆；在基地旁修牆
   { const { r, me } = mk('engineer'); me.x = 10.5; me.y = 14.5; me.angle = 0;
     r.setInput('p0', { skill: true }); r.step(); r.setInput('p0', {});
-    assert.strictEqual(r.tiles[13 * r.size + 10], '#', 'built a brick');
+    const tu = r.tankById.get(me.turretId);
+    assert(tu && tu.alive && Math.abs(tu.x - 10.5) < 0.01 && Math.abs(tu.y - 13.5) < 0.01, 'player engineer deploys a turret');
+    for (let i = 0; i < C.PERK.turretTicks + 2; i++) r.step();
+    assert(!tu.alive, 'turret expires');
     const base = r.sides[0].base, idx = (base.y + 1) * r.size + base.x;
     r.tiles[idx] = '.'; r.wallHp.delete(idx);
     me.skillCd = 0; me.x = base.x + 0.5 + 2; me.y = base.y + 2.5;
@@ -930,4 +935,100 @@ console.log('ALL OK');
   const D = require('../server/pve/data');
   assert(Object.keys(D.LEVELS).length >= 15, 'more campaign levels');
   console.log('pve progression OK');
+}
+
+// 玩家職業專長：只有玩家坦克有，電腦沒有
+{
+  const { Round } = require('../server/game');
+  const C = require('../server/constants');
+  const idle = 'function think(){ return null; }';
+  const mk = (cls0, cls1, extra = {}) => {
+    const sides = [0, 1].map(i => ({ key: 's' + i, name: 'P' + i, color: '#fff', members: [{ playerId: 'p' + i, name: 'P' + i, code: idle, cls: i ? cls1 : cls0, botCls: i ? cls1 : cls0 }] }));
+    const r = new Round({ mode: 'ffa', baseMode: false, timeLimit: 0, sides, size: 21, hpSystem: true, botClasses: true, ...extra });
+    r.startTicks = 0;
+    for (const t of r.tanks) t.shield = 0;
+    const pl = i => r.tanks.find(t => t.side === 's' + i && !t.isBot), bot = i => r.tanks.find(t => t.side === 's' + i && t.isBot);
+    return { r, a: pl(0), b: pl(1), ab: bot(0), bb: bot(1) };
+  };
+  // 突擊：雙管（兩發平行、上限 ×2）；擊殺後冷卻縮短；電腦沒有
+  { const { r, a, ab, b } = mk('assault', 'scout');
+    a.cooldown = 0; a.aim = 90; r._fire(a);
+    const twins = r.bullets.filter(x => x.owner === a.id);
+    assert(twins.length === 2 && twins[0].pairId === twins[1].pairId && Math.abs(twins[0].y - twins[1].y) > 0.3, 'twin bullets');
+    assert.strictEqual(r._ownBullets(a), 1, 'twin pair uses one slot');
+    assert(twins[0].dmg < r._damageOf(a), 'twin damage reduced');
+    ab.cooldown = 0; r._fire(ab); assert.strictEqual(r.bullets.filter(x => x.owner === ab.id).length, 1, 'bot assault single');
+    r._damage(b, a, b.x, b.y, 'shot', 1e6);
+    assert(a.frenzyUntil > r.tick && r._perkReady(a));
+    a.cooldown = 0; r.bullets.length = 0; r._fire(a); assert(a.cooldown < a.stats.cooldown, 'frenzy cooldown');
+    // 突擊衝撞：撞到敵人造成傷害
+    const foe = ab === r.tanks[1] ? r.tanks[3] : r.tanks[1];
+    b.alive = true; b.hp = b.maxHp; b.x = a.x + 0.9; b.y = a.y; b.shield = 0;
+    a.skillCd = 0; assert(r._useSkill(a)); r._playerSkillsTick();
+    assert(b.hp < b.maxHp, 'ram damages'); void foe;
+    r.dispose(); }
+  // 重裝：正面擋一發、背面照打；重砲彈擊退；電腦重裝沒有
+  { const { r, a, b, bb } = mk('assault', 'heavy');
+    b.angle = 0;
+    const hp = b.hp;
+    r._lastHit = { vx: 0, vy: 1 };
+    r._damage(b, a, b.x, b.y, 'shot', 30);
+    assert.strictEqual(b.hp, hp, 'front plate blocks');
+    r._damage(b, a, b.x, b.y, 'shot', 30);
+    assert(b.hp < hp, 'plate on cooldown');
+    b.plateReadyAt = 0; const hp2 = b.hp;
+    r._lastHit = { vx: 0, vy: -1 };
+    r._damage(b, a, b.x, b.y, 'shot', 30);
+    assert(b.hp < hp2, 'rear not blocked');
+    bb.angle = 0; const hp3 = bb.hp; r._lastHit = { vx: 0, vy: 1 };
+    r._damage(bb, a, bb.x, bb.y, 'shot', 30);
+    assert(bb.hp < hp3, 'bot heavy has no plate');
+    r._lastHit = null;
+    r.tiles.fill('.'); const x0 = a.x;
+    r._bulletAfterHit({ knock: true, vx: 1, vy: 0 }, a);
+    assert(a.x > x0 + 0.4, 'knockback');
+    b.cooldown = 0; b.alive = true; r._fire(b); assert(r.bullets.some(x => x.owner === b.id && x.knock && x.pk === 2), 'heavy shell'); void bb;
+    r.dispose(); }
+  // 偵察：命中後加速；跳彈
+  { const { r, a, b } = mk('scout', 'assault');
+    r._lastHit = { vx: 1, vy: 0 }; r._damage(b, a, b.x, b.y, 'shot', 10); r._lastHit = null;
+    assert(a.speedBuff > 0, 'scout rush');
+    a.cooldown = 0; r._fire(a);
+    const bl = r.bullets.find(x => x.owner === a.id);
+    assert(bl.bounces >= 2 && bl.bounceAll, 'scout bounce'); r.dispose(); }
+  // 狙擊：穿甲彈；靜止後下一發較快；標記
+  { const { r, a, b } = mk('sniper', 'assault');
+    a.stillTicks = C.PERK.steadyTicks; a.cooldown = 0; a.aim = 90;
+    r._fire(a);
+    const bl = r.bullets[r.bullets.length - 1];
+    assert(bl.speed > a.stats.bulletSpeed * 1.3, 'steady speed'); assert.strictEqual(a.stillTicks, 0);
+    assert(bl.pierceTanks >= 1, 'armor piercing');
+    r._bulletAfterHit({ mark: true }, b);
+    const hp = b.hp; r._damage(b, null, b.x, b.y, 'shot', 20);
+    assert.strictEqual(hp - b.hp, Math.round(20 * C.PERK.markDmg), 'marked takes more');
+    r.dispose(); }
+  // 爆破：爆炸範圍較大、集束破片
+  { const { r, a, ab } = mk('demo', 'assault');
+    a.cooldown = 0; r._fire(a); ab.cooldown = 0; r._fire(ab);
+    const pb = r.bullets.find(x => x.owner === a.id), bb = r.bullets.find(x => x.owner === ab.id);
+    assert(pb.blastMul > 1 && bb.blastMul === 1 && pb.cluster && !bb.cluster);
+    const n = r.bullets.length; r._blast(pb, 10.5, 10.5, null);
+    assert.strictEqual(r.bullets.length, n + 4, 'cluster shards');
+    r.dispose(); }
+  // 護士：子彈穿過隊友時治療
+  { const { r, a, ab } = mk('nurse', 'assault');
+    ab.hp = 10;
+    r._healBullet({ owner: a.id, x: ab.x, y: ab.y, heal: true }, ab);
+    assert(ab.hp > 10, 'heal bullet'); r.dispose(); }
+  // 工兵：導引釘；部署砲塔（電腦工兵還是築牆）
+  { const { r, a, ab } = mk('engineer', 'assault');
+    a.cooldown = 0; r._fire(a); assert(r.bullets.find(x => x.owner === a.id).homing, 'homing nails');
+    a.angle = 90; ab.angle = 90;
+    a.x = 5.5; a.y = 5.5; ab.x = 5.5; ab.y = 9.5;
+    for (const [x, y] of [[6, 5], [6, 9]]) r.tiles[y * r.size + x] = '.';
+    assert(r._useSkill(a)); assert(r._useSkill(ab));
+    assert(r.tankById.get(a.turretId).alive, 'player turret');
+    assert.strictEqual(r.tiles[9 * r.size + 6], '#', 'bot builds wall');
+    r.dispose(); }
+  console.log('player perks OK');
 }

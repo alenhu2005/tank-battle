@@ -38,7 +38,7 @@ function readBody(req, limit) {
   });
 }
 const CLIENT_INFO = {
-  classes: C.CLASSES, botClass: C.BOT_CLASS, colors: C.FFA_COLORS, factionColors: C.FACTION_COLORS,
+  classes: C.CLASSES, perks: C.PLAYER_PERKS, botClass: C.BOT_CLASS, colors: C.FFA_COLORS, factionColors: C.FACTION_COLORS,
   teamCount: C.TEAM_COUNT, tickRate: C.TICK_RATE, itemTypes: C.ITEM_TYPES,
 };
 

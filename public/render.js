@@ -92,7 +92,7 @@
       }
       if (this.meta.pve) { this.draft = s.D || null; if (s.V) this.pveLive = s.V; }
       const bullets = new Map();
-      for (const a of s.B) bullets.set(a[0], { x: a[1] / 100, y: a[2] / 100, dir: a[3], kind: a[4] });
+      for (const a of s.B) bullets.set(a[0], { x: a[1] / 100, y: a[2] / 100, dir: a[3], kind: a[4], pk: a[5] || 0 });
       const last = this.buf[this.buf.length - 1];
       if (last && s.k <= last.k) return;
       // 最新狀態（不延遲）：給自己坦克的預測用
@@ -560,6 +560,7 @@
       // 子彈
       for (const [id, b] of A.bullets) {
         const [x, y] = pos(id, A.bullets, B.bullets);
+        if (b.pk && b.kind !== 3 && b.kind !== 4) { this._drawPerkBullet(ctx, x * tp, y * tp, b, tp, now); continue; }
         const r = (b.kind === 2 ? 0.15 : b.kind >= 3 ? 0.13 : 0.1) * tp;
         ctx.fillStyle = BULLET_COLORS[b.kind] || '#fff4b0';
         ctx.beginPath(); ctx.arc(x * tp, y * tp, Math.max(1.5, r), 0, 7); ctx.fill();
@@ -602,6 +603,20 @@
         if (t.buffs & 2048) {                     // 衝刺：殘影
           ctx.fillStyle = 'rgba(255,255,255,.18)';
           ctx.beginPath(); ctx.arc(x * tp, y * tp, tp * 0.6, 0, 7); ctx.fill();
+        }
+        if (t.buffs & 16384) {                    // 被狙擊標記
+          const s2 = tp * 0.62, k = 0.5 + 0.5 * Math.sin(now / 120);
+          ctx.strokeStyle = `rgba(255, 60, 60, ${0.6 + 0.3 * k})`; ctx.lineWidth = Math.max(1.5, tp * 0.06);
+          ctx.beginPath(); ctx.arc(x * tp, y * tp, s2, 0, 7); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(x * tp - s2 - tp * 0.15, y * tp); ctx.lineTo(x * tp - s2 + tp * 0.15, y * tp); ctx.moveTo(x * tp + s2 - tp * 0.15, y * tp); ctx.lineTo(x * tp + s2 + tp * 0.15, y * tp);
+          ctx.moveTo(x * tp, y * tp - s2 - tp * 0.15); ctx.lineTo(x * tp, y * tp - s2 + tp * 0.15); ctx.moveTo(x * tp, y * tp + s2 - tp * 0.15); ctx.lineTo(x * tp, y * tp + s2 + tp * 0.15); ctx.stroke();
+        }
+        if (t.buffs & 8192 && !m.isBot) {        // 玩家專長：重裝前裝甲就緒、狙擊屏息完成、突擊腎上腺素
+          ctx.save(); ctx.translate(x * tp, y * tp); ctx.lineWidth = Math.max(1.5, tp * 0.08);
+          if (m.cls === 'heavy') { ctx.rotate(((t.dir || 0) - 90) * Math.PI / 180); ctx.strokeStyle = 'rgba(160, 220, 255, .85)'; ctx.beginPath(); ctx.arc(0, 0, tp * 0.62, -0.87, 0.87); ctx.stroke(); }
+          else if (m.cls === 'sniper') { ctx.strokeStyle = 'rgba(255, 235, 120, .8)'; ctx.setLineDash([tp * 0.1, tp * 0.1]); ctx.beginPath(); ctx.arc(0, 0, tp * 0.58, 0, 7); ctx.stroke(); }
+          else if (m.cls === 'assault') { ctx.strokeStyle = `rgba(255, 90, 60, ${0.5 + 0.4 * Math.sin(now / 80)})`; ctx.beginPath(); ctx.arc(0, 0, tp * 0.58, 0, 7); ctx.stroke(); }
+          ctx.restore();
         }
         if (t.buffs & 4096) {                     // 狙擊蓄力中
           ctx.strokeStyle = `rgba(255, 235, 59, ${0.5 + 0.4 * Math.sin(now / 90)})`; ctx.lineWidth = Math.max(1.5, tp * 0.08);
@@ -934,6 +949,28 @@
       ctx.moveTo(x + tp * 0.37, y + tp * 0.18); ctx.lineTo(x + tp * 0.8, y + tp * 0.33); ctx.lineTo(x + tp * 0.37, y + tp * 0.5);
       ctx.fill();
       ctx.fillStyle = '#ddd'; ctx.fillRect(x + tp * 0.2, y + tp * 0.78, tp * 0.6, tp * 0.08);
+    }
+
+    // 玩家職業的專屬子彈：1 雙管、2 重砲彈、3 跳彈、4 穿甲彈、5 集束彈、6 導引釘、7 治療彈、8 破片
+    _drawPerkBullet(ctx, x, y, b, tp, now) {
+      const a = (b.dir || 0) * Math.PI / 180, ux = Math.sin(a), uy = -Math.cos(a);
+      const dot = (r, fill, stroke) => { ctx.fillStyle = fill; ctx.beginPath(); ctx.arc(x, y, Math.max(1.5, r * tp), 0, 7); ctx.fill(); if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = Math.max(1, tp * 0.04); ctx.stroke(); } };
+      const trail = (len, color, w) => { ctx.strokeStyle = color; ctx.lineWidth = Math.max(1, w * tp); ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - ux * len * tp, y - uy * len * tp); ctx.stroke(); ctx.lineCap = 'butt'; };
+      switch (b.pk) {
+        case 1: trail(0.3, 'rgba(255, 170, 60, .6)', 0.07); dot(0.08, '#ffc14d'); break;
+        case 2: trail(0.25, 'rgba(120, 120, 130, .5)', 0.16); dot(0.17, '#4a4f58', '#ff9f43'); dot(0.07, '#ffb36b'); break;
+        case 3: dot(0.15, 'rgba(90, 230, 255, .25)'); dot(0.09, '#6fe8ff', '#ffffff'); break;
+        case 4: trail(0.7, 'rgba(255, 255, 255, .75)', 0.05); dot(0.06, '#ffffff'); break;
+        case 5: dot(0.15, '#ff9f43', '#5a2a00'); dot(0.05, '#ffe0a0'); break;
+        case 6: {
+          ctx.save(); ctx.translate(x, y); ctx.rotate(a); ctx.fillStyle = '#c8ff5a'; ctx.strokeStyle = '#3e5a00'; ctx.lineWidth = Math.max(1, tp * 0.03);
+          ctx.beginPath(); ctx.moveTo(0, -0.16 * tp); ctx.lineTo(0.08 * tp, 0); ctx.lineTo(0, 0.1 * tp); ctx.lineTo(-0.08 * tp, 0); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+          break;
+        }
+        case 7: dot(0.11, '#5ee07a', '#e6ffe9'); ctx.fillStyle = '#fff'; ctx.fillRect(x - tp * 0.06, y - tp * 0.018, tp * 0.12, tp * 0.036); ctx.fillRect(x - tp * 0.018, y - tp * 0.06, tp * 0.036, tp * 0.12); break;
+        case 8: dot(0.05, '#ffb36b'); break;
+        default: dot(0.1, '#fff4b0');
+      }
     }
 
     // 攻城戰的城堡砲台

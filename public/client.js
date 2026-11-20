@@ -150,7 +150,7 @@
     switch (m.t) {
       case 'joined':
         me = { id: m.id, token: m.token, code: m.code };
-        info = { classes: m.classes, botClass: m.botClass, colors: m.colors, factionColors: m.factionColors, teamCount: m.teamCount, itemTypes: m.itemTypes || [] };
+        info = { classes: m.classes, perks: m.perks || {}, botClass: m.botClass, colors: m.colors, factionColors: m.factionColors, teamCount: m.teamCount, itemTypes: m.itemTypes || [] };
         store.set('session', { code: m.code, id: m.id, token: m.token, at: Date.now() });
         history.replaceState(null, '', '?room=' + m.code);
         break;
@@ -442,6 +442,7 @@
 
   // 職業選擇
   // field = 'cls'（自己的坦克）或 'botCls'（自己的電腦，房間開了「電腦也有職業」才有）
+  const skillLine = sk => sk ? `<small class="skill">${sk.icon} 技能「${sk.name}」：${sk.desc}（冷卻 ${sk.cd} 秒）</small>` : '';
   function renderClassPicker(sel, field = 'cls') {
     const el = $(sel); if (!el || !info) return;
     const mp = myPlayer();
@@ -462,7 +463,7 @@
     };
     el.innerHTML = Object.entries(info.classes).map(([k, c]) =>
       `<button class="cls-card ${mp && mp[field] === k ? 'sel' : ''}" data-cls="${k}" data-field="${field}">
-        <b>${c.name}</b>${bars(c)}<small>${c.desc}</small>${hpOn && c.hpTrait ? `<small class="trait">❤️ ${Math.round(c.hpFactor * ((field === 'botCls' ? room.settings.adv.botHp : room.settings.adv.playerHp) || 100))} 血・每發 ${c.damage}：${c.hpTrait}</small>` : ''}${c.skill ? `<small class="skill">${c.skill.icon} 技能「${c.skill.name}」：${c.skill.desc}（冷卻 ${c.skill.cd} 秒）</small>` : ''}</button>`).join('');
+        <b>${c.name}</b>${bars(c)}<small>${c.desc}</small>${hpOn && c.hpTrait ? `<small class="trait">❤️ ${Math.round(c.hpFactor * ((field === 'botCls' ? room.settings.adv.botHp : room.settings.adv.playerHp) || 100))} 血・每發 ${c.damage}：${c.hpTrait}</small>` : ''}${skillLine(field === 'cls' && info.perks[k] ? info.perks[k].skill : c.skill)}${field === 'cls' && info.perks[k] ? `<small class="perk">🔫 ${info.perks[k].bullet.name}：${info.perks[k].bullet.desc}</small><small class="perk">${info.perks[k].icon} ${info.perks[k].name}：${info.perks[k].desc}</small>` : ''}</button>`).join('');
   }
   document.addEventListener('click', e => {
     const card = e.target.closest('.cls-card');
@@ -1093,7 +1094,8 @@ ${sample.code}\`\`\`
       const botMeta = r.meta.tanks.find(t => t.owner === r.myTank.owner && t.isBot);
       const bot = botMeta ? r.lives.get(botMeta.id) : null;
       const buffs = r.myBuffs();
-      const BUFF_ICONS = [[1, '👟'], [2, '🔥'], [4, '💣'], [8, '👻'], [16, '👁️'], [32, '❄️'], [64, '😵'], [128, '🌀'], [256, '🔱'], [512, '🏀'], [1024, '💨']];
+      const perk = info.perks && info.perks[r.myTank.cls];
+      const BUFF_ICONS = [[1, '👟'], [2, '🔥'], [4, '💣'], [8, '👻'], [16, '👁️'], [32, '❄️'], [64, '😵'], [128, '🌀'], [256, '🔱'], [512, '🏀'], [1024, '💨'], [8192, perk ? perk.icon : '✨']];
       const buffIcons = BUFF_ICONS.filter(([bit]) => buffs & bit).map(([, ic]) => ic).join('');
       const maxL = r.myTank.maxLives;
       const hearts = maxL < 0 || !['survival', 'pve'].includes(r.meta.objective) ? '♥∞'
@@ -1256,7 +1258,7 @@ ${sample.code}\`\`\`
   });
   function skillHud() {
     const r = renderer;
-    const sk = r.myTank && info.classes[r.myTank.cls] && info.classes[r.myTank.cls].skill;
+    const sk = r.myTank && ((info.perks[r.myTank.cls] && info.perks[r.myTank.cls].skill) || (info.classes[r.myTank.cls] && info.classes[r.myTank.cls].skill));   // 玩家用強化版技能
     sb.classList.toggle('hidden', !sk || !roundMeta);
     if (!sk) return;
     sb.querySelector('.ic').textContent = sk.icon;
