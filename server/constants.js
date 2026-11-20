@@ -75,7 +75,7 @@ const C = module.exports = {
   // 遊戲目標（模式）
   OBJECTIVES: ['survival', 'koth', 'ctf', 'pve', 'escort'],
   CART_SPEED: 0.6,           // 護送：礦車每秒前進幾格（每多一台進攻坦克再快 25%）
-  CART_BACK_SPEED: 0.12,      // 只有防守方在旁邊時，礦車每秒往回退幾格
+  CART_BACK_SPEED: 0.3,       // 只有防守方在旁邊時，礦車每秒往回退幾格（每多一台防守坦克再快 25%）
   CART_RADIUS: 2,            // 礦車周圍多遠算「在旁邊」
   ESCORT_DEFAULT_TIME: 180,  // 護送模式沒設時間時的預設時間（秒）
   KOTH_RADIUS: 1.5,                 // 佔點區域：中心 ±1.5 格（3×3）

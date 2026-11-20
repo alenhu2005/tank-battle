@@ -93,7 +93,7 @@ module.exports = function install(Round) {
         if (t.side === c.attacker) att++; else def++;
       }
       if (att && !def) { c.i = Math.min(c.end, c.i + C.CART_SPEED * (1 + 0.25 * (att - 1)) / C.TICK_RATE); c.state = 'push'; }
-      else if (def && !att) { c.i = Math.max(c.start, c.i - C.CART_BACK_SPEED / C.TICK_RATE); c.state = 'back'; }
+      else if (def && !att) { c.i = Math.max(c.start, c.i - C.CART_BACK_SPEED * (1 + 0.25 * (def - 1)) / C.TICK_RATE); c.state = 'back'; }
       else c.state = att && def ? 'contested' : 'idle';
     }
   };
