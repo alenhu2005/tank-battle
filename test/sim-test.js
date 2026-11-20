@@ -758,3 +758,27 @@ console.log('ALL OK');
     const S = require('../server/samples'); assert(S.pve && S.pve.code.includes('hazards')); }
   console.log('pve overhaul OK');
 }
+
+// 搶旗：雙方互搶時，帶著敵旗回到自己的旗座照樣得分（不需要自己的旗子在家）
+{
+  const { Round } = require('../server/game');
+  const idle = 'function think(){ return null; }';
+  const sides = ['red', 'blue'].map(key => ({ key, name: key, color: '#fff', members: [{ playerId: key, name: key, code: idle, cls: 'assault' }] }));
+  const r = new Round({ mode: 'faction', objective: 'ctf', timeLimit: 0, sides });
+  r.startTicks = 0;
+  const red = r.tanks.find(t => t.side === 'red' && !t.isBot), blue = r.tanks.find(t => t.side === 'blue' && !t.isBot);
+  const fr = r.flags.find(f => f.side === 'red'), fb = r.flags.find(f => f.side === 'blue');
+  // 互搶
+  red.x = fb.x; red.y = fb.y; blue.x = fr.x; blue.y = fr.y;
+  r._updateObjective();
+  assert.strictEqual(red.carrying, 'blue'); assert.strictEqual(blue.carrying, 'red');
+  assert(!fr.atHome && !fb.atHome, 'both flags away');
+  // 紅方帶著藍旗回到自己的旗座：自己的旗子還在藍方手上也能得分
+  red.x = fr.home.x; red.y = fr.home.y;
+  r._updateObjective();
+  assert.strictEqual(r.objScore.red, 1, 'scores at own stand while own flag is stolen');
+  assert.strictEqual(red.carrying, null); assert(fb.atHome, 'enemy flag returns home');
+  assert.strictEqual(blue.carrying, 'red', 'own flag still carried by enemy');
+  r.dispose();
+  console.log('ctf stand capture OK');
+}

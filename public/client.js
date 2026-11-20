@@ -334,7 +334,7 @@
       <div class="set-row pvp-only"><span>模式</span>${seg('mode', [['ffa', '大亂鬥'], ['faction', '陣營戰'], ['team', '組隊']], s.mode)}</div>
       <div class="set-desc pvp-only">${{ ffa: '玩家與自己的電腦一隊，最後存活者獲勝', faction: '紅藍兩隊；點玩家列表的顏色換隊', team: '點玩家列表的「N隊」換隊，同號為隊友' }[s.mode]}</div>
       <div class="set-row"><span>目標</span>${seg('objective', [['survival', '生存'], ['koth', '佔點'], ['ctf', '搶旗'], ['escort', '護送'], ['pve', '打怪']], s.objective || 'survival')}</div>
-      <div class="set-desc">${{ survival: '最後存活的隊伍獲勝', koth: '佔領中央區域累計 45 秒獲勝；無限重生', ctf: '奪取敵旗帶回己方旗位 3 次獲勝；無限重生、無基地', escort: '進攻方將礦車推至終點，防守方守到時間結束；每局交換攻守，限兩隊', pve: '全員同隊對抗怪物：戰役 9 關、無盡、每週挑戰' }[s.objective || 'survival']}</div>
+      <div class="set-desc">${{ survival: '最後存活的隊伍獲勝', koth: '佔領中央區域累計 45 秒獲勝；無限重生', ctf: '奪取敵旗帶回己方旗座 3 次獲勝（己方旗子被搶也能得分）；無限重生、無基地', escort: '進攻方將礦車推至終點，防守方守到時間結束；每局交換攻守，限兩隊', pve: '全員同隊對抗怪物：戰役 9 關、無盡、每週挑戰' }[s.objective || 'survival']}</div>
       ${(s.objective || 'survival') === 'pve' ? window.PveUI.lobbyRows(s, host && room.state === 'lobby', seg) : ''}
       <div class="set-row"><span>純代碼對戰</span>${sw('codeOnly', s.codeOnly)}</div>
       <div class="set-desc">玩家不上場，每人派出一台電腦坦克</div>

@@ -56,22 +56,27 @@ module.exports = function install(Round) {
           if (c && c.alive) { f.x = c.x; f.y = c.y; }
         } else if (!f.atHome && --f.dropTimer <= 0) this._flagHome(f);
       }
+      const near = (t, x, y) => Math.abs(t.x - x) <= C.ITEM_PICKUP_RANGE && Math.abs(t.y - y) <= C.ITEM_PICKUP_RANGE;
       for (const t of this.tanks) {
         if (!t.alive) continue;
+        // 帶著敵旗回到自己的旗座就得分：不需要自己的旗子在家（避免雙方互搶後誰都得不了分）
+        if (t.carrying) {
+          const own = this.flags.find(x => x.side === t.side);
+          if (own && near(t, own.home.x, own.home.y)) {
+            const enemy = this.flags.find(x => x.side === t.carrying);
+            this.objScore[t.side]++;
+            t.captures++;
+            t.carrying = null;
+            this._flagHome(enemy);
+            this.events.push(['capture', t.x, t.y]);
+            this.objEvents.push(['capture', t.id, enemy.side]);
+          }
+        }
         for (const f of this.flags) {
           if (f.carrier) continue;
-          if (Math.abs(t.x - f.x) > C.ITEM_PICKUP_RANGE || Math.abs(t.y - f.y) > C.ITEM_PICKUP_RANGE) continue;
+          if (!near(t, f.x, f.y)) continue;
           if (f.side === t.side) {
             if (!f.atHome) this._flagHome(f);                    // 撿回自己掉落的旗子
-            else if (t.carrying) {                               // 帶著敵旗回到自己旗子旁：得分
-              const enemy = this.flags.find(x => x.side === t.carrying);
-              this.objScore[t.side]++;
-              t.captures++;
-              t.carrying = null;
-              this._flagHome(enemy);
-              this.events.push(['capture', t.x, t.y]);
-              this.objEvents.push(['capture', t.id, enemy.side]);
-            }
           } else if (!t.carrying) {                              // 搶走敵方旗子
             f.carrier = t.id; f.atHome = false;
             t.carrying = f.side;

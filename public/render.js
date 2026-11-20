@@ -462,6 +462,17 @@
         ctx.restore();
       }
       if (this.obj && this.obj.type === 'ctf') {
+        // 旗座：帶著敵旗回到這裡就得分（自己的旗子被搶走時也一樣）
+        for (const [side, , , , atHome] of this.obj.f) {
+          const sm = this.sideMeta.get(side);
+          if (!sm || !sm.anchor) continue;
+          const hx = (sm.anchor.x + 0.5) * tp, hy = (sm.anchor.y + 0.5) * tp;
+          ctx.save();
+          ctx.strokeStyle = sm.color; ctx.lineWidth = Math.max(1.5, tp * 0.07); ctx.globalAlpha = atHome ? 0.5 : 0.75 + 0.25 * Math.sin(now / 200);
+          ctx.setLineDash([tp * 0.18, tp * 0.12]);
+          ctx.beginPath(); ctx.arc(hx, hy, tp * 0.75, 0, 7); ctx.stroke();
+          ctx.restore();
+        }
         for (const [side, fx, fy, carrier, atHome] of this.obj.f) {
           const sm = this.sideMeta.get(side);
           let x = fx / 100, y = fy / 100;
